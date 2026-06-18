@@ -15,12 +15,26 @@ SESSION_STORE: dict[str, dict[str, Any]] = {}
 
 def _tool_call_to_dict(call: ToolCall | dict[str, Any]) -> dict[str, Any]:
     if isinstance(call, ToolCall):
-        return {
+        payload = {
             "tool": call.tool,
             "args": call.args,
-            "result": call.result,
+            "result": call.result.get("content") if isinstance(call.result, dict) else call.result,
             "status": call.status,
         }
+        if isinstance(call.result, dict):
+            if call.tool == "nl2sql_query":
+                payload["nl2sql"] = {
+                    "steps": call.result.get("steps", []),
+                    "sql": call.result.get("sql", ""),
+                    "table_name": call.result.get("table_name", ""),
+                    "assumptions": call.result.get("assumptions", []),
+                    "selected_schema_id": call.result.get("selected_schema_id"),
+                    "selected_database": call.result.get("selected_database"),
+                }
+            if call.tool == "select_database":
+                payload["selected_database"] = call.result.get("selected_database")
+                payload["selected_schema_id"] = call.result.get("selected_schema_id")
+        return payload
     return call
 
 
@@ -55,6 +69,7 @@ def build_initial_state(session_id: str, message: str) -> AgentState:
         "needs_confirmation": False,
         "pending_action": None,
         "confirmed_action": pending_action if confirmed else None,
+        "pending_nl2sql": session.get("pending_nl2sql"),
     }
     if cancelled:
         SESSION_STORE[session_id] = {**session, "pending_action": None, "needs_confirmation": False}
@@ -79,6 +94,7 @@ def save_session(final_state: AgentState) -> None:
         "selected_database": final_state.get("selected_database", previous.get("selected_database")),
         "table_schemas": final_state.get("table_schemas", previous.get("table_schemas", {})),
         "pending_action": final_state.get("pending_action") if final_state.get("needs_confirmation") else None,
+        "pending_nl2sql": final_state.get("pending_nl2sql"),
         "needs_confirmation": final_state.get("needs_confirmation", False),
     }
 

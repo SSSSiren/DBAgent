@@ -16,6 +16,27 @@ def quote_identifier(identifier: str) -> str:
     return f"`{identifier}`"
 
 
+def sanitize_database_item(item: dict) -> dict:
+    """Keep only fields useful for agent planning and user display."""
+
+    return {
+        "schemaId": item.get("schemaId"),
+        "schemaName": item.get("schemaName"),
+        "instanceName": item.get("instanceName"),
+        "instanceHost": item.get("instanceHost"),
+        "instancePort": item.get("instancePort"),
+        "envType": item.get("envType"),
+        "mainBody": item.get("mainBody"),
+        "regionId": item.get("regionId"),
+        "dataSource": item.get("dataSource"),
+        "ownerPriv": item.get("ownerPriv"),
+        "selectPriv": item.get("selectPriv"),
+        "exportPriv": item.get("exportPriv"),
+        "changePriv": item.get("changePriv"),
+        "logic": item.get("logic"),
+    }
+
+
 @tool
 async def list_databases(keyword: str = "", env_type: str = "test") -> str:
     """List database schemas available to the current OneDBA token."""
@@ -24,7 +45,8 @@ async def list_databases(keyword: str = "", env_type: str = "test") -> str:
         databases = await onedba_client.list_databases(keyword=keyword, env_type=env_type)
     except Exception as exc:
         return f"查询失败：{exc}"
-    return json.dumps(databases, ensure_ascii=False)
+    sanitized = [sanitize_database_item(item) for item in databases]
+    return json.dumps(sanitized, ensure_ascii=False)
 
 
 @tool

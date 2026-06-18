@@ -1,5 +1,7 @@
 import uvicorn
 from fastapi import FastAPI
+from fastapi.responses import FileResponse
+from fastapi.staticfiles import StaticFiles
 from fastapi.middleware.cors import CORSMiddleware
 
 from app.api.routes import router
@@ -21,10 +23,15 @@ def create_app() -> FastAPI:
         allow_headers=["*"],
     )
     app.include_router(router, prefix="/api")
+    app.mount("/static", StaticFiles(directory="app/static"), name="static")
 
     @app.get("/health")
     async def health() -> dict[str, str]:
         return {"status": "ok"}
+
+    @app.get("/")
+    async def index() -> FileResponse:
+        return FileResponse("app/static/index.html")
 
     return app
 

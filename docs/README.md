@@ -9,6 +9,8 @@
 | [01-requirements.md](./01-requirements.md) | 产品需求文档 | ✅ 完成 |
 | [02-architecture.md](./02-architecture.md) | 架构设计文档 | ✅ 完成 |
 | [03-testing.md](./03-testing.md) | 测试说明文档 | ✅ 完成 |
+| [04-nl2sql-workflow.md](./04-nl2sql-workflow.md) | NL2SQL 工作流设计问答 | ✅ 完成 |
+| [05-follow-up-memory.md](./05-follow-up-memory.md) | 追问能力与上下文记忆设计 | ✅ 初版完成 |
 
 ## 📋 文档概要
 
@@ -53,12 +55,30 @@
 - 当前测试边界和后续集成测试建议
 - 本地服务 smoke test 命令
 
+### 04-nl2sql-workflow.md - NL2SQL 工作流设计问答
+
+包含内容：
+- 为什么要从直接工具规划升级为 NL2SQL 专用流程
+- 数据库、表、字段解析策略
+- 生成 SQL 前必须获取真实表结构的约束
+- SQL 校验、修复、澄清和输出策略
+- 第一阶段实现范围和成功标准
+
+### 05-follow-up-memory.md - 追问能力与上下文记忆设计
+
+包含内容：
+- 当前追问能力的边界和问题
+- `last_nl2sql_task` 结构化记忆设计
+- 追问分类、patch 规则和 SQL 再生成策略
+- 结果驱动追问、澄清策略和测试计划
+- 分阶段实现方案和待确认问题
+
 ## 🚀 下一步
 
-1. 确认设计文档是否符合预期
-2. 开始实现代码（按照 Phase 1-5 的开发计划）
-3. 创建项目基础结构
-4. 实现核心模块
+1. 确认 `05-follow-up-memory.md` 中的待确认问题
+2. 实现 `last_nl2sql_task` 结构化记忆
+3. 实现确定性追问 patch
+4. 增加追问能力单元测试和真实 smoke test
 
 ## 📞 联系方式
 

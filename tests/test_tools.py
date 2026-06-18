@@ -1,4 +1,5 @@
 from app.tools.formatters import format_as_markdown_table
+from app.tools.db_explorer import sanitize_database_item
 from app.tools.sql_executor import needs_confirmation, security_check
 
 
@@ -34,3 +35,19 @@ def test_needs_confirmation_for_write_sql():
     assert needs_confirmation(" delete from users")
     assert needs_confirmation("insert into users values (1)")
     assert not needs_confirmation("select * from users")
+
+
+def test_sanitize_database_item_removes_user_details():
+    sanitized = sanitize_database_item(
+        {
+            "schemaId": 1,
+            "schemaName": "dw",
+            "instanceName": "inst",
+            "ownerUsers": [{"email": "owner@example.com"}],
+            "dbaUsers": [{"avatar": "https://example.test/avatar.png"}],
+        }
+    )
+
+    assert sanitized["schemaId"] == 1
+    assert "ownerUsers" not in sanitized
+    assert "dbaUsers" not in sanitized

@@ -34,6 +34,20 @@ python -m app.main
 curl http://localhost:8000/health
 ```
 
+前端界面：
+
+```text
+http://localhost:8000/
+```
+
+页面支持会话 ID、新建会话、快捷问题、SSE 流式响应、工具步骤展示和写操作确认。
+NL2SQL 查询会展示内部子步骤、生成 SQL、假设与限制；查询成功后会把选中的数据库保存到当前 session，后续问题可以复用该数据库上下文。
+也可以先输入 `使用 dw-onedba-t1` 显式选择数据库。
+
+## NL2SQL 查询路径
+
+查询类问题会优先进入 NL2SQL 工作流：定位数据库、解析表名、获取真实表结构、基于 schema 生成 SQL、校验 SQL 后执行。设计说明见 [docs/04-nl2sql-workflow.md](./docs/04-nl2sql-workflow.md)。
+
 ## API
 
 SSE 对话：

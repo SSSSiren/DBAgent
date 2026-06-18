@@ -8,7 +8,7 @@ class ToolCall:
 
     tool: str
     args: dict[str, Any]
-    result: Optional[str] = None
+    result: Optional[Any] = None
     status: str = "pending"
 
 
@@ -28,3 +28,4 @@ class AgentState(TypedDict, total=False):
     needs_confirmation: bool
     pending_action: Optional[dict[str, Any]]
     confirmed_action: Optional[dict[str, Any]]
+    pending_nl2sql: Optional[dict[str, Any]]
