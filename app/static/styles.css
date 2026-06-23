@@ -183,6 +183,39 @@ textarea:focus {
   min-height: 42px;
 }
 
+.sql-panel {
+  display: grid;
+  gap: 10px;
+}
+
+.sql-box {
+  min-height: 150px;
+  max-height: 260px;
+  resize: vertical;
+  white-space: pre;
+  overflow: auto;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace;
+  font-size: 12px;
+  line-height: 1.45;
+  background: #142326;
+  color: #e8f4f2;
+}
+
+.sql-box::placeholder {
+  color: #9fb2b3;
+}
+
+.sql-actions {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.sql-actions .status-line {
+  margin-top: 0;
+  min-width: 72px;
+}
+
 .step {
   display: flex;
   justify-content: space-between;

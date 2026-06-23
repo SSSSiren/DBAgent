@@ -2,17 +2,20 @@
 
 本目录包含 DBAgent 项目的完整设计文档。
 
-## 📚 文档列表
+## 文档列表
 
 | 文档 | 说明 | 状态 |
 |---|---|---|
-| [01-requirements.md](./01-requirements.md) | 产品需求文档 | ✅ 完成 |
-| [02-architecture.md](./02-architecture.md) | 架构设计文档 | ✅ 完成 |
-| [03-testing.md](./03-testing.md) | 测试说明文档 | ✅ 完成 |
-| [04-nl2sql-workflow.md](./04-nl2sql-workflow.md) | NL2SQL 工作流设计问答 | ✅ 完成 |
-| [05-follow-up-memory.md](./05-follow-up-memory.md) | 追问能力与上下文记忆设计 | ✅ 初版完成 |
+| [01-requirements.md](./01-requirements.md) | 产品需求文档 | 已完成 |
+| [02-architecture.md](./02-architecture.md) | 架构设计文档 | 已完成 |
+| [03-testing.md](./03-testing.md) | 测试说明文档 | 已完成 |
+| [04-nl2sql-workflow.md](./04-nl2sql-workflow.md) | 当前 NL2SQL 工作流设计 | 已部分实现 |
+| [05-sql-agent-design.md](./05-sql-agent-design.md) | 面向 SQL 编写提效的新 Agent 设计 | 新增设计 |
+| [06-mysql-sandbox-benchmark.md](./06-mysql-sandbox-benchmark.md) | MySQL sandbox benchmark 使用说明 | 已实现 |
+| [07-follow-up-memory.md](./07-follow-up-memory.md) | 追问能力与上下文记忆设计 | V1 最小闭环已实现 |
+| [08-intent-recognition-improvement.md](./08-intent-recognition-improvement.md) | NL2SQL 意图识别改进方案 | 规划中，未实现 |
 
-## 📋 文档概要
+## 文档概要
 
 ### 01-requirements.md - 产品需求文档
 
@@ -64,22 +67,53 @@
 - SQL 校验、修复、澄清和输出策略
 - 第一阶段实现范围和成功标准
 
-### 05-follow-up-memory.md - 追问能力与上下文记忆设计
+### 05-sql-agent-design.md - SQL Agent 设计方案
 
 包含内容：
-- 当前追问能力的边界和问题
-- `last_nl2sql_task` 结构化记忆设计
-- 追问分类、patch 规则和 SQL 再生成策略
-- 结果驱动追问、澄清策略和测试计划
-- 分阶段实现方案和待确认问题
+- SQL 编写提效场景特点
+- Agent 范式和推荐开源底座
+- 目标架构、核心工作流和工具接口
+- 通用规则、业务配置和 benchmark 特制规则的边界
+- 基于当前 benchmark 结果的分阶段落地计划
 
-## 🚀 下一步
+### 06-mysql-sandbox-benchmark.md - MySQL Sandbox Benchmark
 
-1. 确认 `05-follow-up-memory.md` 中的待确认问题
-2. 实现 `last_nl2sql_task` 结构化记忆
-3. 实现确定性追问 patch
-4. 增加追问能力单元测试和真实 smoke test
+包含内容：
+- MySQL sandbox schema、seed、case 文件说明
+- `generate_predictions.py` 生成预测文件
+- `run_mysql_sandbox_benchmark.py` 静态和执行评测
+- 当前指标定义和扩展建议
 
-## 📞 联系方式
+### 07-follow-up-memory.md - 追问能力与上下文记忆设计
+
+状态：V1 最小闭环已实现。
+
+包含内容：
+- 当前已实现的 `show_sql`、`change_limit`、`change_time_range` 追问闭环
+- `last_nl2sql_task`、`last_validated_sql`、`last_result_summary` 等结构化记忆
+- 追问分类、结构化 patch、SQL 再生成和 validator 约束
+- API/UI 最新 SQL 展示与复制能力
+- 后续 `add_filter`、`add_group_by`、`drill_down`、任务版本栈和长期记忆规划
+
+### 08-intent-recognition-improvement.md - NL2SQL 意图识别改进方案
+
+状态：规划中，未实现。
+
+包含内容：
+- 当前规则解析的边界和升级目标
+- 规则解析、LLM 结构化解析、schema 校验的三层架构
+- Intent Schema、query pattern 和字段置信度设计
+- 模块拆分、合并策略和回归样本集方案
+- 分阶段实现计划和待确认问题
+
+## 下一步
+
+1. 基于 `05-sql-agent-design.md` 增强 SQL generator prompt 和 MySQL 方言约束。
+2. 增加字段样例值检索，优先解决枚举值幻觉。
+3. 建立轻量业务语义层，配置有效订单、GMV、支付成功、退款成功等规则。
+4. 增强 benchmark 失败归因，区分真实错误和 evaluator 过严。
+5. 后续再实现 `07-follow-up-memory.md` 和 `08-intent-recognition-improvement.md`。
+
+## 联系方式
 
 如有问题或建议，请联系项目团队。

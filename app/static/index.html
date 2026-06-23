@@ -41,6 +41,15 @@
           <div class="panel-title">运行状态</div>
           <div id="runSteps" class="steps"></div>
         </section>
+
+        <section class="panel sql-panel">
+          <div class="panel-title">最新 SQL</div>
+          <textarea id="latestSql" class="sql-box" rows="8" readonly placeholder="执行 NL2SQL 查询后会显示最新 SQL"></textarea>
+          <div class="sql-actions">
+            <button id="copySqlBtn" class="secondary" type="button" disabled>复制 SQL</button>
+            <span id="copySqlStatus" class="status-line" aria-live="polite"></span>
+          </div>
+        </section>
       </aside>
 
       <main class="workspace">
@@ -67,7 +76,7 @@
         <form id="chatForm" class="composer">
           <textarea id="messageInput" rows="2" placeholder="例如：帮我看看 onedba 相关的数据库"></textarea>
           <div class="composer-actions">
-            <button id="confirmBtn" class="secondary" type="button">确认执行</button>
+            <button id="confirmBtn" class="secondary" type="button" disabled hidden>确认执行</button>
             <button id="sendBtn" type="submit">发送</button>
           </div>
         </form>

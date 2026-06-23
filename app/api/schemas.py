@@ -13,6 +13,7 @@ class ChatResponse(BaseModel):
     reply: str
     tool_calls: list[dict[str, Any]] = Field(default_factory=list)
     needs_confirmation: bool = False
+    latest_sql: str = ""
 
 
 class SessionResponse(BaseModel):
@@ -21,3 +22,4 @@ class SessionResponse(BaseModel):
     selected_schema_id: int | None = None
     selected_database: dict[str, Any] | None = None
     needs_confirmation: bool = False
+    latest_sql: str = ""

@@ -16,6 +16,13 @@ class Settings(BaseSettings):
     ONEDBA_BASE_URL: str = Field(default="https://onedba.shizhuang-inc.com")
     ONEDBA_ACCESS_TOKEN: str = Field(default="", description="OneDBA access token")
 
+    SEMANTIC_PROVIDER: str = Field(default="auto", description="Semantic rule provider: none/static_sandbox/file/http/auto")
+    SEMANTIC_RULES_PATH: str = Field(default="", description="Path to semantic rules JSON for file provider")
+    SEMANTIC_USER_RULES_PATH: str = Field(default="data/user_semantic_rules.json", description="Path to user-confirmed semantic rules JSON")
+    SEMANTIC_HISTORY_RULES_PATH: str = Field(default="", description="Path to history-derived semantic rules JSON")
+    SEMANTIC_SERVICE_URL: str = Field(default="", description="Base URL for external semantic metadata service")
+    SEMANTIC_DEFAULT_DOMAIN: str = Field(default="", description="Default semantic domain, e.g. mysql_sandbox")
+
     HOST: str = Field(default="0.0.0.0")
     PORT: int = Field(default=8000)
     DEBUG: bool = Field(default=True)

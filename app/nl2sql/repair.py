@@ -2,7 +2,7 @@ import json
 
 from app.agent.llm import get_llm, is_llm_configured
 from app.nl2sql.generator import GeneratedSQL, extract_json_object
-from app.nl2sql.intent import NL2SQLIntent
+from app.nl2sql.intent import NL2SQLIntent, intent_to_dict
 from app.nl2sql.schema import ColumnSchema, schema_to_prompt
 
 
@@ -22,7 +22,7 @@ async def repair_sql(
     prompt = f"""你是 MySQL SQL 修复器。请基于表结构和错误信息修复只读 SQL，只返回 JSON。
 
 用户意图：
-{json.dumps(intent.__dict__, ensure_ascii=False)}
+{json.dumps(intent_to_dict(intent), ensure_ascii=False)}
 
 表名：{table_name}
 表结构：

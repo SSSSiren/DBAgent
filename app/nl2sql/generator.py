@@ -2,8 +2,16 @@ import json
 from dataclasses import dataclass, field
 
 from app.agent.llm import get_llm, is_llm_configured
-from app.nl2sql.intent import NL2SQLIntent
+from app.config import settings
+from app.nl2sql.intent import NL2SQLIntent, intent_to_dict
 from app.nl2sql.schema import ColumnSchema, schema_to_prompt
+from app.nl2sql.semantics import (
+    SemanticContext,
+    SemanticProvider,
+    render_semantic_candidates_for_prompt,
+    render_semantic_rules_for_prompt,
+    resolve_semantics,
+)
 
 
 @dataclass
@@ -31,12 +39,81 @@ def extract_json_object(content: str) -> dict:
     return {}
 
 
-async def generate_sql(intent: NL2SQLIntent, table_name: str, columns: list[ColumnSchema], summary: str = "") -> GeneratedSQL:
-    prompt = f"""你是 MySQL SQL 生成器。只基于给定 table_schema 生成只读 SQL。
+async def generate_sql(
+    intent: NL2SQLIntent,
+    table_name: str,
+    columns: list[ColumnSchema],
+    summary: str = "",
+    schema_id: int | None = None,
+    database: str = "",
+    semantic_domain: str = "",
+    semantic_provider: SemanticProvider | None = None,
+    sample_values: dict[str, tuple[str, ...]] | None = None,
+) -> GeneratedSQL:
+    context = SemanticContext(
+        schema_id=schema_id,
+        database=database,
+        domain=semantic_domain or settings.SEMANTIC_DEFAULT_DOMAIN,
+        tables=(table_name,),
+        columns=tuple(columns),
+        user_input=intent.user_input,
+        sample_values=sample_values or {},
+    )
+    semantic_resolution = await resolve_semantics(context, provider=semantic_provider)
+    prompt = build_generate_sql_prompt(
+        intent,
+        table_name,
+        columns,
+        summary,
+        semantic_rules=list(semantic_resolution.rules),
+        semantic_candidates=list(semantic_resolution.candidates),
+    )
+    if not is_llm_configured():
+        return GeneratedSQL("", needs_clarification=True, clarification_question="DeepSeek API key 未配置，无法生成 SQL。")
+
+    response = await get_llm().ainvoke(prompt)
+    payload = extract_json_object(response.content)
+    return GeneratedSQL(
+        sql=payload.get("sql", ""),
+        explanation=payload.get("explanation", ""),
+        used_columns=payload.get("used_columns") or [],
+        assumptions=payload.get("assumptions") or [],
+        needs_clarification=bool(payload.get("needs_clarification", False)),
+        clarification_question=payload.get("clarification_question", ""),
+    )
+
+
+def build_generate_sql_prompt(
+    intent: NL2SQLIntent,
+    table_name: str,
+    columns: list[ColumnSchema],
+    summary: str = "",
+    semantic_rules: list | None = None,
+    semantic_candidates: list | None = None,
+) -> str:
+    rendered_semantic_rules = render_semantic_rules_for_prompt(semantic_rules)
+    rendered_semantic_candidates = render_semantic_candidates_for_prompt(semantic_candidates)
+    return f"""你是 MySQL 8 SQL 生成器。只基于给定 table_schema 生成只读 SQL。
 不得使用 table_schema 中不存在的字段，不得发明表名。只返回 JSON。
 
+硬性规则：
+1. 只生成单条 SELECT 或 WITH 查询，不生成 INSERT/UPDATE/DELETE/DDL。
+2. 不得翻译、意译或本地化枚举值。例如用户说“在售商品”，不能写 status = '在售'，应使用样例值或语义层给出的真实值。
+3. 过滤值只能来自三类来源：用户明确输入的原始值、字段样例值、业务语义层规则。没有来源时必须在 assumptions 中说明，低置信时设置 needs_clarification=true。
+4. 有效订单、GMV、支付成功、退款成功、在售商品等业务口径只能采用业务语义层提供的规则；语义层没有给出时不要自行编造。
+5. 使用 MySQL 8 语法。窗口函数可以使用 ROW_NUMBER/RANK/DENSE_RANK，但聚合窗口场景应先在 CTE/子查询中完成聚合，再在外层做窗口排名；不要生成 MySQL 不支持的嵌套窗口/聚合写法。
+6. 聚合和 TopN 查询必须给出确定性 ORDER BY。排序指标相同时，尽量追加主键、维度字段或名称字段作为稳定 tie-breaker。
+7. 输出列尽量贴合用户问题，只返回回答问题必需的列；不要使用 SELECT *。
+8. 明细查询默认保留 LIMIT；聚合 TopN 按用户要求或意图中的 limit 输出。
+
+业务语义层规则：
+{rendered_semantic_rules}
+
+候选语义（未确认，不能直接用于 SQL）：
+{rendered_semantic_candidates}
+
 用户意图：
-{json.dumps(intent.__dict__, ensure_ascii=False)}
+{json.dumps(intent_to_dict(intent), ensure_ascii=False)}
 
 表名：{table_name}
 表结构：
@@ -54,16 +131,3 @@ async def generate_sql(intent: NL2SQLIntent, table_name: str, columns: list[Colu
   "clarification_question": ""
 }}
 """
-    if not is_llm_configured():
-        return GeneratedSQL("", needs_clarification=True, clarification_question="DeepSeek API key 未配置，无法生成 SQL。")
-
-    response = await get_llm().ainvoke(prompt)
-    payload = extract_json_object(response.content)
-    return GeneratedSQL(
-        sql=payload.get("sql", ""),
-        explanation=payload.get("explanation", ""),
-        used_columns=payload.get("used_columns") or [],
-        assumptions=payload.get("assumptions") or [],
-        needs_clarification=bool(payload.get("needs_clarification", False)),
-        clarification_question=payload.get("clarification_question", ""),
-    )

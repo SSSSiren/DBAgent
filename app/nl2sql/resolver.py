@@ -31,20 +31,49 @@ def database_score(database: dict, keyword: str) -> int:
 
 def resolve_database_candidate(databases: list[dict], keyword: str) -> ResolveResult:
     if not databases:
-        return ResolveResult(None, [], True, f"没有找到与 {keyword} 匹配的数据库。")
+        return ResolveResult(None, [], True, f"没有找到与 `{keyword}` 匹配的数据库，OneDBA 返回候选列表为空。")
 
     scored = [(database_score(database, keyword), database) for database in databases]
     scored = [(score, database) for score, database in scored if score > 0]
     if not scored:
-        return ResolveResult(None, databases, True, f"没有找到与 {keyword} 高置信匹配的数据库。")
+        return ResolveResult(
+            None,
+            databases,
+            True,
+            f"没有找到与 `{keyword}` 高置信匹配的数据库。\n\n可选候选：\n{format_database_candidates(databases)}",
+        )
 
     best_score = max(score for score, _ in scored)
     best = [database for score, database in scored if score == best_score]
     if len(best) == 1:
         return ResolveResult(best[0].get("schemaId"), best)
 
-    names = ", ".join(f"{item.get('schemaName')}@{item.get('instanceName')}" for item in best)
-    return ResolveResult(None, best, True, f"找到多个匹配数据库，请选择一个：{names}")
+    return ResolveResult(
+        None,
+        best,
+        True,
+        f"找到多个匹配数据库，请选择一个：\n\n{format_database_candidates(best)}",
+    )
+
+
+def format_database_candidates(databases: list[dict]) -> str:
+    if not databases:
+        return "- 无候选"
+    lines = []
+    for index, item in enumerate(databases, start=1):
+        schema_id = item.get("schemaId") or item.get("schema_id") or ""
+        schema_name = item.get("schemaName") or item.get("schema_name") or ""
+        instance_name = item.get("instanceName") or item.get("instance_name") or ""
+        env = item.get("env") or item.get("envType") or item.get("env_type") or ""
+        parts = [
+            f"schemaName=`{schema_name}`" if schema_name else "",
+            f"instanceName=`{instance_name}`" if instance_name else "",
+            f"schemaId=`{schema_id}`" if schema_id else "",
+            f"env=`{env}`" if env else "",
+        ]
+        detail = "，".join(part for part in parts if part)
+        lines.append(f"{index}. {detail}" if detail else f"{index}. {item}")
+    return "\n".join(lines)
 
 
 def similarity(left: str, right: str) -> float:

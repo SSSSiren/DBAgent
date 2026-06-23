@@ -8,6 +8,9 @@ const messageInput = document.querySelector("#messageInput");
 const sendBtn = document.querySelector("#sendBtn");
 const confirmBtn = document.querySelector("#confirmBtn");
 const connectionBadge = document.querySelector("#connectionBadge");
+const latestSql = document.querySelector("#latestSql");
+const copySqlBtn = document.querySelector("#copySqlBtn");
+const copySqlStatus = document.querySelector("#copySqlStatus");
 
 const storageKey = "dbagent.sessionId";
 
@@ -25,6 +28,13 @@ function initSession() {
 function setBadge(text, mode = "") {
   connectionBadge.textContent = text;
   connectionBadge.className = `badge ${mode}`.trim();
+}
+
+function setConfirmationMode(needsConfirmation) {
+  confirmBtn.hidden = !needsConfirmation;
+  confirmBtn.disabled = !needsConfirmation;
+  sendBtn.hidden = needsConfirmation;
+  sendBtn.disabled = needsConfirmation;
 }
 
 function escapeHtml(value) {
@@ -166,6 +176,43 @@ function renderToolCalls(toolCalls) {
     .join("");
 }
 
+function sqlFromReply(reply) {
+  const match = String(reply || "").match(/```sql\s*([\s\S]*?)```/i);
+  return match ? match[1].trim() : "";
+}
+
+function latestSqlFromToolCalls(toolCalls) {
+  for (const call of [...(toolCalls || [])].reverse()) {
+    const sql = call?.nl2sql?.sql;
+    if (sql) return sql;
+  }
+  return "";
+}
+
+function updateLatestSql(sql) {
+  const value = String(sql || "").trim();
+  if (!value) return;
+  latestSql.value = value;
+  copySqlBtn.disabled = false;
+  copySqlStatus.textContent = "";
+}
+
+async function copyLatestSql() {
+  const sql = latestSql.value.trim();
+  if (!sql) return;
+  try {
+    await navigator.clipboard.writeText(sql);
+    copySqlStatus.textContent = "已复制";
+  } catch {
+    latestSql.focus();
+    latestSql.select();
+    copySqlStatus.textContent = "请按 Ctrl/Cmd+C";
+  }
+  window.setTimeout(() => {
+    copySqlStatus.textContent = "";
+  }, 1800);
+}
+
 function addStep(step, state) {
   const item = document.createElement("div");
   item.className = "step";
@@ -186,6 +233,8 @@ async function refreshSession() {
       ? `${db.schemaName || "schema"} @ ${db.instanceName || data.selected_schema_id}`
       : "未选择数据库";
     sessionStatus.textContent = `${selected}${data.needs_confirmation ? "，等待确认" : ""}`;
+    updateLatestSql(data.latest_sql);
+    setConfirmationMode(Boolean(data.needs_confirmation));
   } catch {
     sessionStatus.textContent = "会话状态读取失败";
   }
@@ -240,16 +289,19 @@ async function sendMessage(message) {
     }
     if (finalPayload) {
       appendMessage("assistant", finalPayload.reply || "没有返回内容。", finalPayload.tool_calls || []);
+      updateLatestSql(
+        finalPayload.latest_sql || latestSqlFromToolCalls(finalPayload.tool_calls) || sqlFromReply(finalPayload.reply)
+      );
       setBadge(finalPayload.needs_confirmation ? "等待确认" : "就绪", finalPayload.needs_confirmation ? "busy" : "");
+      setConfirmationMode(Boolean(finalPayload.needs_confirmation));
     } else {
       throw new Error("没有收到 final 事件");
     }
   } catch (error) {
     appendMessage("assistant", `请求失败：${error.message}`);
     setBadge("请求失败", "error");
+    setConfirmationMode(false);
   } finally {
-    sendBtn.disabled = false;
-    confirmBtn.disabled = false;
     refreshSession();
   }
 }
@@ -268,11 +320,17 @@ messageInput.addEventListener("keydown", (event) => {
 
 confirmBtn.addEventListener("click", () => sendMessage("确认执行"));
 
+copySqlBtn.addEventListener("click", copyLatestSql);
+
 newSessionBtn.addEventListener("click", () => {
   sessionInput.value = makeSessionId();
   localStorage.setItem(storageKey, sessionInput.value);
   messages.querySelectorAll(".message:not(:first-child)").forEach((node) => node.remove());
   runSteps.innerHTML = "";
+  latestSql.value = "";
+  copySqlBtn.disabled = true;
+  copySqlStatus.textContent = "";
+  setConfirmationMode(false);
   refreshSession();
 });
 
