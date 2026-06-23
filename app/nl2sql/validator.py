@@ -1,9 +1,22 @@
 from dataclasses import dataclass, field
 import re
 
-from app.nl2sql.intent import normalize_identifier_hint
-from app.nl2sql.schema import ColumnSchema
-from app.tools.sql_executor import security_check
+from app.nl2sql.schema import ColumnSchema, normalize_identifier_hint
+
+
+# 内联安全检查逻辑，避免循环导入
+WRITE_PREFIXES = ("UPDATE", "DELETE", "INSERT")
+BLOCKED_PREFIXES = ("CREATE", "ALTER", "DROP", "TRUNCATE")
+
+
+def _security_check(sql: str) -> tuple[bool, str]:
+    """内联的安全检查，返回 (passed, message)"""
+    sql_upper = re.sub(r"\s+", " ", sql.strip()).upper()
+    if not sql_upper:
+        return False, "SQL 不能为空"
+    if sql_upper.startswith(BLOCKED_PREFIXES):
+        return False, "DDL 操作请走 OneDBA 工单"
+    return True, ""
 
 
 @dataclass

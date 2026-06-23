@@ -1,5 +1,15 @@
 from dataclasses import dataclass
 from typing import Any
+import re
+
+
+def normalize_identifier_hint(value: str) -> str:
+    """Normalize identifier names (e.g., camelCase to snake_case)."""
+    value = value.strip()
+    value = re.sub(r"([a-z0-9])([A-Z])", r"\1_\2", value)
+    value = re.sub(r"[\s\-]+", "_", value)
+    value = re.sub(r"[^A-Za-z0-9_]", "", value)
+    return value.strip("_").lower()
 
 
 @dataclass

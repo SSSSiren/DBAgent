@@ -1,25 +1,28 @@
-from typing import Any
+"""
+API 请求/响应模型
+"""
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel
+from typing import Optional, Any
 
 
 class ChatRequest(BaseModel):
-    session_id: str = Field(..., min_length=1)
-    message: str = Field(..., min_length=1)
+    """聊天请求"""
+    message: str
+    session_id: str
 
 
 class ChatResponse(BaseModel):
+    """聊天响应"""
+    response: str
     session_id: str
-    reply: str
-    tool_calls: list[dict[str, Any]] = Field(default_factory=list)
     needs_confirmation: bool = False
-    latest_sql: str = ""
 
 
-class SessionResponse(BaseModel):
+class SessionState(BaseModel):
+    """会话状态"""
     session_id: str
+    chat_history: list[dict] = []
     summary: str = ""
-    selected_schema_id: int | None = None
-    selected_database: dict[str, Any] | None = None
-    needs_confirmation: bool = False
-    latest_sql: str = ""
+    selected_schema_id: Optional[int] = None
+    selected_database: Optional[dict] = None
