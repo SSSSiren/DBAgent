@@ -1,0 +1,32 @@
+[
+  {
+    "question": "查询最近30天的有效订单数量",
+    "sql": "SELECT COUNT(*) FROM orders WHERE order_status IN ('paid', 'completed') AND created_at >= DATE_SUB(NOW(), INTERVAL 30 DAY)",
+    "tables": ["orders"],
+    "description": "统计最近30天的有效订单（已支付或已完成）"
+  },
+  {
+    "question": "计算本月GMV",
+    "sql": "SELECT SUM(total_amount) AS gmv FROM orders WHERE order_status IN ('paid', 'completed') AND created_at >= DATE_FORMAT(NOW(), '%Y-%m-01')",
+    "tables": ["orders"],
+    "description": "计算本月的GMV（成交总额），只统计有效订单"
+  },
+  {
+    "question": "查询各商品类目的销售排行",
+    "sql": "SELECT p.category, SUM(oi.quantity) as total_sold, SUM(oi.quantity * oi.price) as total_revenue FROM order_items oi JOIN products p ON oi.product_id = p.id JOIN orders o ON oi.order_id = o.id WHERE o.order_status IN ('paid', 'completed') GROUP BY p.category ORDER BY total_revenue DESC",
+    "tables": ["order_items", "products", "orders"],
+    "description": "按商品类目统计销售数量和收入，按收入降序排列"
+  },
+  {
+    "question": "查询退款率最高的商品",
+    "sql": "SELECT p.name, COUNT(DISTINCT r.id) as refund_count, COUNT(DISTINCT oi.id) as order_count, ROUND(COUNT(DISTINCT r.id) * 100.0 / COUNT(DISTINCT oi.id), 2) as refund_rate FROM products p LEFT JOIN order_items oi ON p.id = oi.product_id LEFT JOIN refunds r ON oi.id = r.order_item_id AND r.refund_status = 'approved' GROUP BY p.id HAVING order_count > 0 ORDER BY refund_rate DESC LIMIT 10",
+    "tables": ["products", "order_items", "refunds"],
+    "description": "计算退款率最高的前10个商品，退款率 = 退款订单数 / 总订单数"
+  },
+  {
+    "question": "查询用户复购情况",
+    "sql": "SELECT user_id, COUNT(*) as order_count, MIN(created_at) as first_order, MAX(created_at) as last_order FROM orders WHERE order_status IN ('paid', 'completed') GROUP BY user_id HAVING COUNT(*) > 1 ORDER BY order_count DESC",
+    "tables": ["orders"],
+    "description": "查询有复购行为的用户，统计订单数和首末订单时间"
+  }
+]

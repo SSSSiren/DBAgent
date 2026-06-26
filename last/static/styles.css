@@ -192,7 +192,7 @@ textarea:focus {
   min-height: 150px;
   max-height: 260px;
   resize: vertical;
-  white-space: pre;
+  white-space: pre-wrap;
   overflow: auto;
   font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace;
   font-size: 12px;

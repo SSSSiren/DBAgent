@@ -1,0 +1,46 @@
+# Docker
+Dockerfile
+docker-compose.yml
+.dockerignore
+
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+dist/
+build/
+.venv/
+venv/
+
+# 环境变量（敏感信息）
+.env
+.env.local
+.env.prod
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# Git
+.git/
+.gitignore
+
+# 测试
+.pytest_cache/
+htmlcov/
+.coverage
+
+# 旧代码归档
+last/
+
+# 文档
+docs/
+
+# macOS
+.DS_Store
+
+# 临时文件
+*.log
+tmp/

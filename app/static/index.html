@@ -4,6 +4,7 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>DBAgent</title>
+    <link rel="icon" type="image/svg+xml" href="/favicon.ico" />
     <link rel="stylesheet" href="/static/styles.css" />
   </head>
   <body>
@@ -43,8 +44,8 @@
         </section>
 
         <section class="panel sql-panel">
-          <div class="panel-title">最新 SQL</div>
-          <textarea id="latestSql" class="sql-box" rows="8" readonly placeholder="执行 NL2SQL 查询后会显示最新 SQL"></textarea>
+          <div class="panel-title"></div>
+          <textarea id="latestSql" class="sql-box" rows="8" readonly placeholder="显示最新 SQL" wrap="soft"></textarea>
           <div class="sql-actions">
             <button id="copySqlBtn" class="secondary" type="button" disabled>复制 SQL</button>
             <span id="copySqlStatus" class="status-line" aria-live="polite"></span>

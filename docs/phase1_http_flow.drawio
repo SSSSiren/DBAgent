@@ -1,0 +1,141 @@
+<mxfile>
+  <diagram name="阶段1-HTTP入口层" id="phase1">
+    <mxGraphModel dx="1200" dy="800" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="1169" pageHeight="827" math="0" shadow="0">
+      <root>
+        <mxCell id="0"/>
+        <mxCell id="1" parent="0"/>
+
+        <!-- 标题 -->
+        <mxCell id="title" value="阶段1：HTTP 入口层数据流" style="text;html=1;fontSize=20;fontStyle=1;align=center;verticalAlign=middle;fillColor=none;strokeColor=none;fontColor=#333333;" vertex="1" parent="1">
+          <mxGeometry x="320" y="20" width="530" height="40" as="geometry"/>
+        </mxCell>
+
+        <!-- ========== 外部实体 ========== -->
+        <!-- 用户/前端 -->
+        <mxCell id="user" value="🖥️ 前端 (app.js)&#xa;用户输入消息" style="shape=mxgraph.flowchart.multi-document;fillColor=#dae8fc;strokeColor=#6c8ebf;fontSize=13;fontStyle=1;align=center;verticalAlign=middle;whiteSpace=wrap;" vertex="1" parent="1">
+          <mxGeometry x="435" y="80" width="300" height="60" as="geometry"/>
+        </mxCell>
+
+        <!-- ========== FastAPI 层 ========== -->
+        <!-- FastAPI 容器 -->
+        <mxCell id="fastapi_box" value="" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f5f5f5;strokeColor=#999999;dashed=1;arcSize=8;" vertex="1" parent="1">
+          <mxGeometry x="280" y="180" width="610" height="520" as="geometry"/>
+        </mxCell>
+        <mxCell id="fastapi_label" value="FastAPI 应用 (main.py)" style="text;html=1;fontSize=14;fontStyle=1;align=left;verticalAlign=middle;fillColor=none;strokeColor=none;fontColor=#666666;" vertex="1" parent="1">
+          <mxGeometry x="295" y="185" width="250" height="30" as="geometry"/>
+        </mxCell>
+
+        <!-- 路由入口 chat() -->
+        <mxCell id="chat_fn" value="chat(request: ChatRequest)&#xa;routes.py:136" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fff2cc;strokeColor=#d6b656;fontSize=13;fontStyle=1;align=center;verticalAlign=middle;" vertex="1" parent="1">
+          <mxGeometry x="385" y="230" width="400" height="50" as="geometry"/>
+        </mxCell>
+
+        <!-- event_stream 内部生成器 -->
+        <mxCell id="event_stream" value="event_stream()&#xa;异步生成器，逐条产出事件" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fff2cc;strokeColor=#d6b656;fontSize=12;align=center;verticalAlign=middle;" vertex="1" parent="1">
+          <mxGeometry x="385" y="320" width="400" height="50" as="geometry"/>
+        </mxCell>
+
+        <!-- 三个核心步骤 -->
+        <mxCell id="step1" value="① build_initial_state()&#xa;从 SESSION_STORE 恢复会话状态&#xa;routes.py:51" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#82b366;fontSize=12;align=center;verticalAlign=middle;" vertex="1" parent="1">
+          <mxGeometry x="305" y="410" width="250" height="70" as="geometry"/>
+        </mxCell>
+
+        <mxCell id="step2" value="② run_agent_stream()&#xa;调用 Agent 执行 ReAct 循环&#xa;routes.py:100" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#82b366;fontSize=12;align=center;verticalAlign=middle;" vertex="1" parent="1">
+          <mxGeometry x="305" y="510" width="250" height="70" as="geometry"/>
+        </mxCell>
+
+        <mxCell id="step3" value="③ sse_event()&#xa;格式化为 SSE 标准格式&#xa;data: {type, ...}\n\n&#xa;routes.py:36" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#82b366;fontSize=12;align=center;verticalAlign=middle;" vertex="1" parent="1">
+          <mxGeometry x="615" y="410" width="250" height="70" as="geometry"/>
+        </mxCell>
+
+        <!-- StreamingResponse -->
+        <mxCell id="streaming_resp" value="StreamingResponse(event_stream())&#xa;media_type=&quot;text/event-stream&quot;" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#e1d5e7;strokeColor=#9673a6;fontSize=12;fontStyle=1;align=center;verticalAlign=middle;" vertex="1" parent="1">
+          <mxGeometry x="385" y="620" width="400" height="50" as="geometry"/>
+        </mxCell>
+
+        <!-- SSE 响应回到前端 -->
+        <mxCell id="sse_resp" value="SSE 事件流&#xa;data: {&quot;type&quot;:&quot;step&quot;, ...}\n\ndata: {&quot;type&quot;:&quot;final&quot;, ...}\n\n" style="shape=mxgraph.flowchart.display;fillColor=#f8cecc;strokeColor=#b85457;fontSize=12;align=center;verticalAlign=middle;whiteSpace=wrap;" vertex="1" parent="1">
+          <mxGeometry x="435" y="730" width="300" height="70" as="geometry"/>
+        </mxCell>
+
+        <!-- ========== 数据标注 ========== -->
+        <mxCell id="data_req" value="{ session_id: &quot;abc123&quot;,&#xa;  message: &quot;查 orders 表...&quot; }" style="text;html=1;fontSize=11;fontStyle=0;align=center;verticalAlign=middle;fillColor=#FFFFCC;strokeColor=#CCCC00;rounded=1;" vertex="1" parent="1">
+          <mxGeometry x="750" y="130" width="200" height="40" as="geometry"/>
+        </mxCell>
+
+        <mxCell id="data_state" value="AgentState {&#xa;  user_input, chat_history,&#xa;  summary, selected_database&#xa;}" style="text;html=1;fontSize=10;fontStyle=0;align=center;verticalAlign=middle;fillColor=#E6F5E6;strokeColor=#82b366;rounded=1;" vertex="1" parent="1">
+          <mxGeometry x="30" y="420" width="200" height="60" as="geometry"/>
+        </mxCell>
+
+        <mxCell id="data_sse" value="SSE 格式：&#xa;data: JSON\n\n" style="text;html=1;fontSize=10;fontStyle=0;align=center;verticalAlign=middle;fillColor=#FCE4EC;strokeColor=#b85457;rounded=1;" vertex="1" parent="1">
+          <mxGeometry x="30" y="620" width="160" height="50" as="geometry"/>
+        </mxCell>
+
+        <!-- ========== 连线 ========== -->
+        <!-- 前端 → chat() -->
+        <mxCell id="e1" value="POST /agent/chat" style="edgeStyle=orthogonalEdgeStyle;rounded=1;strokeColor=#333333;strokeWidth=2;fontSize=11;fontStyle=1;labelBackgroundColor=#FFFFFF;" edge="1" source="user" target="chat_fn" parent="1">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+
+        <!-- chat() → event_stream() -->
+        <mxCell id="e2" value="创建异步生成器" style="edgeStyle=orthogonalEdgeStyle;rounded=1;strokeColor=#666666;strokeWidth=1.5;fontSize=10;labelBackgroundColor=#FFFFFF;" edge="1" source="chat_fn" target="event_stream" parent="1">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+
+        <!-- event_stream → step1 -->
+        <mxCell id="e3" value="恢复会话" style="edgeStyle=orthogonalEdgeStyle;rounded=1;strokeColor=#82b366;strokeWidth=1.5;fontSize=10;labelBackgroundColor=#FFFFFF;" edge="1" source="event_stream" target="step1" parent="1">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+
+        <!-- event_stream → step2 -->
+        <mxCell id="e4" value="调用 Agent" style="edgeStyle=orthogonalEdgeStyle;rounded=1;strokeColor=#82b366;strokeWidth=1.5;fontSize=10;labelBackgroundColor=#FFFFFF;" edge="1" source="event_stream" target="step2" parent="1">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+
+        <!-- event_stream → step3 -->
+        <mxCell id="e5" value="格式化 SSE" style="edgeStyle=orthogonalEdgeStyle;rounded=1;strokeColor=#82b366;strokeWidth=1.5;fontSize=10;labelBackgroundColor=#FFFFFF;" edge="1" source="event_stream" target="step3" parent="1">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+
+        <!-- step2 → streaming_resp -->
+        <mxCell id="e6" value="yield 事件" style="edgeStyle=orthogonalEdgeStyle;rounded=1;strokeColor=#9673a6;strokeWidth=1.5;fontSize=10;labelBackgroundColor=#FFFFFF;" edge="1" source="step2" target="streaming_resp" parent="1">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+
+        <!-- step3 → streaming_resp -->
+        <mxCell id="e7" value="yield SSE 字符串" style="edgeStyle=orthogonalEdgeStyle;rounded=1;strokeColor=#9673a6;strokeWidth=1.5;fontSize=10;labelBackgroundColor=#FFFFFF;" edge="1" source="step3" target="streaming_resp" parent="1">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+
+        <!-- streaming_resp → SSE 响应 -->
+        <mxCell id="e8" value="返回响应流" style="edgeStyle=orthogonalEdgeStyle;rounded=1;strokeColor=#b85457;strokeWidth=2;fontSize=11;fontStyle=1;labelBackgroundColor=#FFFFFF;" edge="1" source="streaming_resp" target="sse_resp" parent="1">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+
+        <!-- SSE 响应 → 前端 -->
+        <mxCell id="e9" value="实时推送" style="edgeStyle=orthogonalEdgeStyle;rounded=1;strokeColor=#b85457;strokeWidth=2;fontSize=11;fontStyle=1;labelBackgroundColor=#FFFFFF;dashed=1;" edge="1" source="sse_resp" target="user" parent="1">
+          <mxGeometry relative="1" as="geometry">
+            <Array as="points">
+              <mxPoint x="100" y="765"/>
+              <mxPoint x="100" y="110"/>
+            </Array>
+          </mxGeometry>
+        </mxCell>
+
+        <!-- 数据标注连线（虚线） -->
+        <mxCell id="d1" style="edgeStyle=orthogonalEdgeStyle;rounded=1;strokeColor=#CCCC00;strokeWidth=1;dashed=1;fontSize=10;" edge="1" source="data_req" target="chat_fn" parent="1">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+
+        <mxCell id="d2" style="edgeStyle=orthogonalEdgeStyle;rounded=1;strokeColor=#82b366;strokeWidth=1;dashed=1;fontSize=10;" edge="1" source="data_state" target="step1" parent="1">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+
+        <mxCell id="d3" style="edgeStyle=orthogonalEdgeStyle;rounded=1;strokeColor=#b85457;strokeWidth=1;dashed=1;fontSize=10;" edge="1" source="data_sse" target="step3" parent="1">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+
+      </root>
+    </mxGraphModel>
+  </diagram>
+</mxfile>

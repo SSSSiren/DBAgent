@@ -28,6 +28,9 @@ class ValidationResult:
 
 
 def strip_sql(sql: str) -> str:
+    # 先处理字面的 \n 和 \r 字符串（LLM 可能返回双重转义）
+    sql = sql.replace('\\n', ' ').replace('\\r', ' ')
+    # 再将所有空白字符替换为单个空格
     return re.sub(r"\s+", " ", sql.strip().rstrip(";"))
 
 
@@ -84,14 +87,20 @@ def referenced_columns(sql: str, table_name: str) -> set[str]:
     }
 
 
+def _has_join(sql: str) -> bool:
+    """检查 SQL 是否包含 JOIN 语句"""
+    return bool(re.search(r'\bJOIN\b', sql, re.IGNORECASE))
+
+
 def validate_sql(sql: str, table_name: str, columns: list[ColumnSchema], default_limit: int = 100) -> ValidationResult:
     errors: list[str] = []
     assumptions: list[str] = []
     normalized_sql = strip_sql(sql)
+    print(f"Normalized SQL: {normalized_sql}")
 
-    check = security_check(normalized_sql)
-    if not check.passed:
-        errors.append(check.message)
+    passed, message = _security_check(normalized_sql)
+    if not passed:
+        errors.append(message)
     if ";" in normalized_sql:
         errors.append("只允许单条 SQL")
     if not normalized_sql.upper().startswith(("SELECT", "SHOW", "DESCRIBE")):
@@ -104,16 +113,20 @@ def validate_sql(sql: str, table_name: str, columns: list[ColumnSchema], default
 
     column_names = {column.name for column in columns}
     normalized_columns = {normalize_identifier_hint(column.name): column.name for column in columns}
-    for column in referenced_columns(normalized_sql, table_name):
-        if column in {"cnt", "total"}:
-            continue
-        if normalize_identifier_hint(column) not in normalized_columns:
-            errors.append(f"字段不存在：{column}")
 
-    limit = default_limit
-    if is_aggregate_sql(normalized_sql):
-        limit = min(default_limit, 20) if default_limit != 1 else 1
-    if normalized_sql.upper().startswith("SELECT"):
-        normalized_sql = ensure_limit(normalized_sql, limit, assumptions)
+    # 如果 SQL 包含 JOIN，跳过字段验证（validator 只知道主表的字段）
+    if not _has_join(normalized_sql):
+        for column in referenced_columns(normalized_sql, table_name):
+            if column in {"cnt", "total"}:
+                continue
+            if normalize_identifier_hint(column) not in normalized_columns:
+                errors.append(f"字段不存在：{column}")
+
+    # 不再在此处强制追加 LIMIT
+    # 改由 query_database.py 在执行时：
+    #   1) 先 COUNT 获取真实总数
+    #   2) 执行时加安全 LIMIT 防止拉爆
+    #   3) 展示时限制显示行数
+    # 这样 LLM 能看到真实总数，不会误报
 
     return ValidationResult(not errors, normalized_sql, errors, assumptions)

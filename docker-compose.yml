@@ -1,0 +1,32 @@
+version: "3.8"
+
+services:
+  dbagent:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: dbagent
+    ports:
+      - "${HOST_PORT:-8000}:8000"
+    environment:
+      - DEEPSEEK_API_KEY=${DEEPSEEK_API_KEY}
+      - DEEPSEEK_BASE_URL=${DEEPSEEK_BASE_URL:-https://api.deepseek.com/v1}
+      - DEEPSEEK_MODEL=${DEEPSEEK_MODEL:-deepseek-chat}
+      - ONEDBA_BASE_URL=${ONEDBA_BASE_URL:-https://onedba.shizhuang-inc.com}
+      - ONEDBA_ACCESS_TOKEN=${ONEDBA_ACCESS_TOKEN}
+      - HOST=0.0.0.0
+      - PORT=8000
+      - DEBUG=${DEBUG:-false}
+      # RAG
+      - OPENAI_API_KEY=${OPENAI_API_KEY:-}
+      - RAG_ENABLED=${RAG_ENABLED:-true}
+    volumes:
+      # 持久化向量数据库和语义规则
+      - ./data:/app/data
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 10s

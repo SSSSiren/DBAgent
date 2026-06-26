@@ -100,6 +100,7 @@ button:disabled {
   color: var(--muted);
   margin: 0;
   font-size: 13px;
+  padding-right: 32px; /* 给复制按钮留空间 */
 }
 
 .panel {
@@ -192,13 +193,39 @@ textarea:focus {
   min-height: 150px;
   max-height: 260px;
   resize: vertical;
-  white-space: pre;
-  overflow: auto;
+  white-space: pre-wrap;
+  word-wrap: break-word;
+  overflow-wrap: break-word;
+  overflow-y: auto;
+  overflow-x: hidden;
   font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace;
-  font-size: 12px;
+  font-size: 15px;
   line-height: 1.45;
   background: #142326;
   color: #e8f4f2;
+}
+
+.sql-display {
+  margin: 8px 0;
+  padding: 12px;
+  background: #f8f9fa;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+}
+
+.sql-display pre {
+  margin: 0;
+  white-space: pre-wrap !important;
+  word-wrap: break-word !important;
+  overflow-wrap: break-word !important;
+  overflow-x: visible !important;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace;
+  font-size: 15px;
+  line-height: 1.45;
+  background: #142326;
+  color: #e8f4f2;
+  border-radius: 6px;
+  padding: 12px;
 }
 
 .sql-box::placeholder {
@@ -322,6 +349,42 @@ textarea:focus {
   box-shadow: var(--shadow);
   padding: 14px 16px;
   min-width: 0;
+  position: relative;
+}
+
+/* 复制按钮 — 每条消息气泡右上角 */
+.bubble .copy-btn {
+  position: absolute;
+  top: 6px;
+  right: 6px;
+  width: 24px;
+  height: 24px;
+  min-height: 0;
+  padding: 0;
+  border-radius: 4px;
+  background: transparent;
+  color: var(--muted);
+  border: 1px solid transparent;
+  display: grid;
+  place-items: center;
+  opacity: 0;
+  transition: opacity 0.15s, background 0.15s, color 0.15s;
+}
+
+.bubble:hover .copy-btn,
+.bubble .copy-btn.copied {
+  opacity: 1;
+}
+
+.bubble .copy-btn:hover {
+  background: var(--panel-2);
+  color: var(--text);
+  border-color: var(--line);
+}
+
+.bubble .copy-btn.copied {
+  color: var(--accent);
+  background: rgba(15, 118, 110, 0.08);
 }
 
 .message.user .bubble {

@@ -23,6 +23,14 @@ class Settings(BaseSettings):
     SEMANTIC_SERVICE_URL: str = Field(default="", description="Base URL for external semantic metadata service")
     SEMANTIC_DEFAULT_DOMAIN: str = Field(default="", description="Default semantic domain, e.g. mysql_sandbox")
 
+    # RAG 配置
+    OPENAI_API_KEY: str = Field(default="", description="OpenAI API key for embeddings")
+    OPENAI_BASE_URL: str = Field(default="https://api.openai.com/v1", description="OpenAI API base URL")
+    EMBEDDING_MODEL: str = Field(default="text-embedding-3-small", description="Embedding model name")
+    RAG_ENABLED: bool = Field(default=True, description="Enable RAG functionality")
+    RAG_TOP_K: int = Field(default=4, description="Number of documents to retrieve")
+    RAG_PERSIST_DIR: str = Field(default="data/vector_store", description="Vector store persistence directory")
+
     HOST: str = Field(default="0.0.0.0")
     PORT: int = Field(default=8000)
     DEBUG: bool = Field(default=True)

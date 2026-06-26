@@ -18,6 +18,63 @@ function makeSessionId() {
   return `session-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
 }
 
+// ── 通用复制工具 ──────────────────────────────────────────────
+
+/** 将文本复制到剪贴板，始终返回 Promise */
+function copyToClipboard(text) {
+  // 优先使用 Clipboard API（需要 HTTPS 或 localhost）
+  if (navigator.clipboard && window.isSecureContext) {
+    return navigator.clipboard.writeText(text);
+  }
+  // 降级：execCommand 方式（兼容 HTTP 环境）
+  return new Promise((resolve, reject) => {
+    const textarea = document.createElement("textarea");
+    textarea.value = text;
+    textarea.style.position = "fixed";
+    textarea.style.opacity = "0";
+    document.body.appendChild(textarea);
+    textarea.select();
+    try {
+      const ok = document.execCommand("copy");
+      document.body.removeChild(textarea);
+      ok ? resolve() : reject(new Error("execCommand returned false"));
+    } catch (err) {
+      document.body.removeChild(textarea);
+      reject(err);
+    }
+  });
+}
+
+/** 创建复制按钮 DOM 元素 */
+function createCopyButton(onCopy) {
+  const btn = document.createElement("button");
+  btn.className = "copy-btn";
+  btn.type = "button";
+  btn.title = "复制";
+  btn.innerHTML = `<svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="5.5" y="5.5" width="9" height="9" rx="1.5"/><path d="M2.5 10.5H2a1.5 1.5 0 0 1-1.5-1.5V2.5A1.5 1.5 0 0 1 2 1h7.5a1.5 1.5 0 0 1 1.5 1.5V3"/></svg>`;
+  btn.addEventListener("click", (e) => {
+    e.stopPropagation();
+    e.preventDefault();
+    const text = onCopy();
+    if (!text) return;
+    copyToClipboard(text)
+      .then(() => {
+        btn.classList.add("copied");
+        btn.title = "已复制";
+      })
+      .catch(() => {
+        btn.title = "复制失败";
+      })
+      .finally(() => {
+        setTimeout(() => {
+          btn.classList.remove("copied");
+          btn.title = "复制";
+        }, 1800);
+      });
+  });
+  return btn;
+}
+
 function initSession() {
   const existing = localStorage.getItem(storageKey);
   sessionInput.value = existing || makeSessionId();
@@ -141,6 +198,23 @@ function appendMessage(role, content, toolCalls = []) {
     tools.innerHTML = renderToolCalls(toolCalls);
     bubble.appendChild(tools);
   }
+
+  // 添加复制按钮（用户消息和 AI 回复各一条消息一个按钮）
+  const copyBtn = createCopyButton(() => {
+    // 提取纯文本内容
+    let text = body.innerText;
+    // 如果有工具调用，也追加工具调用信息
+    if (toolCalls.length) {
+      const toolTexts = toolCalls.map(call => {
+        const sql = call?.nl2sql?.sql || "";
+        return sql ? `\n\nSQL: ${sql}` : "";
+      }).filter(Boolean);
+      text += toolTexts.join("");
+    }
+    return text;
+  });
+  bubble.appendChild(copyBtn);
+
   article.append(avatar, bubble);
   messages.appendChild(article);
   messages.scrollTop = messages.scrollHeight;
@@ -150,28 +224,79 @@ function renderToolCalls(toolCalls) {
   return toolCalls
     .map((call) => {
       const base = `<div class="tool-title">工具调用：${escapeHtml(call.tool)}(${escapeHtml(call.status)})</div>`;
-      if (!call.nl2sql) return base;
-      const steps = call.nl2sql.steps || [];
-      const stepHtml = steps.length
-        ? `<div class="nl2sql-steps">${steps
-            .map(
-              (step) =>
-                `<div class="nl2sql-step"><span>${escapeHtml(step.name)}</span><strong>${escapeHtml(
-                  step.status
-                )}</strong><em>${escapeHtml(step.detail || "")}</em></div>`
-            )
-            .join("")}</div>`
-        : "";
-      const sqlHtml = call.nl2sql.sql
-        ? `<details open><summary>生成 SQL</summary><pre><code>${escapeHtml(call.nl2sql.sql)}</code></pre></details>`
-        : "";
-      const assumptions = call.nl2sql.assumptions || [];
-      const assumptionHtml = assumptions.length
-        ? `<details><summary>假设与限制</summary><ul>${assumptions
-            .map((item) => `<li>${escapeHtml(item)}</li>`)
-            .join("")}</ul></details>`
-        : "";
-      return `${base}${stepHtml}${sqlHtml}${assumptionHtml}`;
+
+      // 尝试从 result 中提取 SQL
+      let sqlHtml = "";
+      let resultContent = "";
+      let resultWithoutSql = "";
+
+      // 处理 result 可能是对象的情况
+      if (call.result) {
+        if (typeof call.result === 'string') {
+          resultContent = call.result;
+        } else if (typeof call.result === 'object' && call.result.content) {
+          resultContent = call.result.content;
+        }
+      }
+
+      if (resultContent) {
+        // 添加调试日志
+        if (call.tool === 'query_database_tool') {
+          console.log('query_database_tool resultContent:', resultContent);
+        }
+        // 改进的正则表达式，匹配 ```sql 或 ``` 代码块
+        const sqlMatch = resultContent.match(/```sql\s+([\s\S]+?)```/) ||
+                         resultContent.match(/```\s+([\s\S]+?)```/);
+        if (sqlMatch) {
+          let sql = sqlMatch[1].trim();
+          // 清理 SQL：去除字面的 \n 和 \r 字符串，以及真正的换行符
+          sql = sql.replace(/\\n/g, ' ').replace(/\\r/g, '');
+          sql = sql.replace(/^[\r\n]+|[\r\n]+$/g, '').replace(/;\s*$/, '');
+          sql = sql.replace(/\s+/g, ' ');  // 合并多个空白为单个空格
+          // 检查是否包含 SQL 关键字
+          if (sql.match(/\b(SELECT|INSERT|UPDATE|DELETE|CREATE|ALTER|DROP)\b/i)) {
+            // 直接展示 SQL，不使用折叠
+            sqlHtml = `<div class="sql-display"><strong>生成的 SQL：</strong><pre><code>${escapeHtml(sql)}</code></pre></div>`;
+            // 从工具结果中移除 SQL 部分，避免重复显示
+            resultWithoutSql = resultContent.replace(sqlMatch[0], "").trim();
+          }
+        }
+      }
+
+      // 如果有 nl2sql 属性(兼容旧格式)
+      if (call.nl2sql) {
+        const steps = call.nl2sql.steps || [];
+        const stepHtml = steps.length
+          ? `<div class="nl2sql-steps">${steps
+              .map(
+                (step) =>
+                  `<div class="nl2sql-step"><span>${escapeHtml(step.name)}</span><strong>${escapeHtml(
+                    step.status
+                  )}</strong><em>${escapeHtml(step.detail || "")}</em></div>`
+              )
+              .join("")}</div>`
+          : "";
+        if (call.nl2sql.sql) {
+          sqlHtml = `<details open><summary>生成 SQL</summary><pre><code>${escapeHtml(call.nl2sql.sql)}</code></pre></details>`;
+        }
+        const assumptions = call.nl2sql.assumptions || [];
+        const assumptionHtml = assumptions.length
+          ? `<details><summary>假设与限制</summary><ul>${assumptions
+              .map((item) => `<li>${escapeHtml(item)}</li>`)
+              .join("")}</ul></details>`
+          : "";
+        return `${base}${stepHtml}${sqlHtml}${assumptionHtml}`;
+      }
+
+      // 显示工具结果(如果有，且移除了 SQL 部分)
+      let resultHtml = "";
+      if (resultWithoutSql) {
+        // 截取前 500 字符,避免太长
+        const resultPreview = resultWithoutSql.length > 500 ? resultWithoutSql.substring(0, 500) + "..." : resultWithoutSql;
+        resultHtml = `<details><summary>工具结果</summary><pre><code>${escapeHtml(resultPreview)}</code></pre></details>`;
+      }
+
+      return `${base}${sqlHtml}${resultHtml}`;
     })
     .join("");
 }
@@ -201,12 +326,10 @@ async function copyLatestSql() {
   const sql = latestSql.value.trim();
   if (!sql) return;
   try {
-    await navigator.clipboard.writeText(sql);
+    await copyToClipboard(sql);
     copySqlStatus.textContent = "已复制";
   } catch {
-    latestSql.focus();
-    latestSql.select();
-    copySqlStatus.textContent = "请按 Ctrl/Cmd+C";
+    copySqlStatus.textContent = "复制失败";
   }
   window.setTimeout(() => {
     copySqlStatus.textContent = "";
@@ -214,11 +337,19 @@ async function copyLatestSql() {
 }
 
 function addStep(step, state) {
-  const item = document.createElement("div");
-  item.className = "step";
-  const status = state?.current_step || "running";
+  const status = state?.status || "running";
+  const stepId = `step-${step}`;
+  let item = document.getElementById(stepId);
+
+  if (!item) {
+    item = document.createElement("div");
+    item.id = stepId;
+    item.className = "step";
+    runSteps.appendChild(item);
+  }
+
   item.innerHTML = `<strong>${escapeHtml(step)}</strong><span>${escapeHtml(status)}</span>`;
-  runSteps.appendChild(item);
+  item.className = `step ${status}`;
 }
 
 async function refreshSession() {
@@ -231,7 +362,7 @@ async function refreshSession() {
     const db = data.selected_database || {};
     const selected = data.selected_schema_id
       ? `${db.schemaName || "schema"} @ ${db.instanceName || data.selected_schema_id}`
-      : "未选择数据库";
+      : "";
     sessionStatus.textContent = `${selected}${data.needs_confirmation ? "，等待确认" : ""}`;
     updateLatestSql(data.latest_sql);
     setConfirmationMode(Boolean(data.needs_confirmation));
@@ -283,7 +414,13 @@ async function sendMessage(message) {
       if (done) break;
       buffer += decoder.decode(value, { stream: true });
       buffer = parseSseChunk(buffer, (event) => {
-        if (event.type === "step") addStep(event.step, event.state);
+        if (event.type === "step") {
+          addStep(event.step, {status: event.status});
+        }
+        if (event.type === "sql") {
+          console.log('[SQL Event]', event.sql);
+          updateLatestSql(event.sql);
+        }
         if (event.type === "final") finalPayload = event;
       });
     }

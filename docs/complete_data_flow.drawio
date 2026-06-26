@@ -1,0 +1,171 @@
+<mxfile>
+  <diagram name="完整数据流" id="complete_flow">
+    <mxGraphModel dx="1600" dy="1200" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="1600" pageHeight="1200" math="0" shadow="0">
+      <root>
+        <mxCell id="0"/>
+        <mxCell id="1" parent="0"/>
+
+        <!-- ========== 标题 ========== -->
+        <mxCell id="title" value="DBAgent 完整数据流" style="text;html=1;fontSize=24;fontStyle=1;align=center;verticalAlign=middle;fillColor=none;strokeColor=none;fontColor=#333333;" vertex="1" parent="1">
+          <mxGeometry x="600" y="20" width="400" height="40" as="geometry"/>
+        </mxCell>
+
+        <!-- ========== 阶段 1: HTTP 入口层 ========== -->
+        <mxCell id="phase1_box" value="" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#E3F2FD;strokeColor=#1976D2;dashed=1;arcSize=8;opacity=30;" vertex="1" parent="1">
+          <mxGeometry x="50" y="80" width="300" height="200" as="geometry"/>
+        </mxCell>
+        <mxCell id="phase1_title" value="阶段1: HTTP 入口层" style="text;html=1;fontSize=14;fontStyle=1;align=left;verticalAlign=middle;fillColor=none;strokeColor=none;fontColor=#1976D2;" vertex="1" parent="1">
+          <mxGeometry x="60" y="85" width="200" height="25" as="geometry"/>
+        </mxCell>
+        <mxCell id="user" value="🖥️ 前端&#xa;用户输入" style="shape=mxgraph.flowchart.multi-document;fillColor=#BBDEFB;strokeColor=#1976D2;fontSize=12;fontStyle=1;align=center;verticalAlign=middle;whiteSpace=wrap;" vertex="1" parent="1">
+          <mxGeometry x="130" y="120" width="140" height="50" as="geometry"/>
+        </mxCell>
+        <mxCell id="chat_fn" value="chat()&#xa;routes.py:136" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#FFF9C4;strokeColor=#F9A825;fontSize=11;align=center;verticalAlign=middle;" vertex="1" parent="1">
+          <mxGeometry x="110" y="190" width="180" height="40" as="geometry"/>
+        </mxCell>
+
+        <!-- ========== 阶段 2: 会话状态恢复 ========== -->
+        <mxCell id="phase2_box" value="" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#E8F5E9;strokeColor=#388E3C;dashed=1;arcSize=8;opacity=30;" vertex="1" parent="1">
+          <mxGeometry x="400" y="80" width="300" height="200" as="geometry"/>
+        </mxCell>
+        <mxCell id="phase2_title" value="阶段2: 会话状态恢复" style="text;html=1;fontSize=14;fontStyle=1;align=left;verticalAlign=middle;fillColor=none;strokeColor=none;fontColor=#388E3C;" vertex="1" parent="1">
+          <mxGeometry x="410" y="85" width="200" height="25" as="geometry"/>
+        </mxCell>
+        <mxCell id="session_store" value="SESSION_STORE&#xa;(内存字典)" style="shape=cylinder3;fillColor=#C8E6C9;strokeColor=#388E3C;fontSize=11;align=center;verticalAlign=middle;whiteSpace=wrap;boundedLbl=1;size=10;" vertex="1" parent="1">
+          <mxGeometry x="430" y="120" width="140" height="50" as="geometry"/>
+        </mxCell>
+        <mxCell id="build_state" value="build_initial_state()&#xa;routes.py:51" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#FFF9C4;strokeColor=#F9A825;fontSize=11;align=center;verticalAlign=middle;" vertex="1" parent="1">
+          <mxGeometry x="430" y="190" width="180" height="40" as="geometry"/>
+        </mxCell>
+
+        <!-- ========== 阶段 3: Agent 执行 ========== -->
+        <mxCell id="phase3_box" value="" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#FFF3E0;strokeColor=#F57C00;dashed=1;arcSize=8;opacity=30;" vertex="1" parent="1">
+          <mxGeometry x="750" y="80" width="400" height="350" as="geometry"/>
+        </mxCell>
+        <mxCell id="phase3_title" value="阶段3: Agent 执行 (ReAct 循环)" style="text;html=1;fontSize=14;fontStyle=1;align=left;verticalAlign=middle;fillColor=none;strokeColor=none;fontColor=#F57C00;" vertex="1" parent="1">
+          <mxGeometry x="760" y="85" width="300" height="25" as="geometry"/>
+        </mxCell>
+        <mxCell id="agent_stream" value="run_agent_stream()&#xa;llm_agent.py:70" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#FFF9C4;strokeColor=#F9A825;fontSize=11;align=center;verticalAlign=middle;" vertex="1" parent="1">
+          <mxGeometry x="830" y="120" width="240" height="40" as="geometry"/>
+        </mxCell>
+        <mxCell id="create_agent" value="create_react_agent()&#xa;LangGraph 预构建" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#FFE0B2;strokeColor=#F57C00;fontSize=11;align=center;verticalAlign=middle;" vertex="1" parent="1">
+          <mxGeometry x="830" y="180" width="240" height="40" as="geometry"/>
+        </mxCell>
+        <mxCell id="react_loop" value="ReAct 循环" style="ellipse;fillColor=#FFCC80;strokeColor=#F57C00;fontSize=12;fontStyle=1;align=center;verticalAlign=middle;whiteSpace=wrap;" vertex="1" parent="1">
+          <mxGeometry x="880" y="240" width="140" height="60" as="geometry"/>
+        </mxCell>
+        <mxCell id="llm_think" value="LLM 推理" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#FFE0B2;strokeColor=#F57C00;fontSize=10;align=center;verticalAlign=middle;" vertex="1" parent="1">
+          <mxGeometry x="780" y="320" width="100" height="40" as="geometry"/>
+        </mxCell>
+        <mxCell id="tool_exec" value="工具执行" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#FFE0B2;strokeColor=#F57C00;fontSize=10;align=center;verticalAlign=middle;" vertex="1" parent="1">
+          <mxGeometry x="920" y="320" width="100" height="40" as="geometry"/>
+        </mxCell>
+        <mxCell id="observe" value="观察结果" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#FFE0B2;strokeColor=#F57C00;fontSize=10;align=center;verticalAlign=middle;" vertex="1" parent="1">
+          <mxGeometry x="1060" y="320" width="100" height="40" as="geometry"/>
+        </mxCell>
+
+        <!-- ========== 阶段 4: 状态保存 + 记忆更新 ========== -->
+        <mxCell id="phase4_box" value="" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#F3E5F5;strokeColor=#7B1FA2;dashed=1;arcSize=8;opacity=30;" vertex="1" parent="1">
+          <mxGeometry x="400" y="330" width="300" height="200" as="geometry"/>
+        </mxCell>
+        <mxCell id="phase4_title" value="阶段4: 状态保存 + 记忆更新" style="text;html=1;fontSize=14;fontStyle=1;align=left;verticalAlign=middle;fillColor=none;strokeColor=none;fontColor=#7B1FA2;" vertex="1" parent="1">
+          <mxGeometry x="410" y="335" width="250" height="25" as="geometry"/>
+        </mxCell>
+        <mxCell id="save_session" value="save_session()&#xa;routes.py:77" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#FFF9C4;strokeColor=#F9A825;fontSize=11;align=center;verticalAlign=middle;" vertex="1" parent="1">
+          <mxGeometry x="430" y="370" width="180" height="40" as="geometry"/>
+        </mxCell>
+        <mxCell id="update_summary" value="update_summary()&#xa;memory/summary.py:26" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#FFF9C4;strokeColor=#F9A825;fontSize=11;align=center;verticalAlign=middle;" vertex="1" parent="1">
+          <mxGeometry x="430" y="430" width="180" height="40" as="geometry"/>
+        </mxCell>
+
+        <!-- ========== 阶段 5: SSE 响应流 ========== -->
+        <mxCell id="phase5_box" value="" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#FFEBEE;strokeColor=#C62828;dashed=1;arcSize=8;opacity=30;" vertex="1" parent="1">
+          <mxGeometry x="50" y="330" width="300" height="200" as="geometry"/>
+        </mxCell>
+        <mxCell id="phase5_title" value="阶段5: SSE 响应流" style="text;html=1;fontSize=14;fontStyle=1;align=left;verticalAlign=middle;fillColor=none;strokeColor=none;fontColor=#C62828;" vertex="1" parent="1">
+          <mxGeometry x="60" y="335" width="200" height="25" as="geometry"/>
+        </mxCell>
+        <mxCell id="sse_format" value="sse_event()&#xa;routes.py:36" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#FFF9C4;strokeColor=#F9A825;fontSize=11;align=center;verticalAlign=middle;" vertex="1" parent="1">
+          <mxGeometry x="110" y="370" width="180" height="40" as="geometry"/>
+        </mxCell>
+        <mxCell id="streaming_resp" value="StreamingResponse&#xa;text/event-stream" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#FFCDD2;strokeColor=#C62828;fontSize=11;fontStyle=1;align=center;verticalAlign=middle;" vertex="1" parent="1">
+          <mxGeometry x="110" y="430" width="180" height="40" as="geometry"/>
+        </mxCell>
+        <mxCell id="frontend_render" value="🖥️ 前端渲染&#xa;实时显示步骤 + 最终回答" style="shape=mxgraph.flowchart.multi-document;fillColor=#FFCDD2;strokeColor=#C62828;fontSize=11;fontStyle=1;align=center;verticalAlign=middle;whiteSpace=wrap;" vertex="1" parent="1">
+          <mxGeometry x="110" y="490" width="180" height="50" as="geometry"/>
+        </mxCell>
+
+        <!-- ========== 连线 ========== -->
+        <!-- 阶段1 → 阶段2 -->
+        <mxCell id="e1" value="POST /agent/chat" style="edgeStyle=orthogonalEdgeStyle;rounded=1;strokeColor=#333333;strokeWidth=2;fontSize=10;fontStyle=1;labelBackgroundColor=#FFFFFF;" edge="1" source="user" target="chat_fn" parent="1">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+        <mxCell id="e2" style="edgeStyle=orthogonalEdgeStyle;rounded=1;strokeColor=#1976D2;strokeWidth=2;fontSize=10;" edge="1" source="chat_fn" target="build_state" parent="1">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+
+        <!-- 阶段2 内部 -->
+        <mxCell id="e3" value="恢复历史" style="edgeStyle=orthogonalEdgeStyle;rounded=1;strokeColor=#388E3C;strokeWidth=1.5;fontSize=10;labelBackgroundColor=#FFFFFF;" edge="1" source="session_store" target="build_state" parent="1">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+
+        <!-- 阶段2 → 阶段3 -->
+        <mxCell id="e4" value="AgentState" style="edgeStyle=orthogonalEdgeStyle;rounded=1;strokeColor=#F57C00;strokeWidth=2;fontSize=10;fontStyle=1;labelBackgroundColor=#FFFFFF;" edge="1" source="build_state" target="agent_stream" parent="1">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+
+        <!-- 阶段3 内部 -->
+        <mxCell id="e5" style="edgeStyle=orthogonalEdgeStyle;rounded=1;strokeColor=#F57C00;strokeWidth=1.5;fontSize=10;" edge="1" source="agent_stream" target="create_agent" parent="1">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+        <mxCell id="e6" style="edgeStyle=orthogonalEdgeStyle;rounded=1;strokeColor=#F57C00;strokeWidth=1.5;fontSize=10;" edge="1" source="create_agent" target="react_loop" parent="1">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+        <mxCell id="e7" value="思考" style="edgeStyle=orthogonalEdgeStyle;rounded=1;strokeColor=#F57C00;strokeWidth=1;fontSize=9;labelBackgroundColor=#FFFFFF;" edge="1" source="react_loop" target="llm_think" parent="1">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+        <mxCell id="e8" value="行动" style="edgeStyle=orthogonalEdgeStyle;rounded=1;strokeColor=#F57C00;strokeWidth=1;fontSize=9;labelBackgroundColor=#FFFFFF;" edge="1" source="llm_think" target="tool_exec" parent="1">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+        <mxCell id="e9" value="观察" style="edgeStyle=orthogonalEdgeStyle;rounded=1;strokeColor=#F57C00;strokeWidth=1;fontSize=9;labelBackgroundColor=#FFFFFF;" edge="1" source="tool_exec" target="observe" parent="1">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+        <mxCell id="e10" value="继续推理" style="edgeStyle=orthogonalEdgeStyle;rounded=1;strokeColor=#F57C00;strokeWidth=1;fontSize=9;labelBackgroundColor=#FFFFFF;curved=1;" edge="1" source="observe" target="react_loop" parent="1">
+          <mxGeometry relative="1" as="geometry">
+            <Array as="points">
+              <mxPoint x="1110" y="280"/>
+              <mxPoint x="950" y="280"/>
+            </Array>
+          </mxGeometry>
+        </mxCell>
+
+        <!-- 阶段3 → 阶段4 -->
+        <mxCell id="e11" value="最终结果" style="edgeStyle=orthogonalEdgeStyle;rounded=1;strokeColor=#7B1FA2;strokeWidth=2;fontSize=10;fontStyle=1;labelBackgroundColor=#FFFFFF;" edge="1" source="react_loop" target="save_session" parent="1">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+
+        <!-- 阶段4 内部 -->
+        <mxCell id="e12" style="edgeStyle=orthogonalEdgeStyle;rounded=1;strokeColor=#7B1FA2;strokeWidth=1.5;fontSize=10;" edge="1" source="save_session" target="update_summary" parent="1">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+        <mxCell id="e13" value="更新摘要" style="edgeStyle=orthogonalEdgeStyle;rounded=1;strokeColor=#7B1FA2;strokeWidth=1.5;fontSize=10;labelBackgroundColor=#FFFFFF;dashed=1;" edge="1" source="update_summary" target="session_store" parent="1">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+
+        <!-- 阶段4 → 阶段5 -->
+        <mxCell id="e14" value="事件流" style="edgeStyle=orthogonalEdgeStyle;rounded=1;strokeColor=#C62828;strokeWidth=2;fontSize=10;fontStyle=1;labelBackgroundColor=#FFFFFF;" edge="1" source="save_session" target="sse_format" parent="1">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+
+        <!-- 阶段5 内部 -->
+        <mxCell id="e15" style="edgeStyle=orthogonalEdgeStyle;rounded=1;strokeColor=#C62828;strokeWidth=1.5;fontSize=10;" edge="1" source="sse_format" target="streaming_resp" parent="1">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+        <mxCell id="e16" style="edgeStyle=orthogonalEdgeStyle;rounded=1;strokeColor=#C62828;strokeWidth=1.5;fontSize=10;" edge="1" source="streaming_resp" target="frontend_render" parent="1">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+
+      </root>
+    </mxGraphModel>
+  </diagram>
+</mxfile>

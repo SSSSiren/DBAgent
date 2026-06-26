@@ -1,0 +1,39 @@
+{
+  "rules": [
+    {
+      "name": "有效订单",
+      "description": "paid 和 completed 订单才计入有效订单",
+      "sql": "order_status IN ('paid', 'completed')",
+      "tables": ["orders"],
+      "domain": "mysql_sandbox"
+    },
+    {
+      "name": "支付成功",
+      "description": "支付成功状态使用 payment_status 的真实枚举值 success",
+      "sql": "payment_status = 'success'",
+      "tables": ["payments"],
+      "domain": "mysql_sandbox"
+    },
+    {
+      "name": "退款成功",
+      "description": "退款成功状态使用 refund_status 的真实枚举值 approved",
+      "sql": "refund_status = 'approved'",
+      "tables": ["refunds"],
+      "domain": "mysql_sandbox"
+    },
+    {
+      "name": "在售商品",
+      "description": "在售商品状态使用 products.status 的真实枚举值 active",
+      "sql": "products.status = 'active'",
+      "tables": ["products"],
+      "domain": "mysql_sandbox"
+    },
+    {
+      "name": "GMV",
+      "description": "GMV 使用订单总金额 total_amount 求和",
+      "sql": "SUM(orders.total_amount)",
+      "tables": ["orders"],
+      "domain": "mysql_sandbox"
+    }
+  ]
+}
