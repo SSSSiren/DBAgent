@@ -3,9 +3,12 @@ FROM python:3.12-slim
 
 WORKDIR /app
 
-# 安装依赖
+# 安装依赖（使用国内镜像源加速）
 COPY requirements.txt .
-RUN pip install --no-cache-dir -r requirements.txt
+RUN pip install --no-cache-dir \
+    -i https://pypi.tuna.tsinghua.edu.cn/simple \
+    --trusted-host pypi.tuna.tsinghua.edu.cn \
+    -r requirements.txt
 
 # 复制代码
 COPY app/ ./app/
