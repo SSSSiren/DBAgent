@@ -17,11 +17,8 @@ services:
       - HOST=0.0.0.0
       - PORT=8000
       - DEBUG=${DEBUG:-false}
-      # RAG
-      - OPENAI_API_KEY=${OPENAI_API_KEY:-}
-      - RAG_ENABLED=${RAG_ENABLED:-true}
     volumes:
-      # 持久化向量数据库和语义规则
+      # 持久化语义规则
       - ./data:/app/data
     restart: unless-stopped
     healthcheck:

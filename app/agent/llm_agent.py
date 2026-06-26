@@ -29,7 +29,6 @@ from app.tools import (
     execute_sql_tool,
     ask_user_tool,
 )
-from app.rag.tools import create_rag_tools
 from app.memory.summary import update_summary
 
 
@@ -79,11 +78,6 @@ def create_agent_executor():
         execute_sql_tool,        # 直接执行 SQL
         ask_user_tool,           # 向用户提问
     ]
-
-    # 添加 RAG 工具（如果启用）
-    from app.rag.tools import create_rag_tools
-    rag_tools = create_rag_tools()
-    tools.extend(rag_tools)
 
     # 创建 ReAct Agent
     # create_react_agent 是 LangGraph 的预构建函数，内部已经实现了完整的 ReAct 循环
