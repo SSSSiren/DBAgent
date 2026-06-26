@@ -36,17 +36,30 @@ if grep -q "your_deepseek_api_key" .env; then
     exit 1
 fi
 
+# 检查 Docker Compose（V2 插件或 V1 独立版本）
+COMPOSE_CMD=""
+if docker compose version &> /dev/null; then
+    COMPOSE_CMD="docker compose"
+elif command -v docker-compose &> /dev/null; then
+    COMPOSE_CMD="docker-compose"
+else
+    echo "❌ 未找到 Docker Compose，请安装："
+    echo "   macOS: brew install docker-compose"
+    echo "   或安装 Docker Desktop: https://docs.docker.com/desktop/setup/install/mac-install/"
+    exit 1
+fi
+
 echo "✅ 环境检查通过"
 echo ""
 
 # 启动
 echo "🚀 构建并启动服务..."
-docker-compose up -d --build
+$COMPOSE_CMD up -d --build
 
 echo ""
 echo "========================================="
 echo "  部署完成！"
 echo "  访问地址: http://localhost:8000"
-echo "  查看日志: docker-compose logs -f"
-echo "  停止服务: docker-compose down"
+echo "  查看日志: $COMPOSE_CMD logs -f"
+echo "  停止服务: $COMPOSE_CMD down"
 echo "========================================="
