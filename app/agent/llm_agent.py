@@ -200,27 +200,41 @@ async def run_agent_stream(
     agent = create_agent_executor()
 
     # 步骤2：从会话状态中提取上下文信息
+    session_id = session_state.get("session_id", "")
     chat_history = session_state.get("chat_history", [])
     summary = session_state.get("summary", "")
     selected_schema_id = session_state.get("selected_schema_id")
     selected_database = session_state.get("selected_database")
 
-    # 步骤3：构建上下文提示
-    # 将数据库信息和对话摘要添加到用户输入前面，让 LLM 了解当前上下文
+    # 步骤3：构建 Agent 输入消息
+    # 策略：截断 + 摘要互补
+    # - 摘要覆盖全部历史（压缩文本，放在最前面）
+    # - 最近 N 条完整消息（含工具调用，LLM 可精确引用）
+    # - 当前用户输入（带数据库上下文）
+    MAX_HISTORY_MESSAGES = 20
+
+    messages = []
+
+    # 3a：如果有摘要且历史被截断过，把摘要作为第一条消息注入
+    # 摘要让 LLM 了解更早的对话概要，弥补截断造成的信息丢失
+    if summary and len(chat_history) >= MAX_HISTORY_MESSAGES:
+        messages.append(HumanMessage(content=f"[之前的对话摘要]\n{summary}"))
+
+    # 3b：传入最近的消息历史（已由上一轮截断，这里再保底截断一次）
+    recent_history = chat_history[-MAX_HISTORY_MESSAGES:] if len(chat_history) > MAX_HISTORY_MESSAGES else chat_history
+    messages.extend(recent_history)
+
+    # 3c：构建当前用户输入（带数据库上下文）
     context_parts = []
     if selected_database:
-        # 如果用户已选择数据库，告知 LLM 当前使用的数据库
         context_parts.append(f"当前选择的数据库: {selected_database.get('schemaName')} (schema_id={selected_schema_id})")
-    if summary:
-        # 如果有对话摘要，告知 LLM 之前的对话概要
-        context_parts.append(f"对话摘要: {summary}")
-
-    # 拼接上下文和用户问题
     if context_parts:
         context = "\n".join(context_parts)
         full_input = f"{context}\n\n用户问题: {user_input}"
     else:
         full_input = user_input
+
+    messages.append(HumanMessage(content=full_input))
 
     # 步骤4：收集消息和工具调用信息
     all_messages = []           # 存储所有消息（用于提取最终响应）
@@ -235,9 +249,9 @@ async def run_agent_stream(
     # recursion_limit: 限制 Agent 的最大推理步数，防止无限循环
     try:
         async for event in agent.astream_events(
-            {"messages": [HumanMessage(content=full_input)]},  # 输入：用户消息
+            {"messages": messages},  # 输入：摘要 + 历史消息 + 当前用户问题
             version="v2",
-            config={"recursion_limit": 40},  # 最多 20 步，防止无限重试
+            config={"recursion_limit": 40},  # 最多 40 步，防止无限重试
         ):
             event_name = event.get("event", "")  # 事件类型
             run_id = event.get("run_id", "")     # 运行 ID，用于关联同一次工具调用
@@ -305,7 +319,7 @@ async def run_agent_stream(
         # 捕获递归限制错误或其他异常，返回友好的错误消息
         error_msg = str(e)
         if "recursion_limit" in error_msg.lower() or "GraphRecursionError" in error_msg:
-            response = "抱歉，查询过程中步骤过多，已自动停止。这通常是因为查询结果为空时系统尝试了多次重试。请直接告知用户查询结果为空。"
+            response = "抱歉，查询过程中步骤过多，已自动停止。"
         else:
             response = f"查询过程中发生错误：{error_msg}"
 
@@ -317,6 +331,7 @@ async def run_agent_stream(
 
         new_summary = await update_summary(summary, user_input, response)
         updated_state = {
+            "session_id": session_id,
             "chat_history": chat_history,
             "summary": new_summary,
             "selected_schema_id": selected_schema_id,
@@ -334,7 +349,7 @@ async def run_agent_stream(
 
     # 步骤6：提取最终响应
     # 最后一条消息是 LLM 的最终回答（不包含工具调用）
-    response = all_messages[-1].content if all_messages else "抱歉，无法获取响应"
+    response = all_messages[-1].content if all_messages else "获取响应失败"
 
     # 步骤7：检查是否需要确认（当前未实现，预留功能）
     # 如果 Agent 执行了写操作（UPDATE/DELETE/INSERT），需要用户确认
@@ -358,8 +373,9 @@ async def run_agent_stream(
 
     # 步骤10：构建更新后的状态
     updated_state = {
-        "chat_history": chat_history,           # 更新后的对话历史
-        "summary": new_summary,                 # 更新后的摘要
+        "session_id": session_id,                 # 会话 ID（save_session 保存状态时需要）
+        "chat_history": chat_history,             # 更新后的对话历史
+        "summary": new_summary,                   # 更新后的摘要
         "selected_schema_id": selected_schema_id, # 保持数据库选择
         "selected_database": selected_database,   # 保持数据库信息
     }
