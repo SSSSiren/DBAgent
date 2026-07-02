@@ -1,0 +1,11 @@
+.env
+.git
+.pytest_cache
+__pycache__
+*.pyc
+.venv
+venv
+.vscode
+.idea
+*.swp
+.DS_Store

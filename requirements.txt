@@ -1,0 +1,28 @@
+# SDK-DBAgent 依赖
+# 基于 claude-agent-sdk 的 NL2SQL Agent
+
+# Web 框架
+fastapi>=0.109.0
+uvicorn>=0.27.0
+websockets>=12.0
+
+# HTTP 客户端
+httpx>=0.26.0
+
+# 配置管理
+pydantic>=2.5.0
+pydantic-settings>=2.1.0
+python-dotenv>=1.0.0
+
+# LLM 客户端（用于 NL2SQL 管道中的 SQL 生成和修复）
+openai>=1.0.0
+
+# Agent SDK
+claude-agent-sdk
+
+# 可观测性
+langfuse>=2.0.0
+
+# 测试
+pytest>=8.0.0
+pytest-asyncio>=0.23.0

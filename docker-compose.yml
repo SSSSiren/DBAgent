@@ -1,0 +1,33 @@
+services:
+  sdk-dbagent:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: sdk-dbagent
+    ports:
+      - "${HOST_PORT:-8000}:8000"
+    environment:
+      - LLM_API_KEY=${LLM_API_KEY}
+      - LLM_BASE_URL=${LLM_BASE_URL:-https://api.deepseek.com/v1}
+      - LLM_MODEL=${LLM_MODEL:-deepseek-chat}
+      - ONEDBA_BASE_URL=${ONEDBA_BASE_URL:-https://onedba.shizhuang-inc.com}
+      - ONEDBA_ACCESS_TOKEN=${ONEDBA_ACCESS_TOKEN}
+      - LANGFUSE_ENABLED=${LANGFUSE_ENABLED:-false}
+      - LANGFUSE_PUBLIC_KEY=${LANGFUSE_PUBLIC_KEY:-}
+      - LANGFUSE_SECRET_KEY=${LANGFUSE_SECRET_KEY:-}
+      - LANGFUSE_HOST=${LANGFUSE_HOST:-https://cloud.langfuse.com}
+      - SEMANTIC_PROVIDER=${SEMANTIC_PROVIDER:-auto}
+      - SEMANTIC_RULES_PATH=${SEMANTIC_RULES_PATH:-data/semantic_rules.json}
+      - HOST=0.0.0.0
+      - PORT=8000
+      - DEBUG=${DEBUG:-false}
+    volumes:
+      # 持久化语义规则
+      - ./data:/app/data
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/health')"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 10s

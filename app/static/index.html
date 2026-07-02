@@ -1,0 +1,89 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>SDK-DBAgent</title>
+    <link rel="icon" type="image/svg+xml" href="/static/favicon.svg" />
+    <link rel="stylesheet" href="/static/styles.css" />
+  </head>
+  <body>
+    <div class="app-shell">
+      <aside class="sidebar" aria-label="会话信息">
+        <div class="brand">
+          <div class="brand-mark">SDK</div>
+          <div>
+            <h1>SDK-DBAgent</h1>
+            <p>SDK 智能数据库助手</p>
+          </div>
+        </div>
+
+        <section class="panel">
+          <div class="panel-title">会话</div>
+          <label for="sessionId">Session ID</label>
+          <div class="session-row">
+            <input id="sessionId" autocomplete="off" />
+            <button id="newSessionBtn" type="button" title="新会话">新建</button>
+          </div>
+          <div id="sessionStatus" class="status-line">未加载</div>
+        </section>
+
+        <section class="panel">
+          <div class="panel-title">快捷问题</div>
+          <div class="quick-list">
+            <button type="button" data-prompt="帮我看看 dw_onedba 相关的数据库">查 onedba 数据库</button>
+            <button type="button" data-prompt="看看 dw_onedba 里有哪些表">查看表列表</button>
+            <button type="button" data-prompt="描述一下 db_alert_history 表结构">查看表结构</button>
+            <button type="button" data-prompt="查一下 db_alert_history 的总数">查询总数</button>
+          </div>
+        </section>
+
+        <section class="panel">
+          <div class="panel-title">运行状态</div>
+          <div id="runSteps" class="steps"></div>
+        </section>
+
+        <section class="panel sql-panel">
+          <div class="panel-title"></div>
+          <textarea id="latestSql" class="sql-box" rows="8" readonly placeholder="显示最新 SQL" wrap="soft"></textarea>
+          <div class="sql-actions">
+            <button id="copySqlBtn" class="secondary" type="button" disabled>复制 SQL</button>
+            <span id="copySqlStatus" class="status-line" aria-live="polite"></span>
+          </div>
+        </section>
+      </aside>
+
+      <main class="workspace">
+        <header class="topbar">
+          <div>
+            <div class="eyebrow">LangGraph + Claude Agent SDK</div>
+            <h2>SDK NL2SQL 数据探索</h2>
+          </div>
+          <div id="connectionBadge" class="badge">就绪</div>
+        </header>
+
+        <section id="messages" class="messages" aria-live="polite">
+          <article class="message assistant">
+            <div class="avatar">A</div>
+            <div class="bubble">
+              <div class="meta">SDK-DBAgent</div>
+              <div class="content">
+                请输入你的数据库问题。我会通过 Claude Agent SDK 规划步骤、调用 OneDBA 工具，并用表格或分析结论回复。
+              </div>
+            </div>
+          </article>
+        </section>
+
+        <form id="chatForm" class="composer">
+          <textarea id="messageInput" rows="2" placeholder="例如：帮我看看 dw_onedba 相关的数据库"></textarea>
+          <div class="composer-actions">
+            <button id="confirmBtn" class="secondary" type="button" disabled hidden>确认执行</button>
+            <button id="sendBtn" type="submit">发送</button>
+          </div>
+        </form>
+      </main>
+    </div>
+
+    <script src="/static/app.js"></script>
+  </body>
+</html>

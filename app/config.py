@@ -1,0 +1,53 @@
+"""
+应用配置 — 基于 Pydantic Settings 的环境变量管理
+
+参考 DBAgent 的 config.py，管理 LLM、OneDBA、Langfuse、服务等配置。
+"""
+
+from functools import lru_cache
+
+from pydantic_settings import BaseSettings, SettingsConfigDict
+
+
+class Settings(BaseSettings):
+    """应用配置，从 .env 文件和环境变量自动加载"""
+
+    # ========== LLM ==========
+    llm_api_key: str = ""
+    llm_base_url: str = "https://api.deepseek.com/v1"
+    llm_model: str = "deepseek-chat"
+
+    # ========== OneDBA ==========
+    onedba_base_url: str = "https://onedba.shizhuang-inc.com"
+    onedba_access_token: str = ""
+
+    # ========== Langfuse ==========
+    langfuse_enabled: bool = False
+    langfuse_public_key: str = ""
+    langfuse_secret_key: str = ""
+    langfuse_host: str = "https://cloud.langfuse.com"
+
+    # ========== 语义规则 ==========
+    semantic_provider: str = "auto"
+    semantic_rules_path: str = "data/semantic_rules.json"
+    semantic_user_rules_path: str = "data/user_semantic_rules.json"
+    semantic_history_rules_path: str = ""
+    semantic_service_url: str = ""
+    semantic_default_domain: str = "mysql_sandbox"
+
+    # ========== 服务 ==========
+    host: str = "0.0.0.0"
+    port: int = 8000
+    debug: bool = False
+
+    model_config = SettingsConfigDict(
+        env_file=".env",
+        env_file_encoding="utf-8",
+        extra="ignore",
+    )
+
+
+@lru_cache
+def get_settings() -> Settings:
+    """获取配置单例（带缓存）"""
+    return Settings()
