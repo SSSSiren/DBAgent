@@ -8,7 +8,7 @@
 ## 数据库 Schema 速查
 
 ```sql
--- order_record: 工单主表 (1172行)
+-- order_record: 工单主表 (1174行)
 --   id, committer_id, committer_name, organization, business_domain, order_type,
 --   status_code, status_desc, related_users, workflow_id, workflow_desc, comments,
 --   group_id, is_finished, create_time, update_time
@@ -16,7 +16,7 @@
 -- db_alert_history: 数据库告警历史 (381527行)
 --   id, db_instance_id, db_node_id, description, business_subdomain, metric_name,
 --   cur_value, namespace, alert_time, gmt_create, gmt_modify, level, send_message,
---   uuid, message, sequence, env_type, dba_owner
+--   uuid, message, sequence, env_type, dba_owner (飞书OpenID，非中文姓名)
 
 -- effect_dba_domain_cost_v2: DBA效能统计 (4114行)
 --   id, inspection_date, year, month, week, dba_owner_name, business_domain,
@@ -33,12 +33,12 @@
 --   table_name, backup_dbname, execute_time, sqlsha1, backup_time, target_table_name,
 --   create_time, update_time
 
--- workflow_instance: 工作流实例 (985行)
+-- workflow_instance: 工作流实例 (987行)
 --   id, is_finished, is_filter, create_time, update_time, order_id, order_type,
 --   committer_id, committer_name, status_code, status_desc, task_id, task_count
 
 -- account: 账户表 (59248行)
---   id, realname, feishu_name, email, phone, role, role_groups, comment,
+--   id, realname, feishu_name, email, phone, role (INT类型), role_groups, comment,
 --   feishu_open_id, feishu_user_id, aliyun_user_id, user_type, aliyun_username,
 --   aliyun_dms_user_id, avatar, ...
 
@@ -256,8 +256,7 @@
 SELECT id, committer_name, status_desc, create_time
 FROM order_record
 WHERE order_type = 'dataChange'
-ORDER BY create_time DESC
-LIMIT 100;
+ORDER BY create_time DESC;
 ```
 
 **预期结果：**
@@ -286,7 +285,7 @@ WHERE is_finished = 1;
 ```
 
 **预期结果：**
-- 应返回 760
+- 应返回 762
 
 **评判要点：**
 - 必须使用 `is_finished = 1`，不能写 `is_finished = 'true'` 或 `is_finished = 'yes'`
@@ -314,7 +313,7 @@ ORDER BY order_count DESC;
 | order_type | order_count |
 |------------|-------------|
 | dataChange | 354 |
-| permission | 128 |
+| permission | 130 |
 | createInstance | 99 |
 | structureSync | 89 |
 | structureDesign | 69 |
@@ -327,7 +326,7 @@ ORDER BY order_count DESC;
 **评判要点：**
 - 必须使用 `GROUP BY` 和 `COUNT`
 - 排序方向为 DESC
-- 总计 1172 条工单
+- 总计 1174 条工单
 
 ---
 
@@ -351,13 +350,13 @@ ORDER BY order_count DESC;
 | status_code | status_desc | order_count |
 |-------------|-------------|-------------|
 | closed | 工单关闭:系统关闭 | 266 |
-| successful | 执行成功 | 235 |
-| waitingApprove | 工单审批中 | 184 |
+| successful | 执行成功 | 237 |
+| waitingApprove | 工单审批中 | 183 |
 | canceled | 工单已关闭:审批撤销 | 85 |
 | failed | 执行失败 | 44 |
 | canceled | 工单关闭:审批撤销 | 38 |
-| rejected | 审批被拒绝 | 37 |
 | processing | 执行中 | 37 |
+| rejected | 审批被拒绝 | 37 |
 | waitingProcess | 等待执行 | 35 |
 | closed | 工单已关闭 | 25 |
 
@@ -441,8 +440,7 @@ LIMIT 10;
 SELECT id, db_instance_id, metric_name, alert_time
 FROM db_alert_history
 WHERE level = 'critical'
-ORDER BY alert_time DESC
-LIMIT 100;
+ORDER BY alert_time DESC;
 ```
 
 **预期结果：**
@@ -526,7 +524,7 @@ LIMIT 10;
 
 **自然语言问题：**
 ```
-统计 2024 年 6 月每天的告警数量，按日期升序排列。
+统计 2024 年 8 月每天的告警数量，按日期升序排列。
 ```
 
 **参考答案 SQL：**
@@ -534,14 +532,14 @@ LIMIT 10;
 SELECT DATE(alert_time) AS alert_date,
        COUNT(*) AS alert_count
 FROM db_alert_history
-WHERE alert_time >= '2024-06-01'
-  AND alert_time < '2024-07-01'
+WHERE alert_time >= '2024-08-01'
+  AND alert_time < '2024-09-01'
 GROUP BY DATE(alert_time)
 ORDER BY alert_date ASC;
 ```
 
 **预期结果：**
-- 应返回 30 行（2024年6月1-30日）
+- 应返回多行（2024年8月1-31日中有告警数据的日期）
 - 每天告警数量不等
 
 **评判要点：**
@@ -564,8 +562,7 @@ SELECT db_instance_id, metric_name, cur_value, alert_time
 FROM db_alert_history
 WHERE env_type = 'prd'
   AND level = 'critical'
-ORDER BY alert_time DESC
-LIMIT 100;
+ORDER BY alert_time DESC;
 ```
 
 **预期结果：**
@@ -638,16 +635,16 @@ ORDER BY total_cost_time DESC;
 
 | business_domain | total_cost_time |
 |-----------------|-----------------|
-| 交易平台 | (需计算) |
-| 算法平台 | (需计算) |
-| 无线平台 | (需计算) |
-| 供应链平台 | (需计算) |
-| 汇金平台 | (需计算) |
-| 国际技术 | (需计算) |
-| 数据平台 | (需计算) |
-| 中间件平台 | (需计算) |
-| 效率工程 | (需计算) |
-| 社区技术 | (需计算) |
+| 交易平台 | 1330.63 |
+| 算法平台 | 1205.66 |
+| 无线平台 | 1137.17 |
+| 供应链平台 | 978.05 |
+| 汇金平台 | 945.27 |
+| 国际技术 | 816.42 |
+| 数据平台 | 622.31 |
+| 中间件平台 | 571.43 |
+| 效率工程 | 445.11 |
+| 社区技术 | 424.21 |
 
 **评判要点：**
 - 必须使用 `SUM(cost_time)`
@@ -674,7 +671,7 @@ ORDER BY month ASC;
 
 **预期结果：**
 - 应返回 4 行（2024年5-8月，数据范围）
-- 每月成本时间不等
+- 每月成本时间：5月 797.00，6月 926.00，7月 833.82，8月 405.45
 
 **评判要点：**
 - 数据范围是 2024-05-01 到 2024-08-26
@@ -841,7 +838,7 @@ LIMIT 10;
 
 **自然语言问题：**
 ```
-统计 2024 年 6 月每天的审计记录数量，按日期升序排列。
+统计 2024 年 12 月每天的审计记录数量，按日期升序排列。
 ```
 
 **参考答案 SQL：**
@@ -849,14 +846,14 @@ LIMIT 10;
 SELECT DATE(create_time) AS audit_date,
        COUNT(*) AS audit_count
 FROM order_audit_record
-WHERE create_time >= '2024-06-01'
-  AND create_time < '2024-07-01'
+WHERE create_time >= '2024-12-01'
+  AND create_time < '2025-01-01'
 GROUP BY DATE(create_time)
 ORDER BY audit_date ASC;
 ```
 
 **预期结果：**
-- 应返回 30 行（2024年6月1-30日）
+- 应返回多行（2024年12月中有审计数据的日期）
 - 每天审计记录数量不等
 
 **评判要点：**
@@ -881,17 +878,16 @@ ORDER BY audit_date ASC;
 ```sql
 SELECT id, realname, email, feishu_name
 FROM account
-WHERE role = '0'
-ORDER BY id ASC
-LIMIT 100;
+WHERE role = 0
+ORDER BY id ASC;
 ```
 
 **预期结果：**
-- 应返回多条记录
-- 所有行的 role 都是 '0'
+- 应返回 53993 行（role=0 的用户）
+- 所有行的 role 都是 0
 
 **评判要点：**
-- 必须使用 `role = '0'`
+- 必须使用 `role = 0`（role 字段为 INT 类型，不要用字符串）
 - 排序方向为 ASC
 
 ---
@@ -937,12 +933,13 @@ ORDER BY user_count DESC;
 SELECT o.id, o.order_type, o.committer_name, a.email
 FROM order_record o
 LEFT JOIN account a ON o.committer_id = a.feishu_user_id
-ORDER BY o.create_time DESC
-LIMIT 100;
+ORDER BY o.create_time DESC;
 ```
 
+> **注意**：两表关联字段可能存在字符集排序规则（collation）不一致的问题（utf8mb4_general_ci vs utf8mb4_0900_ai_ci），生产环境若报错需使用 COLLATE 子句统一排序规则。
+
 **预期结果：**
-- 应返回多条记录
+- 应返回 1174 行
 - 包含工单和提交人信息
 
 **评判要点：**
@@ -964,8 +961,7 @@ LIMIT 100;
 SELECT o.id, o.order_type, o.status_desc, w.status_desc AS workflow_status
 FROM order_record o
 LEFT JOIN workflow_instance w ON o.id = w.order_id
-ORDER BY o.create_time DESC
-LIMIT 100;
+ORDER BY o.create_time DESC;
 ```
 
 **预期结果：**
@@ -1068,24 +1064,24 @@ ORDER BY finish_rate DESC;
 
 **自然语言问题：**
 ```
-对比 2024 年 6 月和 7 月每天的告警数量，返回日期、6月告警数、7月告警数。
+对比 2024 年 4 月和 5 月每天的告警数量，返回日期、4月告警数、5月告警数。
 ```
 
 **参考答案 SQL：**
 ```sql
 SELECT
     DATE(alert_time) AS alert_date,
-    SUM(CASE WHEN MONTH(alert_time) = 6 THEN 1 ELSE 0 END) AS june_count,
-    SUM(CASE WHEN MONTH(alert_time) = 7 THEN 1 ELSE 0 END) AS july_count
+    SUM(CASE WHEN MONTH(alert_time) = 4 THEN 1 ELSE 0 END) AS april_count,
+    SUM(CASE WHEN MONTH(alert_time) = 5 THEN 1 ELSE 0 END) AS may_count
 FROM db_alert_history
-WHERE alert_time >= '2024-06-01'
-  AND alert_time < '2024-08-01'
+WHERE alert_time >= '2024-04-01'
+  AND alert_time < '2024-06-01'
 GROUP BY DATE(alert_time)
 ORDER BY alert_date;
 ```
 
 **预期结果：**
-- 应返回 61 行（6月30天 + 7月31天）
+- 应返回多行（4月和5月中有告警数据的日期）
 - 包含两个月的告警数量对比
 
 **评判要点：**
@@ -1098,7 +1094,7 @@ ORDER BY alert_date;
 
 **自然语言问题：**
 ```
-统计每位DBA负责的业务域的告警数量，返回DBA姓名、业务域、告警数量，按告警数量降序排列前 20 名。
+统计每位DBA负责的业务域的告警数量，返回DBA标识、业务域、告警数量，按告警数量降序排列前 20 名。
 ```
 
 **参考答案 SQL：**
@@ -1114,6 +1110,7 @@ LIMIT 20;
 
 **预期结果：**
 - 应返回 20 行
+- dba_owner 字段存储的是飞书 Open ID（如 `ou_54489165d3060111cbf8956a7c8c76b0`），非中文姓名
 - 按告警数量降序排列
 
 **评判要点：**
@@ -1163,7 +1160,7 @@ ORDER BY order_type, order_count DESC;
 | TC-007 | Easy | 单表过滤 | db_alert_history | level 枚举 |
 | TC-008 | Easy | 聚合 | db_alert_history | GROUP BY + COUNT |
 | TC-009 | Medium | 聚合 | db_alert_history | GROUP BY + LIMIT |
-| TC-010 | Medium | 时间窗口 | db_alert_history | DATE 函数 |
+| TC-010 | Medium | 时间窗口 | db_alert_history | DATE 函数 (8月数据) |
 | TC-011 | Medium | 多条件过滤 | db_alert_history | 多条件 AND |
 | TC-012 | Medium | 聚合 | db_alert_history | namespace 聚合 |
 | TC-013 | Medium | 聚合 | effect_dba_domain_cost_v2 | SUM 聚合 |
@@ -1173,15 +1170,15 @@ ORDER BY order_type, order_count DESC;
 | TC-017 | Easy | 单表过滤 | effect_daily_work_v2 | work_type 枚举 |
 | TC-018 | Easy | 聚合 | effect_daily_work_v2 | GROUP BY + COUNT |
 | TC-019 | Medium | 聚合 | order_audit_record | sql_type 聚合 |
-| TC-020 | Medium | 时间窗口 | order_audit_record | DATE 函数 |
-| TC-021 | Easy | 单表过滤 | account | role 枚举 |
+| TC-020 | Medium | 时间窗口 | order_audit_record | DATE 函数 (12月数据) |
+| TC-021 | Easy | 单表过滤 | account | role 枚举（INT类型） |
 | TC-022 | Easy | 聚合 | account | GROUP BY + COUNT |
-| TC-023 | Medium | JOIN | order_record + account | LEFT JOIN |
+| TC-023 | Medium | JOIN | order_record + account | LEFT JOIN (collation注意) |
 | TC-024 | Medium | JOIN | order_record + workflow_instance | LEFT JOIN |
-| TC-025 | Medium | 子查询 | db_alert_history | DISTINCT |
+| TC-025 | Medium | 去重查询 | db_alert_history | DISTINCT |
 | TC-026 | Hard | 窗口函数 | db_alert_history | ROW_NUMBER |
 | TC-027 | Hard | 派生指标 | order_record | CASE WHEN |
-| TC-028 | Hard | 时间窗口 | db_alert_history | CASE WHEN + 月份对比 |
+| TC-028 | Hard | 时间窗口 | db_alert_history | CASE WHEN + 月份对比 (4-5月) |
 | TC-029 | Hard | 复合查询 | db_alert_history | 多字段 GROUP BY |
 | TC-030 | Hard | 复合查询 | order_record | 交叉分析 |
 
@@ -1200,7 +1197,7 @@ ORDER BY order_type, order_count DESC;
 
 参考SQL：
 ```sql
-SELECT id, committer_name, status_desc, create_time FROM order_record WHERE order_type = 'dataChange' ORDER BY create_time DESC LIMIT 100;
+SELECT id, committer_name, status_desc, create_time FROM order_record WHERE order_type = 'dataChange' ORDER BY create_time DESC;
 ```
 
 ### TC-002
@@ -1272,7 +1269,7 @@ SELECT committer_name, COUNT(*) AS order_count FROM order_record WHERE create_ti
 
 参考SQL：
 ```sql
-SELECT id, db_instance_id, metric_name, alert_time FROM db_alert_history WHERE level = 'critical' ORDER BY alert_time DESC LIMIT 100;
+SELECT id, db_instance_id, metric_name, alert_time FROM db_alert_history WHERE level = 'critical' ORDER BY alert_time DESC;
 ```
 
 ### TC-008
@@ -1303,12 +1300,12 @@ SELECT metric_name, COUNT(*) AS alert_count FROM db_alert_history GROUP BY metri
 
 问题：
 ```
-统计 2024 年 6 月每天的告警数量，按日期升序排列。
+统计 2024 年 8 月每天的告警数量，按日期升序排列。
 ```
 
 参考SQL：
 ```sql
-SELECT DATE(alert_time) AS alert_date, COUNT(*) AS alert_count FROM db_alert_history WHERE alert_time >= '2024-06-01' AND alert_time < '2024-07-01' GROUP BY DATE(alert_time) ORDER BY alert_date ASC;
+SELECT DATE(alert_time) AS alert_date, COUNT(*) AS alert_count FROM db_alert_history WHERE alert_time >= '2024-08-01' AND alert_time < '2024-09-01' GROUP BY DATE(alert_time) ORDER BY alert_date ASC;
 ```
 
 ### TC-011
@@ -1320,7 +1317,7 @@ SELECT DATE(alert_time) AS alert_date, COUNT(*) AS alert_count FROM db_alert_his
 
 参考SQL：
 ```sql
-SELECT db_instance_id, metric_name, cur_value, alert_time FROM db_alert_history WHERE env_type = 'prd' AND level = 'critical' ORDER BY alert_time DESC LIMIT 100;
+SELECT db_instance_id, metric_name, cur_value, alert_time FROM db_alert_history WHERE env_type = 'prd' AND level = 'critical' ORDER BY alert_time DESC;
 ```
 
 ### TC-012
@@ -1423,12 +1420,12 @@ SELECT sql_type, COUNT(*) AS sql_count FROM order_audit_record GROUP BY sql_type
 
 问题：
 ```
-统计 2024 年 6 月每天的审计记录数量，按日期升序排列。
+统计 2024 年 12 月每天的审计记录数量，按日期升序排列。
 ```
 
 参考SQL：
 ```sql
-SELECT DATE(create_time) AS audit_date, COUNT(*) AS audit_count FROM order_audit_record WHERE create_time >= '2024-06-01' AND create_time < '2024-07-01' GROUP BY DATE(create_time) ORDER BY audit_date ASC;
+SELECT DATE(create_time) AS audit_date, COUNT(*) AS audit_count FROM order_audit_record WHERE create_time >= '2024-12-01' AND create_time < '2025-01-01' GROUP BY DATE(create_time) ORDER BY audit_date ASC;
 ```
 
 ### TC-021
@@ -1440,7 +1437,7 @@ SELECT DATE(create_time) AS audit_date, COUNT(*) AS audit_count FROM order_audit
 
 参考SQL：
 ```sql
-SELECT id, realname, email, feishu_name FROM account WHERE role = '0' ORDER BY id ASC LIMIT 100;
+SELECT id, realname, email, feishu_name FROM account WHERE role = 0 ORDER BY id ASC;
 ```
 
 ### TC-022
@@ -1464,7 +1461,7 @@ SELECT role, COUNT(*) AS user_count FROM account GROUP BY role ORDER BY user_cou
 
 参考SQL：
 ```sql
-SELECT o.id, o.order_type, o.committer_name, a.email FROM order_record o LEFT JOIN account a ON o.committer_id = a.feishu_user_id ORDER BY o.create_time DESC LIMIT 100;
+SELECT o.id, o.order_type, o.committer_name, a.email FROM order_record o LEFT JOIN account a ON o.committer_id = a.feishu_user_id ORDER BY o.create_time DESC;
 ```
 
 ### TC-024
@@ -1476,7 +1473,7 @@ SELECT o.id, o.order_type, o.committer_name, a.email FROM order_record o LEFT JO
 
 参考SQL：
 ```sql
-SELECT o.id, o.order_type, o.status_desc, w.status_desc AS workflow_status FROM order_record o LEFT JOIN workflow_instance w ON o.id = w.order_id ORDER BY o.create_time DESC LIMIT 100;
+SELECT o.id, o.order_type, o.status_desc, w.status_desc AS workflow_status FROM order_record o LEFT JOIN workflow_instance w ON o.id = w.order_id ORDER BY o.create_time DESC;
 ```
 
 ### TC-025
@@ -1519,19 +1516,19 @@ SELECT order_type, COUNT(*) AS total_count, SUM(CASE WHEN is_finished = 1 THEN 1
 
 问题：
 ```
-对比 2024 年 6 月和 7 月每天的告警数量，返回日期、6月告警数、7月告警数。
+对比 2024 年 4 月和 5 月每天的告警数量，返回日期、4月告警数、5月告警数。
 ```
 
 参考SQL：
 ```sql
-SELECT DATE(alert_time) AS alert_date, SUM(CASE WHEN MONTH(alert_time) = 6 THEN 1 ELSE 0 END) AS june_count, SUM(CASE WHEN MONTH(alert_time) = 7 THEN 1 ELSE 0 END) AS july_count FROM db_alert_history WHERE alert_time >= '2024-06-01' AND alert_time < '2024-08-01' GROUP BY DATE(alert_time) ORDER BY alert_date;
+SELECT DATE(alert_time) AS alert_date, SUM(CASE WHEN MONTH(alert_time) = 4 THEN 1 ELSE 0 END) AS april_count, SUM(CASE WHEN MONTH(alert_time) = 5 THEN 1 ELSE 0 END) AS may_count FROM db_alert_history WHERE alert_time >= '2024-04-01' AND alert_time < '2024-06-01' GROUP BY DATE(alert_time) ORDER BY alert_date;
 ```
 
 ### TC-029
 
 问题：
 ```
-统计每位DBA负责的业务域的告警数量，返回DBA姓名、业务域、告警数量，按告警数量降序排列前 20 名。
+统计每位DBA负责的业务域的告警数量，返回DBA标识、业务域、告警数量，按告警数量降序排列前 20 名。
 ```
 
 参考SQL：
