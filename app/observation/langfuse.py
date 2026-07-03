@@ -67,20 +67,27 @@ class TraceMetrics:
         }
 
 
+_langfuse_client = None
+
+
 def _get_langfuse_client():
-    """获取 Langfuse 客户端（懒初始化）"""
+    """获取 Langfuse 客户端（懒初始化 + 缓存，全局复用同一个实例）"""
+    global _langfuse_client
+    if _langfuse_client is not None:
+        return _langfuse_client
+
     settings = get_settings()
     if not settings.langfuse_enabled:
         return None
     try:
         from langfuse import Langfuse
 
-        client = Langfuse(
+        _langfuse_client = Langfuse(
             public_key=settings.langfuse_public_key,
             secret_key=settings.langfuse_secret_key,
             host=settings.langfuse_host,
         )
-        return client
+        return _langfuse_client
     except ImportError as e:
         print(f"[Langfuse] ImportError: {e}")
         return None

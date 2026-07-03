@@ -117,7 +117,7 @@ def _build_sdk_mcp_server():
             env_type=args.get("env_type", "test"),
         )
         _push_tool_result("list_databases", result)
-        print(f"list_databases_sdk: keyword='{args.get('keyword', '')}' env_type='{args.get('env_type', 'test')}' result={(result)}")
+        # print(f"list_databases_sdk: keyword='{args.get('keyword', '')}' env_type='{args.get('env_type', 'test')}' result={(result)}")
         return {"content": [{"type": "text", "text": result}]}
 
     @tool("select_database", "选择当前数据库", {
@@ -140,7 +140,7 @@ def _build_sdk_mcp_server():
             keyword=args.get("keyword", ""),
         )
         _push_tool_result("list_tables", result)
-        print(f"list_tables_sdk: schema_id={args['schema_id']} keyword='{args.get('keyword', '')}' result={(result)}")
+        # print(f"list_tables_sdk: schema_id={args['schema_id']} keyword='{args.get('keyword', '')}' result={(result)}")
         return {"content": [{"type": "text", "text": result}]}
 
     @tool("describe_table", "查看表结构（字段名、类型等）", {
@@ -407,19 +407,14 @@ async def _run_with_openai_fallback(
 
         # 如果 LLM 决定调用工具
         if message.tool_calls:
-            # 添加助手消息（含工具调用）
+            # 添加助手消息（含工具调用）。
+            # 使用 model_dump() 保留 DeepSeek 返回的 signature 等额外字段，
+            # 否则下一轮 LLM 调用会报 "Missing required field: 'signature'"。
             messages.append({
                 "role": "assistant",
                 "content": message.content or "",
                 "tool_calls": [
-                    {
-                        "id": tc.id,
-                        "type": "function",
-                        "function": {
-                            "name": tc.function.name,
-                            "arguments": tc.function.arguments,
-                        },
-                    }
+                    tc.model_dump()
                     for tc in message.tool_calls
                 ],
             })
@@ -545,15 +540,16 @@ async def run_agent_stream(
     # 4. 选择执行引擎
     # 优先使用 SDK 模式（需在 DBR conda 环境中运行，且 claude-agent-sdk 已安装）。
     # 可通过环境变量 AGENT_ENGINE=fallback 强制使用 OpenAI fallback 模式。
-    # import os
-    # engine_mode = os.environ.get("AGENT_ENGINE", "sdk")
-    engine_mode = "sdk"  # 默认使用 SDK 模式
-    if engine_mode == "sdk" and _is_sdk_available():
+    # 默认使用 SDK 模式。SDK 不可用时直接报错，不再 fallback 到 OpenAI。
+    if _is_sdk_available():
         event_stream = _run_with_sdk(full_prompt, tool_schemas)
     else:
-        if engine_mode == "sdk":
-            print("[SDK Agent] claude-agent-sdk 不可用，使用 OpenAI fallback 模式")
-        event_stream = _run_with_openai_fallback(full_prompt, tool_schemas)
+        raise RuntimeError(
+            "claude-agent-sdk 不可用，无法执行 Agent。"
+            "请确认已安装 claude-agent-sdk 并处于正确的 conda 环境中。"
+        )
+    
+    print("working...")
 
     final_response = ""
     final_stats: dict[str, Any] = {}

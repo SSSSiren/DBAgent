@@ -1,0 +1,2466 @@
+{
+  "generated_at": "2026-07-03T01:20:38.862069",
+  "schema_id": 65938636,
+  "total_cases": 30,
+  "passed_cases": 14,
+  "failed_cases": 13,
+  "error_cases": 3,
+  "overall_pass_rate": 0.4666666666666667,
+  "average_score": 0.5575633333333333,
+  "average_latency_ms": 64866.73333333333,
+  "average_tool_calls": 3.4,
+  "average_turns": 7.433333333333334,
+  "average_tokens": 22808.733333333334,
+  "dimension_averages": {
+    "sql_syntax": 0.5617375070315749,
+    "table_column": 0.5617375070315749,
+    "filter_condition": 0.5617375070315749,
+    "result_data": 0.5617375070315749,
+    "sql_standard": 0.52
+  },
+  "case_results": [
+    {
+      "test_case": {
+        "case_id": "TC-001",
+        "difficulty": "Easy",
+        "question": "查询所有数据变更类型的工单，返回工单ID、提交人、状态和创建时间，按创建时间降序。",
+        "reference_sql": "SELECT id, committer_name, status_desc, create_time\nFROM order_record\nWHERE order_type = 'dataChange'\nORDER BY create_time DESC;",
+        "expected_row_count": 354,
+        "category": "单表过滤",
+        "tables": [
+          "order_record"
+        ],
+        "judging_criteria": [
+          "必须使用 `order_type = 'dataChange'`，不能写错枚举值",
+          "排序方向为 DESC",
+          "不能出现 `SELECT *`"
+        ]
+      },
+      "started_at": "2026-07-02T22:14:28.038546",
+      "completed_at": "2026-07-02T22:15:13.872119",
+      "duration_ms": 45875,
+      "agent_response": "请选择一个选项，我好继续查询。",
+      "generated_sqls": [
+        "SELECT DISTINCT order_type, COUNT(*) AS cnt FROM order_record GROUP BY order_type ORDER BY cnt DESC"
+      ],
+      "tool_calls": [
+        {
+          "tool": "list_tables",
+          "args": {}
+        },
+        {
+          "tool": "describe_table",
+          "args": {}
+        },
+        {
+          "tool": "execute_sql",
+          "args": {}
+        },
+        {
+          "tool": "ask_user",
+          "args": {}
+        }
+      ],
+      "sql_judge": {
+        "tier": 3,
+        "passed": false,
+        "score": 0.3282485875706215,
+        "generated_sql": "SELECT DISTINCT order_type, COUNT(*) AS cnt FROM order_record GROUP BY order_type ORDER BY cnt DESC",
+        "reference_sql": "SELECT id, committer_name, status_desc, create_time\nFROM order_record\nWHERE order_type = 'dataChange'\nORDER BY create_time DESC;",
+        "generated_row_count": 20,
+        "reference_row_count": 354,
+        "diff_summary": "行数不一致：生成=20, 参考=354",
+        "llm_judge_explanation": "生成SQL查询的是每种工单类型的数量，而参考SQL查询的是所有数据变更类型的工单详情，两者语义完全不同。"
+      },
+      "quality_judge": {
+        "score": 0.0,
+        "completeness": 0.0,
+        "accuracy": 0.0,
+        "clarity": 0.0,
+        "sql_transparency": 0.0,
+        "explanation": "Agent 回复未回答用户问题，而是要求用户选择选项，完全未提供任何查询结果或SQL信息，所有维度均为0分。"
+      },
+      "efficiency": {
+        "tool_call_count": 4,
+        "tool_call_details": {
+          "list_tables": 1,
+          "describe_table": 1,
+          "execute_sql": 1,
+          "ask_user": 1
+        },
+        "turns": 9,
+        "total_tokens": 22861,
+        "latency_ms": 42176,
+        "score": 0.7921
+      },
+      "dimensions": {
+        "sql_syntax": 0.3282485875706215,
+        "table_column": 0.3282485875706215,
+        "filter_condition": 0.3282485875706215,
+        "result_data": 0.3282485875706215,
+        "sql_standard": 0.7
+      },
+      "overall_score": 0.3654,
+      "passed": false,
+      "error": null
+    },
+    {
+      "test_case": {
+        "case_id": "TC-002",
+        "difficulty": "Easy",
+        "question": "查询所有已完成的工单数量。",
+        "reference_sql": "SELECT COUNT(*) AS finished_count\nFROM order_record\nWHERE is_finished = 1;",
+        "expected_row_count": 762,
+        "category": "单表过滤",
+        "tables": [
+          "order_record"
+        ],
+        "judging_criteria": [
+          "必须使用 `is_finished = 1`，不能写 `is_finished = 'true'` 或 `is_finished = 'yes'`",
+          "结果是单个数值"
+        ]
+      },
+      "started_at": "2026-07-02T22:15:17.021081",
+      "completed_at": "2026-07-02T22:15:53.038568",
+      "duration_ms": 36022,
+      "agent_response": "## 查询结果\n\n在 `order_record`（工单主表）中，**已完成的工单总数为 762 条**。\n\n执行的 SQL：\n\n```sql\nSELECT COUNT(*) AS finished_order_count \nFROM order_record \nWHERE is_finished = 1\n```\n\n| finished_order_count |\n| -------------------- |\n| 762                  |\n\n> 说明：`is_finished` 字段为 `1` 表示工单已完成，`0` 表示未完成。如需按工单类型、时间范围等条件进一步细分，请告诉我。",
+      "generated_sqls": [
+        "SELECT COUNT(*) AS finished_order_count FROM order_record WHERE is_finished = 1 LIMIT 200"
+      ],
+      "tool_calls": [
+        {
+          "tool": "list_tables",
+          "args": {}
+        },
+        {
+          "tool": "describe_table",
+          "args": {}
+        },
+        {
+          "tool": "query_database",
+          "args": {}
+        }
+      ],
+      "sql_judge": {
+        "tier": 2,
+        "passed": true,
+        "score": 1.0,
+        "generated_sql": "SELECT COUNT(*) AS finished_order_count FROM order_record WHERE is_finished = 1 LIMIT 200",
+        "reference_sql": "SELECT COUNT(*) AS finished_count\nFROM order_record\nWHERE is_finished = 1;",
+        "generated_row_count": 1,
+        "reference_row_count": 1,
+        "diff_summary": "结果数据完全一致",
+        "llm_judge_explanation": null
+      },
+      "quality_judge": {
+        "score": 1.0,
+        "completeness": 1.0,
+        "accuracy": 1.0,
+        "clarity": 1.0,
+        "sql_transparency": 1.0,
+        "explanation": "回答完整覆盖了用户问题，准确给出了已完工单数量，结构清晰，使用了Markdown表格和代码块，并展示了实际执行的SQL语句。"
+      },
+      "efficiency": {
+        "tool_call_count": 3,
+        "tool_call_details": {
+          "list_tables": 1,
+          "describe_table": 1,
+          "query_database": 1
+        },
+        "turns": 8,
+        "total_tokens": 16457,
+        "latency_ms": 34358,
+        "score": 0.826
+      },
+      "dimensions": {
+        "sql_syntax": 1.0,
+        "table_column": 1.0,
+        "filter_condition": 1.0,
+        "result_data": 1.0,
+        "sql_standard": 1.0
+      },
+      "overall_score": 1.0,
+      "passed": true,
+      "error": null
+    },
+    {
+      "test_case": {
+        "case_id": "TC-003",
+        "difficulty": "Easy",
+        "question": "统计每种工单类型的数量，按数量降序排列。",
+        "reference_sql": "SELECT order_type, COUNT(*) AS order_count\nFROM order_record\nGROUP BY order_type\nORDER BY order_count DESC;",
+        "expected_row_count": null,
+        "category": "聚合",
+        "tables": [
+          "order_record"
+        ],
+        "judging_criteria": [
+          "必须使用 `GROUP BY` 和 `COUNT`",
+          "排序方向为 DESC",
+          "总计 1174 条工单"
+        ]
+      },
+      "started_at": "2026-07-02T22:15:54.727464",
+      "completed_at": "2026-07-02T22:16:42.248622",
+      "duration_ms": 47522,
+      "agent_response": "查询结果如下，已按工单类型数量降序排列：\n\n**执行 SQL：**\n```sql\nSELECT order_type, COUNT(*) AS cnt \nFROM order_record \nGROUP BY order_type \nORDER BY cnt DESC\n```\n\n**查询结果：**\n\n| 序号 | 工单类型 | 数量 |\n| --- | --- | --- |\n| 1 | dataChange | 354 |\n| 2 | permission | 130 |\n| 3 | createInstance | 99 |\n| 4 | structureSync | 89 |\n| 5 | structureDesign | 69 |\n| 6 | createDatabase | 64 |\n| 7 | appendWhitelist | 51 |\n| 8 | dataExport | 50 |\n| 9 | other | 48 |\n| 10 | dataChangeChunk | 35 |\n| 11 | configChange | 32 |\n| 12 | dataArchive | 29 |\n| 13 | offlineInstance | 27 |\n| 14 | dataClean | 25 |\n| 15 | dataQuery | 24 |\n| 16 | clearKey | 17 |\n| 17 | parameterChange | 11 |\n| 18 | userRoleApply | 8 |\n| 19 | passwordApply | 6 |\n| 20 | decryptApply | 6 |\n\n共 **20 种工单类型**，总计 **1,174 条工单**。其中 **dataChange（数据变更）** 数量最多，占 354 条，远超其他类型；其次是 **permission（权限申请）** 130 条和 **createInstance（创建实例）** 99 条。",
+      "generated_sqls": [
+        "SELECT order_type, COUNT(*) AS cnt FROM order_record GROUP BY order_type ORDER BY cnt DESC"
+      ],
+      "tool_calls": [
+        {
+          "tool": "list_tables",
+          "args": {}
+        },
+        {
+          "tool": "describe_table",
+          "args": {}
+        },
+        {
+          "tool": "query_database",
+          "args": {}
+        },
+        {
+          "tool": "execute_sql",
+          "args": {}
+        }
+      ],
+      "sql_judge": {
+        "tier": 2,
+        "passed": true,
+        "score": 1.0,
+        "generated_sql": "SELECT order_type, COUNT(*) AS cnt FROM order_record GROUP BY order_type ORDER BY cnt DESC",
+        "reference_sql": "SELECT order_type, COUNT(*) AS order_count\nFROM order_record\nGROUP BY order_type\nORDER BY order_count DESC;",
+        "generated_row_count": 20,
+        "reference_row_count": 20,
+        "diff_summary": "结果数据完全一致",
+        "llm_judge_explanation": null
+      },
+      "quality_judge": {
+        "score": 1.0,
+        "completeness": 1.0,
+        "accuracy": 1.0,
+        "clarity": 1.0,
+        "sql_transparency": 1.0,
+        "explanation": "回答完整覆盖了用户问题，展示了SQL语句，结果清晰准确，格式良好。"
+      },
+      "efficiency": {
+        "tool_call_count": 4,
+        "tool_call_details": {
+          "list_tables": 1,
+          "describe_table": 1,
+          "query_database": 1,
+          "execute_sql": 1
+        },
+        "turns": 9,
+        "total_tokens": 22268,
+        "latency_ms": 46293,
+        "score": 0.7881
+      },
+      "dimensions": {
+        "sql_syntax": 1.0,
+        "table_column": 1.0,
+        "filter_condition": 1.0,
+        "result_data": 1.0,
+        "sql_standard": 0.7
+      },
+      "overall_score": 0.97,
+      "passed": true,
+      "error": null
+    },
+    {
+      "test_case": {
+        "case_id": "TC-004",
+        "difficulty": "Easy",
+        "question": "统计每种工单状态的数量，按数量降序排列。",
+        "reference_sql": "SELECT status_code, status_desc, COUNT(*) AS order_count\nFROM order_record\nGROUP BY status_code, status_desc\nORDER BY order_count DESC;",
+        "expected_row_count": null,
+        "category": "聚合",
+        "tables": [
+          "order_record"
+        ],
+        "judging_criteria": [
+          "必须使用 `GROUP BY` 和 `COUNT`",
+          "注意 status_code 和 status_desc 需要一起 GROUP BY"
+        ]
+      },
+      "started_at": "2026-07-02T22:16:43.789868",
+      "completed_at": "2026-07-02T22:17:40.485250",
+      "duration_ms": 56696,
+      "agent_response": "查询完成！以下是 `order_record` 表按状态统计的结果。由于 `status_desc` 存在多种变体，我按 **status_code** 汇总后按数量降序排列：\n\n## 📊 工单状态统计（按 status_code 汇总）\n\n| 排名 | status_code | 总数 | 说明 |\n|:---:|:---|:---:|:---|\n| 1 | **closed** | 336 | 工单关闭（含系统关闭、审批撤销、手动关闭等） |\n| 2 | **successful** | 237 | 执行成功 |\n| 3 | **waitingApprove** | 184 | 工单审批中 |\n| 4 | **canceled** | 127 | 已撤销 |\n| 5 | **failed** | 44 | 执行失败 |\n| 6 | **processing** | 39 | 执行中 |\n| 7 | **rejected** | 37 | 审批被拒绝 |\n| 8 | **waitingProcess** | 35 | 等待执行 |\n| 9 | **completed** | 28 | 工单完成 |\n| 10 | **new** | 20 | 新建工单 |\n| 11 | **skipApprove** | 20 | 免审批 |\n| 12 | **preCheckFail** | 17 | 预检查失败 |\n| 13 | **approved** | 13 | 审批通过 |\n| 14 | **waitingSubmitApprove** | 10 | 待提交审批 |\n| 15 | **waitingSubmitProcess** | 7 | 等待提交执行 |\n| 16 | **waitingDispatch** | 6 | 等待调度 |\n| 17 | **preChecking** | 5 | 预检查中 |\n\n---\n\n### 📝 执行 SQL\n\n```sql\nSELECT status_code, status_desc, COUNT(*) AS cnt \nFROM order_record \nGROUP BY status_code, status_desc \nORDER BY cnt DESC\n```\n\n### 🔍 关键发现\n\n- 工单总计 **1,148** 条，其中 **closed（关闭）** 和 **successful（成功）** 两类合计占比约 **50%**，说明大部分工单都能正常走完流程。\n- 仍有 **44 条执行失败** 和 **37 条被拒绝**，占比约 7%，属于需要关注的问题工单。\n- `status_desc` 中 `closed` 状态的描述变体最多（33 种），多为测试/手动关闭的备注，说明该字段包含操作人自定义的描述信息，如果需要更精确的统计，建议以 `status_code` 为准。",
+      "generated_sqls": [
+        "SELECT status_code, status_desc, COUNT(*) AS cnt FROM order_record GROUP BY status_code, status_desc ORDER BY cnt DESC"
+      ],
+      "tool_calls": [
+        {
+          "tool": "list_tables",
+          "args": {}
+        },
+        {
+          "tool": "describe_table",
+          "args": {}
+        },
+        {
+          "tool": "query_database",
+          "args": {}
+        },
+        {
+          "tool": "execute_sql",
+          "args": {}
+        }
+      ],
+      "sql_judge": {
+        "tier": 2,
+        "passed": true,
+        "score": 1.0,
+        "generated_sql": "SELECT status_code, status_desc, COUNT(*) AS cnt FROM order_record GROUP BY status_code, status_desc ORDER BY cnt DESC",
+        "reference_sql": "SELECT status_code, status_desc, COUNT(*) AS order_count\nFROM order_record\nGROUP BY status_code, status_desc\nORDER BY order_count DESC;",
+        "generated_row_count": 62,
+        "reference_row_count": 62,
+        "diff_summary": "结果数据完全一致",
+        "llm_judge_explanation": null
+      },
+      "quality_judge": {
+        "score": 0.975,
+        "completeness": 0.9,
+        "accuracy": 1.0,
+        "clarity": 1.0,
+        "sql_transparency": 1.0,
+        "explanation": "回答完整覆盖了用户问题，按数量降序排列展示了每种工单状态的数量，并提供了额外分析。SQL语句正确，但实际执行的SQL与参考SQL略有不同（使用了别名cnt而非order_count），不影响准确性。清晰度很高，使用了Markdown表格和分段。SQL透明度满分，展示了实际执行的SQL。"
+      },
+      "efficiency": {
+        "tool_call_count": 4,
+        "tool_call_details": {
+          "list_tables": 1,
+          "describe_table": 1,
+          "query_database": 1,
+          "execute_sql": 1
+        },
+        "turns": 8,
+        "total_tokens": 22177,
+        "latency_ms": 55496,
+        "score": 0.7911
+      },
+      "dimensions": {
+        "sql_syntax": 1.0,
+        "table_column": 1.0,
+        "filter_condition": 1.0,
+        "result_data": 1.0,
+        "sql_standard": 0.7
+      },
+      "overall_score": 0.97,
+      "passed": true,
+      "error": null
+    },
+    {
+      "test_case": {
+        "case_id": "TC-005",
+        "difficulty": "Medium",
+        "question": "统计 2024 年每月创建的工单数量，按月份升序排列。",
+        "reference_sql": "SELECT DATE_FORMAT(create_time, '%Y-%m') AS month,\n       COUNT(*) AS order_count\nFROM order_record\nWHERE create_time >= '2024-01-01'\n  AND create_time < '2025-01-01'\nGROUP BY DATE_FORMAT(create_time, '%Y-%m')\nORDER BY month ASC;",
+        "expected_row_count": 12,
+        "category": "时间窗口",
+        "tables": [
+          "order_record"
+        ],
+        "judging_criteria": [
+          "必须使用 `DATE_FORMAT` 提取年月",
+          "时间范围过滤使用 `>=` 和 `<` 模式",
+          "排序方向为 ASC"
+        ]
+      },
+      "started_at": "2026-07-02T22:17:42.643671",
+      "completed_at": "2026-07-02T22:18:29.660435",
+      "duration_ms": 47017,
+      "agent_response": "查询成功！以下是 **2024 年每月工单创建数量**的统计结果：\n\n## 实际执行的 SQL\n\n```sql\nSELECT \n    DATE_FORMAT(create_time, '%Y-%m') AS month,\n    COUNT(*) AS order_count\nFROM order_record\nWHERE create_time >= '2024-01-01' AND create_time < '2025-01-01'\nGROUP BY DATE_FORMAT(create_time, '%Y-%m')\nORDER BY month ASC\n```\n\n## 查询结果\n\n| 月份 | 工单数量 |\n|------|----------|\n| 2024-01 | 43 |\n| 2024-02 | 9 |\n| 2024-03 | 27 |\n| 2024-04 | 11 |\n| 2024-05 | 14 |\n| 2024-06 | 22 |\n| 2024-07 | 8 |\n| 2024-08 | 15 |\n| 2024-09 | 44 |\n| 2024-10 | 54 |\n| 2024-11 | 26 |\n| 2024-12 | 3 |\n\n**全年总计：276 条工单**\n\n## 简要分析\n\n- **高峰月份**：10 月（54 条）、9 月（44 条）、1 月（43 条）是工单创建最多的三个月\n- **低谷月份**：12 月（3 条）、7 月（8 条）、2 月（9 条）工单量较少\n- 下半年整体工单量（150 条）略高于上半年（126 条），但 12 月骤降明显",
+      "generated_sqls": [
+        "SELECT \n    DATE_FORMAT(create_time, '%Y-%m') AS month,\n    COUNT(*) AS order_count\nFROM order_record\nWHERE create_time >= '2024-01-01' AND create_time < '2025-01-01'\nGROUP BY DATE_FORMAT(create_time, '%Y-%m')\nORDER BY month ASC"
+      ],
+      "tool_calls": [
+        {
+          "tool": "list_tables",
+          "args": {}
+        },
+        {
+          "tool": "describe_table",
+          "args": {}
+        },
+        {
+          "tool": "query_database",
+          "args": {}
+        },
+        {
+          "tool": "execute_sql",
+          "args": {}
+        }
+      ],
+      "sql_judge": {
+        "tier": 1,
+        "passed": true,
+        "score": 1.0,
+        "generated_sql": "SELECT \n    DATE_FORMAT(create_time, '%Y-%m') AS month,\n    COUNT(*) AS order_count\nFROM order_record\nWHERE create_time >= '2024-01-01' AND create_time < '2025-01-01'\nGROUP BY DATE_FORMAT(create_time, '%Y-%m')\nORDER BY month ASC",
+        "reference_sql": "SELECT DATE_FORMAT(create_time, '%Y-%m') AS month,\n       COUNT(*) AS order_count\nFROM order_record\nWHERE create_time >= '2024-01-01'\n  AND create_time < '2025-01-01'\nGROUP BY DATE_FORMAT(create_time, '%Y-%m')\nORDER BY month ASC;",
+        "generated_row_count": null,
+        "reference_row_count": null,
+        "diff_summary": "SQL 结构与参考完全一致",
+        "llm_judge_explanation": null
+      },
+      "quality_judge": {
+        "score": 1.0,
+        "completeness": 1.0,
+        "accuracy": 1.0,
+        "clarity": 1.0,
+        "sql_transparency": 1.0,
+        "explanation": "回答完整覆盖了用户问题，SQL 正确，结果清晰展示，并提供了分析，所有维度满分。"
+      },
+      "efficiency": {
+        "tool_call_count": 4,
+        "tool_call_details": {
+          "list_tables": 1,
+          "describe_table": 1,
+          "query_database": 1,
+          "execute_sql": 1
+        },
+        "turns": 8,
+        "total_tokens": 21527,
+        "latency_ms": 45289,
+        "score": 0.8021
+      },
+      "dimensions": {
+        "sql_syntax": 1.0,
+        "table_column": 1.0,
+        "filter_condition": 1.0,
+        "result_data": 1.0,
+        "sql_standard": 0.7
+      },
+      "overall_score": 0.97,
+      "passed": true,
+      "error": null
+    },
+    {
+      "test_case": {
+        "case_id": "TC-006",
+        "difficulty": "Medium",
+        "question": "统计 2024 年每位提交人创建的工单数量，按数量降序排列前 10 名。",
+        "reference_sql": "SELECT committer_name, COUNT(*) AS order_count\nFROM order_record\nWHERE create_time >= '2024-01-01'\n  AND create_time < '2025-01-01'\nGROUP BY committer_name\nORDER BY order_count DESC\nLIMIT 10;",
+        "expected_row_count": 10,
+        "category": "时间窗口",
+        "tables": [
+          "order_record"
+        ],
+        "judging_criteria": [
+          "必须使用 `GROUP BY` 和 `COUNT`",
+          "必须有 `LIMIT 10`",
+          "排序方向为 DESC"
+        ]
+      },
+      "started_at": "2026-07-02T22:18:30.991472",
+      "completed_at": "2026-07-02T22:19:13.843154",
+      "duration_ms": 42852,
+      "agent_response": "查询完成！以下是 **2024 年每位提交人创建的工单数量 Top 10** 结果：\n\n---\n\n**执行 SQL：**\n```sql\nSELECT committer_name AS 提交人, COUNT(*) AS 工单数量\nFROM order_record\nWHERE create_time >= '2024-01-01' AND create_time < '2025-01-01'\nGROUP BY committer_name\nORDER BY 工单数量 DESC\nLIMIT 10\n```\n\n---\n\n**查询结果：**\n\n| 排名 | 提交人 | 工单数量 |\n| --- | --- | --- |\n| 1 | 彭东稳 | 213 |\n| 2 | 张金星 | 27 |\n| 3 | 数据订正平台 | 16 |\n| 4 | 陈浩 | 6 |\n| 5 | onedba | 5 |\n| 6 | 刘星辰 | 4 |\n| 7 | 乔明明 | 2 |\n| 8 | 丁飞 | 2 |\n| 9 | 苏鹏 | 1 |\n\n---\n\n> 📊 **说明：** 2024 年共有 9 位提交人创建了工单（不足 10 名）。其中 **彭东稳** 以 213 个工单遥遥领先，占总数的绝大部分。",
+      "generated_sqls": [
+        "SELECT committer_name AS 提交人, COUNT(*) AS 工单数量\nFROM order_record\nWHERE create_time >= '2024-01-01' AND create_time < '2025-01-01'\nGROUP BY committer_name\nORDER BY 工单数量 DESC\nLIMIT 10"
+      ],
+      "tool_calls": [
+        {
+          "tool": "list_tables",
+          "args": {}
+        },
+        {
+          "tool": "describe_table",
+          "args": {}
+        },
+        {
+          "tool": "query_database",
+          "args": {}
+        },
+        {
+          "tool": "execute_sql",
+          "args": {}
+        }
+      ],
+      "sql_judge": {
+        "tier": 2,
+        "passed": true,
+        "score": 1.0,
+        "generated_sql": "SELECT committer_name AS 提交人, COUNT(*) AS 工单数量\nFROM order_record\nWHERE create_time >= '2024-01-01' AND create_time < '2025-01-01'\nGROUP BY committer_name\nORDER BY 工单数量 DESC\nLIMIT 10",
+        "reference_sql": "SELECT committer_name, COUNT(*) AS order_count\nFROM order_record\nWHERE create_time >= '2024-01-01'\n  AND create_time < '2025-01-01'\nGROUP BY committer_name\nORDER BY order_count DESC\nLIMIT 10;",
+        "generated_row_count": 9,
+        "reference_row_count": 9,
+        "diff_summary": "结果数据完全一致",
+        "llm_judge_explanation": null
+      },
+      "quality_judge": {
+        "score": 1.0,
+        "completeness": 1.0,
+        "accuracy": 1.0,
+        "clarity": 1.0,
+        "sql_transparency": 1.0,
+        "explanation": "回答完整覆盖了用户问题，SQL 正确，结果清晰展示，并附有说明。"
+      },
+      "efficiency": {
+        "tool_call_count": 4,
+        "tool_call_details": {
+          "list_tables": 1,
+          "describe_table": 1,
+          "query_database": 1,
+          "execute_sql": 1
+        },
+        "turns": 6,
+        "total_tokens": 38726,
+        "latency_ms": 41693,
+        "score": 0.8222
+      },
+      "dimensions": {
+        "sql_syntax": 1.0,
+        "table_column": 1.0,
+        "filter_condition": 1.0,
+        "result_data": 1.0,
+        "sql_standard": 1.0
+      },
+      "overall_score": 1.0,
+      "passed": true,
+      "error": null
+    },
+    {
+      "test_case": {
+        "case_id": "TC-007",
+        "difficulty": "Easy",
+        "question": "查询所有严重级别的告警，返回告警ID、实例ID、指标名称和告警时间，按告警时间降序。",
+        "reference_sql": "SELECT id, db_instance_id, metric_name, alert_time\nFROM db_alert_history\nWHERE level = 'critical'\nORDER BY alert_time DESC;",
+        "expected_row_count": 29829,
+        "category": "单表过滤",
+        "tables": [
+          "db_alert_history"
+        ],
+        "judging_criteria": [
+          "必须使用 `level = 'critical'`，不能写 `level = 'error'` 或 `level = 'high'`",
+          "排序方向为 DESC"
+        ]
+      },
+      "started_at": "2026-07-02T22:19:15.479982",
+      "completed_at": "2026-07-02T22:19:49.010510",
+      "duration_ms": 33531,
+      "agent_response": "请选择你想查询的告警表，这样我才能帮你生成精确的查询。",
+      "generated_sqls": [],
+      "tool_calls": [
+        {
+          "tool": "list_tables",
+          "args": {}
+        },
+        {
+          "tool": "describe_table",
+          "args": {}
+        },
+        {
+          "tool": "ask_user",
+          "args": {}
+        }
+      ],
+      "sql_judge": {
+        "tier": 0,
+        "passed": false,
+        "score": 0.0,
+        "generated_sql": "",
+        "reference_sql": "SELECT id, db_instance_id, metric_name, alert_time\nFROM db_alert_history\nWHERE level = 'critical'\nORDER BY alert_time DESC;",
+        "generated_row_count": null,
+        "reference_row_count": null,
+        "diff_summary": "Agent 未生成 SQL",
+        "llm_judge_explanation": null
+      },
+      "quality_judge": {
+        "score": 0.0,
+        "completeness": 0.0,
+        "accuracy": 0.0,
+        "clarity": 0.0,
+        "sql_transparency": 0.0,
+        "explanation": "Agent未回答用户问题，而是要求用户提供更多信息，未提供任何SQL或结果，所有维度均为0分。"
+      },
+      "efficiency": {
+        "tool_call_count": 3,
+        "tool_call_details": {
+          "list_tables": 1,
+          "describe_table": 1,
+          "ask_user": 1
+        },
+        "turns": 9,
+        "total_tokens": 16172,
+        "latency_ms": 31620,
+        "score": 0.8165
+      },
+      "dimensions": {
+        "sql_syntax": 0.0,
+        "table_column": 0.0,
+        "filter_condition": 0.0,
+        "result_data": 0.0,
+        "sql_standard": 0.0
+      },
+      "overall_score": 0.0,
+      "passed": false,
+      "error": null
+    },
+    {
+      "test_case": {
+        "case_id": "TC-008",
+        "difficulty": "Easy",
+        "question": "统计每种告警级别的数量。",
+        "reference_sql": "SELECT level, COUNT(*) AS alert_count\nFROM db_alert_history\nGROUP BY level\nORDER BY alert_count DESC;",
+        "expected_row_count": null,
+        "category": "聚合",
+        "tables": [
+          "db_alert_history"
+        ],
+        "judging_criteria": [
+          "必须使用 `GROUP BY` 和 `COUNT`",
+          "总计 381527 条告警"
+        ]
+      },
+      "started_at": "2026-07-02T22:19:50.354856",
+      "completed_at": "2026-07-02T22:20:16.137620",
+      "duration_ms": 25783,
+      "agent_response": "数据库中有多个告警相关的表，且都包含 `level`（告警级别）字段。请问您想统计哪个表的告警级别数量？\n\n| 表名 | 说明 | level 字段类型 |\n|------|------|---------------|\n| `db_alert_current` | 当前活跃告警 | varchar(20) |\n| `db_alert_record_v2` | 告警记录 v2 | varchar(50) |\n| `db_alert_history` | 历史告警 | varchar(100) |\n| `db_alert_current_history` | 当前告警历史 | — |\n| `db_alert_warn_record_v2` | 告警预警记录 | — |\n| `effect_alert_v2` | 生效告警 | — |\n\n最常用的是 `db_alert_current`（当前告警）、`db_alert_record_v2`（告警记录）和 `db_alert_history`（历史告警）。请问您要统计哪个表？",
+      "generated_sqls": [],
+      "tool_calls": [
+        {
+          "tool": "list_tables",
+          "args": {}
+        },
+        {
+          "tool": "describe_table",
+          "args": {}
+        }
+      ],
+      "sql_judge": {
+        "tier": 0,
+        "passed": false,
+        "score": 0.0,
+        "generated_sql": "",
+        "reference_sql": "SELECT level, COUNT(*) AS alert_count\nFROM db_alert_history\nGROUP BY level\nORDER BY alert_count DESC;",
+        "generated_row_count": null,
+        "reference_row_count": null,
+        "diff_summary": "Agent 未生成 SQL",
+        "llm_judge_explanation": null
+      },
+      "quality_judge": {
+        "score": 0.5,
+        "completeness": 0.3,
+        "accuracy": 0.8,
+        "clarity": 0.9,
+        "sql_transparency": 0.0,
+        "explanation": "Agent 没有直接回答用户问题，而是反问用户选择哪个表，导致回答不完整。准确性方面，提供的表信息基本正确，但部分表缺少 level 字段说明。清晰度较好，使用了表格。未展示任何 SQL 语句，SQL 透明度为 0。"
+      },
+      "efficiency": {
+        "tool_call_count": 2,
+        "tool_call_details": {
+          "list_tables": 1,
+          "describe_table": 1
+        },
+        "turns": 6,
+        "total_tokens": 8573,
+        "latency_ms": 24333,
+        "score": 0.8754
+      },
+      "dimensions": {
+        "sql_syntax": 0.0,
+        "table_column": 0.0,
+        "filter_condition": 0.0,
+        "result_data": 0.0,
+        "sql_standard": 0.0
+      },
+      "overall_score": 0.0,
+      "passed": false,
+      "error": null
+    },
+    {
+      "test_case": {
+        "case_id": "TC-009",
+        "difficulty": "Medium",
+        "question": "统计每种告警指标的数量，按数量降序排列前 10 名。",
+        "reference_sql": "SELECT metric_name, COUNT(*) AS alert_count\nFROM db_alert_history\nGROUP BY metric_name\nORDER BY alert_count DESC\nLIMIT 10;",
+        "expected_row_count": null,
+        "category": "聚合",
+        "tables": [
+          "db_alert_history"
+        ],
+        "judging_criteria": [
+          "必须使用 `GROUP BY` 和 `COUNT`",
+          "必须有 `LIMIT 10`",
+          "排序方向为 DESC"
+        ]
+      },
+      "started_at": "2026-07-02T22:20:17.777053",
+      "completed_at": "2026-07-02T22:20:59.310306",
+      "duration_ms": 41534,
+      "agent_response": "请选择你想要统计的表，我会根据你的选择生成对应的统计查询。",
+      "generated_sqls": [],
+      "tool_calls": [
+        {
+          "tool": "list_tables",
+          "args": {}
+        },
+        {
+          "tool": "describe_table",
+          "args": {}
+        },
+        {
+          "tool": "ask_user",
+          "args": {}
+        }
+      ],
+      "sql_judge": {
+        "tier": 0,
+        "passed": false,
+        "score": 0.0,
+        "generated_sql": "",
+        "reference_sql": "SELECT metric_name, COUNT(*) AS alert_count\nFROM db_alert_history\nGROUP BY metric_name\nORDER BY alert_count DESC\nLIMIT 10;",
+        "generated_row_count": null,
+        "reference_row_count": null,
+        "diff_summary": "Agent 未生成 SQL",
+        "llm_judge_explanation": null
+      },
+      "quality_judge": {
+        "score": 0.0,
+        "completeness": 0.0,
+        "accuracy": 0.0,
+        "clarity": 0.0,
+        "sql_transparency": 0.0,
+        "explanation": "Agent 回复未回答用户问题，而是要求用户进一步选择表，完全没有提供任何统计结果或SQL，因此所有维度均为0分。"
+      },
+      "efficiency": {
+        "tool_call_count": 3,
+        "tool_call_details": {
+          "list_tables": 1,
+          "describe_table": 1,
+          "ask_user": 1
+        },
+        "turns": 9,
+        "total_tokens": 20192,
+        "latency_ms": 40701,
+        "score": 0.805
+      },
+      "dimensions": {
+        "sql_syntax": 0.0,
+        "table_column": 0.0,
+        "filter_condition": 0.0,
+        "result_data": 0.0,
+        "sql_standard": 0.0
+      },
+      "overall_score": 0.0,
+      "passed": false,
+      "error": null
+    },
+    {
+      "test_case": {
+        "case_id": "TC-010",
+        "difficulty": "Medium",
+        "question": "统计 2024 年 8 月每天的告警数量，按日期升序排列。",
+        "reference_sql": "SELECT DATE(alert_time) AS alert_date,\n       COUNT(*) AS alert_count\nFROM db_alert_history\nWHERE alert_time >= '2024-08-01'\n  AND alert_time < '2024-09-01'\nGROUP BY DATE(alert_time)\nORDER BY alert_date ASC;",
+        "expected_row_count": null,
+        "category": "时间窗口",
+        "tables": [
+          "db_alert_history"
+        ],
+        "judging_criteria": [
+          "必须使用 `DATE()` 函数提取日期",
+          "时间范围过滤使用 `>=` 和 `<` 模式",
+          "排序方向为 ASC"
+        ]
+      },
+      "started_at": "2026-07-02T22:21:00.595646",
+      "completed_at": "2026-07-02T22:23:05.611619",
+      "duration_ms": 125019,
+      "agent_response": "",
+      "generated_sqls": [
+        "SELECT DATE(alert_time) AS alert_date, COUNT(*) AS alert_count FROM db_alert_history WHERE alert_time >= '2024-08-01' AND alert_time < '2024-09-01' GROUP BY DATE(alert_time) ORDER BY alert_date ASC",
+        "SELECT MIN(alert_time) AS earliest, MAX(alert_time) AS latest, COUNT(*) AS total FROM db_alert_history",
+        "SELECT DATE(alert_time) AS alert_date, COUNT(*) AS alert_count FROM db_alert_record_v2 WHERE alert_time >= '2024-08-01' AND alert_time < '2024-09-01' GROUP BY DATE(alert_time) ORDER BY alert_date ASC",
+        "SELECT DATE(alert_time) AS alert_date, COUNT(*) AS alert_count FROM db_alert_history WHERE alert_time >= '2024-08-01 00:00:00' AND alert_time < '2024-09-01 00:00:00' GROUP BY DATE(alert_time) ORDER BY alert_date ASC",
+        "SELECT alert_time, COUNT(*) FROM db_alert_history WHERE alert_time LIKE '2024-08%' GROUP BY alert_time LIMIT 5",
+        "SELECT alert_time FROM db_alert_history ORDER BY alert_time ASC LIMIT 5",
+        "SELECT DATE(alert_time) AS alert_date, COUNT(*) AS alert_count FROM db_alert_history WHERE alert_time IS NOT NULL AND MONTH(alert_time) = 8 AND YEAR(alert_time) = 2024 GROUP BY DATE(alert_time) ORDER BY alert_date ASC",
+        "SELECT DATE_FORMAT(alert_time, '%Y-%m') AS month, COUNT(*) AS cnt FROM db_alert_history WHERE alert_time IS NOT NULL GROUP BY DATE_FORMAT(alert_time, '%Y-%m') ORDER BY month",
+        "SELECT DATE_FORMAT(alert_time, '%Y-%m') AS month, COUNT(*) AS cnt FROM db_alert_record_v2 WHERE alert_time IS NOT NULL GROUP BY DATE_FORMAT(alert_time, '%Y-%m') ORDER BY month",
+        "SELECT DATE_FORMAT(alert_date, '%Y-%m') AS month, COUNT(*) AS cnt FROM db_alert_daily WHERE alert_date IS NOT NULL GROUP BY DATE_FORMAT(alert_date, '%Y-%m') ORDER BY month",
+        "SELECT DATE_FORMAT(alert_time, '%Y-%m') AS month, COUNT(*) AS cnt FROM db_alert_warn_record_v2 WHERE alert_time IS NOT NULL GROUP BY DATE_FORMAT(alert_time, '%Y-%m') ORDER BY month",
+        "SELECT DATE_FORMAT(alert_time, '%Y-%m') AS month, COUNT(*) AS cnt FROM db_alert_current WHERE alert_time IS NOT NULL GROUP BY DATE_FORMAT(alert_time, '%Y-%m') ORDER BY month",
+        "SELECT DATE_FORMAT(alert_time, '%Y-%m') AS month, COUNT(*) AS cnt FROM db_alert_current_history WHERE alert_time IS NOT NULL GROUP BY DATE_FORMAT(alert_time, '%Y-%m') ORDER BY month",
+        "SELECT DATE_FORMAT(alert_time, '%Y-%m') AS month, COUNT(*) AS cnt FROM db_alert_history_day_dba WHERE alert_time IS NOT NULL GROUP BY DATE_FORMAT(alert_time, '%Y-%m') ORDER BY month",
+        "SELECT DATE_FORMAT(alert_time, '%Y-%m') AS month, COUNT(*) AS cnt FROM db_alert_history_day_domain WHERE alert_time IS NOT NULL GROUP BY DATE_FORMAT(alert_time, '%Y-%m') ORDER BY month",
+        "SELECT DATE_FORMAT(created_time, '%Y-%m') AS month, COUNT(*) AS cnt FROM effect_alert_v2 WHERE created_time IS NOT NULL GROUP BY DATE_FORMAT(created_time, '%Y-%m') ORDER BY month"
+      ],
+      "tool_calls": [
+        {
+          "tool": "list_tables",
+          "args": {}
+        },
+        {
+          "tool": "describe_table",
+          "args": {}
+        },
+        {
+          "tool": "query_database",
+          "args": {}
+        },
+        {
+          "tool": "execute_sql",
+          "args": {}
+        }
+      ],
+      "sql_judge": {
+        "tier": 3,
+        "passed": false,
+        "score": 0.5,
+        "generated_sql": "SELECT DATE_FORMAT(created_time, '%Y-%m') AS month, COUNT(*) AS cnt FROM effect_alert_v2 WHERE created_time IS NOT NULL GROUP BY DATE_FORMAT(created_time, '%Y-%m') ORDER BY month",
+        "reference_sql": "SELECT DATE(alert_time) AS alert_date,\n       COUNT(*) AS alert_count\nFROM db_alert_history\nWHERE alert_time >= '2024-08-01'\n  AND alert_time < '2024-09-01'\nGROUP BY DATE(alert_time)\nORDER BY alert_date ASC;",
+        "generated_row_count": 3,
+        "reference_row_count": 0,
+        "diff_summary": "行数不一致：生成=3, 参考=0",
+        "llm_judge_explanation": "生成SQL查询的是按月统计，且表名、时间字段、过滤条件均与参考SQL不同，无法回答原始问题（按天统计2024年8月）。"
+      },
+      "quality_judge": null,
+      "efficiency": {
+        "tool_call_count": 4,
+        "tool_call_details": {
+          "list_tables": 1,
+          "describe_table": 1,
+          "query_database": 1,
+          "execute_sql": 1
+        },
+        "turns": 0,
+        "total_tokens": 0,
+        "latency_ms": 0,
+        "score": 0.96
+      },
+      "dimensions": {
+        "sql_syntax": 0.5,
+        "table_column": 0.5,
+        "filter_condition": 0.5,
+        "result_data": 0.5,
+        "sql_standard": 0.7
+      },
+      "overall_score": 0.52,
+      "passed": false,
+      "error": "执行超时（120.0秒）"
+    },
+    {
+      "test_case": {
+        "case_id": "TC-011",
+        "difficulty": "Medium",
+        "question": "查询生产环境的严重告警，返回实例ID、指标名称、当前值和告警时间，按告警时间降序。",
+        "reference_sql": "SELECT db_instance_id, metric_name, cur_value, alert_time\nFROM db_alert_history\nWHERE env_type = 'prd'\n  AND level = 'critical'\nORDER BY alert_time DESC;",
+        "expected_row_count": null,
+        "category": "多条件过滤",
+        "tables": [
+          "db_alert_history"
+        ],
+        "judging_criteria": [
+          "必须同时满足 `env_type = 'prd'` 和 `level = 'critical'`",
+          "排序方向为 DESC"
+        ]
+      },
+      "started_at": "2026-07-02T22:23:07.614749",
+      "completed_at": "2026-07-02T22:24:49.069085",
+      "duration_ms": 101456,
+      "agent_response": "查询完成！以下是生产环境（`prd`）严重告警（`critical`）的完整结果，共 **20 条**记录：\n\n## 查询结果\n\n| # | 实例ID | 指标名称 | 当前值 | 告警时间 |\n|---|--------|---------|--------|----------|\n| 1 | nb-risk-graph-test | NODE_DiskUsage | 92.47 | 2023-11-14 21:01:57 |\n| 2 | nb-risk-graph-test | NODE_DiskUsage | 100.00 | 2023-11-14 21:01:47 |\n| 3 | nb-risk-graph-test | NODE_DiskUsage | 100.00 | 2023-11-14 21:01:47 |\n| 4 | nb-risk-graph-test | NODE_DiskUsage | 100.00 | 2023-11-14 21:01:47 |\n| 5 | r-bp10da1de7eb0e24 | ShardingMemoryUsage | 100.00 | 2023-11-14 21:01:09 |\n| 6 | r-bp10da1de7eb0e24 | ShardingMemoryUsage | 100.00 | 2023-11-14 21:01:09 |\n| 7 | nb-risk-graph-test | NODE_DiskUsage | 99.67 | 2023-11-14 21:01:07 |\n| 8 | nb-risk-graph-test | NODE_DiskUsage | 99.67 | 2023-11-14 21:01:07 |\n| 9 | nb-risk-graph-test | NODE_DiskUsage | 99.67 | 2023-11-14 21:01:07 |\n| 10 | nb-risk-graph-test | NODE_DiskUsage | 92.47 | 2023-11-14 21:00:57 |\n| 11 | nb-risk-graph-test | NODE_DiskUsage | 92.47 | 2023-11-14 21:00:57 |\n| 12 | r-bp10da1de7eb0e24 | ShardingMemoryUsage | 100.00 | 2023-11-14 21:00:09 |\n| 13 | r-bp10da1de7eb0e24 | ShardingMemoryUsage | 100.00 | 2023-11-14 21:00:09 |\n| 14 | pgm-bp14408zd40722t9 | DiskUsage | 90.65 | 2023-11-14 20:59:38 |\n| 15 | r-bp10da1de7eb0e24 | ShardingMemoryUsage | 100.00 | 2023-11-14 20:59:09 |\n| 16 | r-bp10da1de7eb0e24 | ShardingMemoryUsage | 100.00 | 2023-11-14 20:59:09 |\n| 17 | r-bp10da1de7eb0e24 | ShardingMemoryUsage | 100.00 | 2023-11-14 20:58:09 |\n| 18 | r-bp10da1de7eb0e24 | ShardingMemoryUsage | 100.00 | 2023-11-14 20:57:09 |\n| 19 | r-bp10da1de7eb0e24 | ShardingMemoryUsage | 100.00 | 2023-11-14 20:57:09 |\n| 20 | rm-bp1c0s5ay04g90u29 | Instance_Failover | 3.00 | 2023-08-30 14:05:43 |\n\n## 执行 SQL\n\n```sql\nSELECT db_instance_id, metric_name, cur_value, alert_time \nFROM db_alert_current \nWHERE env_type = 'prd' AND level = 'critical' \nORDER BY alert_time DESC\n```\n\n## 概况分析\n\n| 告警类型 | 涉及实例 | 说明 |\n|---------|---------|------|\n| **NODE_DiskUsage** | nb-risk-graph-test | 磁盘使用率 92%~100%，严重告警 |\n| **ShardingMemoryUsage** | r-bp10da1de7eb0e24 | 分片内存使用率 100%，严重告警 |\n| **DiskUsage** | pgm-bp14408zd40722t9 | 磁盘使用率 90.65% |\n| **Instance_Failover** | rm-bp1c0s5ay04g90u29 | 实例故障切换，发生 3 次 |\n\n⚠️ 注意：这些告警数据时间较早（2023年8月~11月），`db_alert_current` 表中的生产环境严重告警仅保留了这 20 条历史记录。如需查看更近期的告警，可以查看 `db_alert_record_v2` 表（但其 `level` 字段值为 `P0` 等不同格式）。",
+      "generated_sqls": [
+        "SELECT db_instance_id, metric_name, cur_value, alert_time \nFROM db_alert_current \nWHERE env_type = 'prod' AND level = 'critical' \nORDER BY alert_time DESC",
+        "SELECT db_instance_id, metric_name, cur_value, alert_time, level, env_type \nFROM db_alert_record_v2 \nWHERE env_type = 'prod' AND level = 'critical' \nORDER BY alert_time DESC \nLIMIT 100",
+        "SELECT DISTINCT env_type, level FROM db_alert_current LIMIT 20",
+        "SELECT DISTINCT env_type, level FROM db_alert_record_v2 LIMIT 20",
+        "SELECT db_instance_id, metric_name, cur_value, alert_time \nFROM db_alert_current \nWHERE env_type = 'prd' AND level = 'critical' \nORDER BY alert_time DESC",
+        "SELECT COUNT(*) AS total FROM db_alert_current WHERE env_type = 'prd' AND level = 'critical'"
+      ],
+      "tool_calls": [
+        {
+          "tool": "list_tables",
+          "args": {}
+        },
+        {
+          "tool": "describe_table",
+          "args": {}
+        },
+        {
+          "tool": "query_database",
+          "args": {}
+        },
+        {
+          "tool": "execute_sql",
+          "args": {}
+        }
+      ],
+      "sql_judge": {
+        "tier": 3,
+        "passed": false,
+        "score": 0.20025,
+        "generated_sql": "SELECT COUNT(*) AS total FROM db_alert_current WHERE env_type = 'prd' AND level = 'critical'",
+        "reference_sql": "SELECT db_instance_id, metric_name, cur_value, alert_time\nFROM db_alert_history\nWHERE env_type = 'prd'\n  AND level = 'critical'\nORDER BY alert_time DESC;",
+        "generated_row_count": 1,
+        "reference_row_count": 2000,
+        "diff_summary": "行数不一致：生成=1, 参考=2000",
+        "llm_judge_explanation": "生成SQL查询的是db_alert_current表并返回计数，而参考SQL查询db_alert_history表返回详细记录，两者语义完全不同，无法回答原始问题。"
+      },
+      "quality_judge": {
+        "score": 0.9,
+        "completeness": 0.9,
+        "accuracy": 0.7,
+        "clarity": 1.0,
+        "sql_transparency": 1.0,
+        "explanation": "回答完整覆盖了用户要求的字段（实例ID、指标名称、当前值、告警时间）并按告警时间降序排列，但SQL中查询的是db_alert_current表而非参考SQL中的db_alert_history表，且数据时间较早，可能不是用户期望的最新数据，准确性扣分。清晰度很高，使用了Markdown表格和概况分析。SQL透明度满分，展示了实际执行的SQL。"
+      },
+      "efficiency": {
+        "tool_call_count": 4,
+        "tool_call_details": {
+          "list_tables": 1,
+          "describe_table": 1,
+          "query_database": 1,
+          "execute_sql": 1
+        },
+        "turns": 13,
+        "total_tokens": 39164,
+        "latency_ms": 100094,
+        "score": 0.6737
+      },
+      "dimensions": {
+        "sql_syntax": 0.20025,
+        "table_column": 0.20025,
+        "filter_condition": 0.20025,
+        "result_data": 0.20025,
+        "sql_standard": 0.7
+      },
+      "overall_score": 0.2502,
+      "passed": false,
+      "error": null
+    },
+    {
+      "test_case": {
+        "case_id": "TC-012",
+        "difficulty": "Medium",
+        "question": "统计每种数据库类型的告警数量，按数量降序排列。",
+        "reference_sql": "SELECT namespace, COUNT(*) AS alert_count\nFROM db_alert_history\nGROUP BY namespace\nORDER BY alert_count DESC;",
+        "expected_row_count": null,
+        "category": "聚合",
+        "tables": [
+          "db_alert_history"
+        ],
+        "judging_criteria": [
+          "必须使用 `GROUP BY` 和 `COUNT`",
+          "排序方向为 DESC"
+        ]
+      },
+      "started_at": "2026-07-02T22:24:52.489758",
+      "completed_at": "2026-07-02T22:26:16.375678",
+      "duration_ms": 83887,
+      "agent_response": "查询完成！以下是统计结果：\n\n---\n\n## 📊 当前告警（db_alert_current，共 225 条）\n\n| 数据库类型 | 告警数量 |\n| --- | --- |\n| 🔴 acs_kvstore（Redis） | 138 |\n| 🔵 acs_rds（RDS） | 9 |\n| 🟡 acs_pika（Pika） | 4 |\n| 🟢 acs_mongodb（MongoDB） | 3 |\n| ⚪ acs_dts（DTS） | 1 |\n\n---\n\n## 📊 历史告警（db_alert_history，共 381,527 条）\n\n| 数据库类型 | 告警数量 |\n| --- | --- |\n| 🔴 acs_tidb（TiDB） | 207,599 |\n| 🟠 acs_clickhouse（ClickHouse） | 47,108 |\n| 🔵 acs_rds（RDS） | 30,164 |\n| 🟡 acs_kvstore（Redis） | 23,374 |\n| 🟢 acs_elasticsearch（ES） | 12,659 |\n| 🔵 acs_mongodb（MongoDB） | 12,339 |\n| 🟣 acs_starrocks（StarRocks） | 10,273 |\n| ⚪ acs_dts（DTS） | 235 |\n| ⚫ acs_pika（Pika） | 15 |\n\n---\n\n### 💡 关键发现\n\n- **历史告警中 TiDB 占比最高**（约 54.4%），其次是 ClickHouse（12.3%）和 RDS（7.9%）\n- **当前告警中 Redis 占主导**（61.3%），说明 Redis 近期告警较为活跃\n- `acs_adb`、`acs_hbase`、`acs_nebula` 三种类型在历史告警和当前告警中均无记录",
+      "generated_sqls": [
+        "SELECT DISTINCT resource_type FROM db_alert_record_v2 LIMIT 20",
+        "SELECT DISTINCT namespace FROM db_alert_record_v2 LIMIT 20",
+        "SELECT COUNT(*) AS total FROM db_alert_current",
+        "SELECT COUNT(*) AS total FROM db_alert_history",
+        "SELECT COUNT(*) AS total FROM db_alert_record_v2",
+        "SELECT DISTINCT db_instance_id FROM db_alert_current LIMIT 10",
+        "SELECT DISTINCT res_type FROM db_instance_v2 ORDER BY res_type",
+        "SELECT \n    v.res_type AS 数据库类型,\n    COUNT(*) AS 告警数量\nFROM db_alert_current a\nINNER JOIN db_instance_v2 v ON a.db_instance_id = v.db_instance_id\nGROUP BY v.res_type\nORDER BY 告警数量 DESC",
+        "SELECT \n    v.res_type AS 数据库类型,\n    COUNT(*) AS 告警数量\nFROM db_alert_history a\nINNER JOIN db_instance_v2 v ON a.db_instance_id = v.db_instance_id\nGROUP BY v.res_type\nORDER BY 告警数量 DESC"
+      ],
+      "tool_calls": [
+        {
+          "tool": "list_tables",
+          "args": {}
+        },
+        {
+          "tool": "describe_table",
+          "args": {}
+        },
+        {
+          "tool": "query_database",
+          "args": {}
+        },
+        {
+          "tool": "execute_sql",
+          "args": {}
+        }
+      ],
+      "sql_judge": {
+        "tier": 3,
+        "passed": false,
+        "score": 0.9090909090909092,
+        "generated_sql": "SELECT \n    v.res_type AS 数据库类型,\n    COUNT(*) AS 告警数量\nFROM db_alert_history a\nINNER JOIN db_instance_v2 v ON a.db_instance_id = v.db_instance_id\nGROUP BY v.res_type\nORDER BY 告警数量 DESC",
+        "reference_sql": "SELECT namespace, COUNT(*) AS alert_count\nFROM db_alert_history\nGROUP BY namespace\nORDER BY alert_count DESC;",
+        "generated_row_count": 9,
+        "reference_row_count": 11,
+        "diff_summary": "行数不一致：生成=9, 参考=11",
+        "llm_judge_explanation": "生成SQL通过JOIN获取数据库类型，但结果中类型为编码值（如acs_tidb），而参考SQL直接使用namespace字段显示中文名称（如分布式关系型数据库TiDB）。虽然两者都统计了告警数量并按降序排列，但生成SQL丢失了部分类型（如Redis集群版、ECS等），且类型表示方式不同，导致业务含义不完全一致。"
+      },
+      "quality_judge": {
+        "score": 0.6,
+        "completeness": 0.6,
+        "accuracy": 0.8,
+        "clarity": 1.0,
+        "sql_transparency": 0.0,
+        "explanation": "回答覆盖了用户问题（统计每种数据库类型的告警数量，按数量降序排列），但额外提供了当前告警数据，可能超出用户需求。准确性方面，历史告警数据与参考SQL一致，但当前告警数据未在参考SQL中体现，且用户问题未指定表，因此部分准确。清晰度很高，使用了Markdown表格和图标。未展示实际执行的SQL语句，SQL透明度为0。"
+      },
+      "efficiency": {
+        "tool_call_count": 4,
+        "tool_call_details": {
+          "list_tables": 1,
+          "describe_table": 1,
+          "query_database": 1,
+          "execute_sql": 1
+        },
+        "turns": 17,
+        "total_tokens": 41935,
+        "latency_ms": 82914,
+        "score": 0.6402
+      },
+      "dimensions": {
+        "sql_syntax": 0.9090909090909092,
+        "table_column": 0.9090909090909092,
+        "filter_condition": 0.9090909090909092,
+        "result_data": 0.9090909090909092,
+        "sql_standard": 0.7
+      },
+      "overall_score": 0.8882,
+      "passed": true,
+      "error": null
+    },
+    {
+      "test_case": {
+        "case_id": "TC-013",
+        "difficulty": "Medium",
+        "question": "统计每个业务域的总成本时间，按成本降序排列。",
+        "reference_sql": "SELECT business_domain,\n       SUM(cost_time) AS total_cost_time\nFROM effect_dba_domain_cost_v2\nGROUP BY business_domain\nORDER BY total_cost_time DESC;",
+        "expected_row_count": null,
+        "category": "聚合",
+        "tables": [
+          "effect_dba_domain_cost_v2"
+        ],
+        "judging_criteria": [
+          "必须使用 `SUM(cost_time)`",
+          "排序方向为 DESC"
+        ]
+      },
+      "started_at": "2026-07-02T22:26:21.367445",
+      "completed_at": "2026-07-02T22:26:53.536781",
+      "duration_ms": 32170,
+      "agent_response": "查询完成！以下是 **每个业务域的总成本时间统计**，按成本降序排列：\n\n## 📊 业务域成本统计\n\n| 排名 | 业务域 | 总成本时间 | 记录数 |\n|:---:|:---|:---:|:---:|\n| 1 | 算法平台 | 489.73 | 390 |\n| 2 | 交易平台 | 454.24 | 545 |\n| 3 | 汇金平台 | 254.86 | 315 |\n| 4 | 数据平台 | 250.39 | 225 |\n| 5 | 无线平台 | 222.05 | 357 |\n| 6 | 供应链平台 | 218.07 | 317 |\n| 7 | 社区技术 | 168.67 | 200 |\n| 8 | 国际技术 | 149.27 | 254 |\n| 9 | 风控 | 145.29 | 198 |\n| 10 | 中间件平台 | 103.96 | 218 |\n| 11 | 商家 | 100.34 | 142 |\n| 12 | 效率工程 | 94.10 | 205 |\n| 13 | 技术保障 | 63.56 | 149 |\n| 14 | 客服 | 63.44 | 138 |\n| 15 | 稳定生产 | 61.84 | 151 |\n| 16 | 安全 | 44.59 | 109 |\n| 17 | 质量平台 | 31.28 | 76 |\n| 18 | 研发效能 | 29.32 | 87 |\n| 19 | 前端平台 | 13.72 | 30 |\n| 20 | 洗护 | 2.80 | 6 |\n| 21 | 第三方 | 0.75 | 2 |\n\n**共 21 个业务域**，总计成本时间 **3,272.06**。\n\n### 🔑 关键发现：\n- **算法平台**和**交易平台**是成本最高的两个业务域，合计占总成本的近 30%\n- 前十名业务域占据了绝大多数成本（约 2,457 / 3,272 ≈ 75%）\n- 洗护和第三方业务域成本极低，可能处于孵化或边缘阶段\n\n> 执行的 SQL：`SELECT business_domain, SUM(cost_time) AS 总成本时间, COUNT(*) AS 记录数 FROM effect_dba_domain_cost_v2 GROUP BY business_domain ORDER BY SUM(cost_time) DESC`",
+      "generated_sqls": [
+        "SELECT business_domain AS 业务域, SUM(cost_time) AS 总成本时间, COUNT(*) AS 记录数 FROM effect_dba_domain_cost_v2 GROUP BY business_domain ORDER BY SUM(cost_time) DESC"
+      ],
+      "tool_calls": [
+        {
+          "tool": "list_tables",
+          "args": {}
+        },
+        {
+          "tool": "describe_table",
+          "args": {}
+        },
+        {
+          "tool": "query_database",
+          "args": {}
+        },
+        {
+          "tool": "execute_sql",
+          "args": {}
+        }
+      ],
+      "sql_judge": {
+        "tier": 3,
+        "passed": true,
+        "score": 1.0,
+        "generated_sql": "SELECT business_domain AS 业务域, SUM(cost_time) AS 总成本时间, COUNT(*) AS 记录数 FROM effect_dba_domain_cost_v2 GROUP BY business_domain ORDER BY SUM(cost_time) DESC",
+        "reference_sql": "SELECT business_domain,\n       SUM(cost_time) AS total_cost_time\nFROM effect_dba_domain_cost_v2\nGROUP BY business_domain\nORDER BY total_cost_time DESC;",
+        "generated_row_count": 21,
+        "reference_row_count": 21,
+        "diff_summary": "仅生成结果有: {'col_3'}",
+        "llm_judge_explanation": "两个SQL查询都按业务域分组计算总成本时间并按降序排列，生成SQL额外返回了记录数，但核心结果（业务域和总成本时间）与参考SQL完全一致，且能正确回答原始问题，因此语义等价。"
+      },
+      "quality_judge": {
+        "score": 1.0,
+        "completeness": 1.0,
+        "accuracy": 1.0,
+        "clarity": 1.0,
+        "sql_transparency": 1.0,
+        "explanation": "回答完整覆盖了用户问题（统计每个业务域的总成本时间，按成本降序排列），数据准确，结构清晰（使用Markdown表格和分段），并展示了实际执行的SQL语句。"
+      },
+      "efficiency": {
+        "tool_call_count": 4,
+        "tool_call_details": {
+          "list_tables": 1,
+          "describe_table": 1,
+          "query_database": 1,
+          "execute_sql": 1
+        },
+        "turns": 6,
+        "total_tokens": 36979,
+        "latency_ms": 31086,
+        "score": 0.8341
+      },
+      "dimensions": {
+        "sql_syntax": 1.0,
+        "table_column": 1.0,
+        "filter_condition": 1.0,
+        "result_data": 1.0,
+        "sql_standard": 0.7
+      },
+      "overall_score": 0.97,
+      "passed": true,
+      "error": null
+    },
+    {
+      "test_case": {
+        "case_id": "TC-014",
+        "difficulty": "Medium",
+        "question": "统计 2024 年每月的总成本时间，按月份升序排列。",
+        "reference_sql": "SELECT CONCAT(year, '-', LPAD(month, 2, '0')) AS month,\n       SUM(cost_time) AS total_cost_time\nFROM effect_dba_domain_cost_v2\nWHERE year = 2024\nGROUP BY year, month\nORDER BY month ASC;",
+        "expected_row_count": 4,
+        "category": "时间窗口",
+        "tables": [
+          "effect_dba_domain_cost_v2"
+        ],
+        "judging_criteria": [
+          "数据范围是 2024-05-01 到 2024-08-26",
+          "必须使用 `year` 和 `month` 字段"
+        ]
+      },
+      "started_at": "2026-07-02T22:26:56.544325",
+      "completed_at": "2026-07-02T22:27:36.704095",
+      "duration_ms": 40160,
+      "agent_response": "查询成功！以下是 **2024 年每月总成本时间**统计结果：\n\n---\n\n**执行 SQL：**\n```sql\nSELECT `year`, `month`, SUM(`cost_time`) AS total_cost_time\nFROM effect_dba_domain_cost_v2\nWHERE `year` = 2024\nGROUP BY `year`, `month`\nORDER BY `month` ASC\n```\n\n---\n\n**查询结果：**\n\n| 年份 | 月份 | 总成本时间 |\n| :--: | :--: | :--------: |\n| 2024 | 5 月 | 797.00 |\n| 2024 | 6 月 | 926.00 |\n| 2024 | 7 月 | 833.82 |\n| 2024 | 8 月 | 405.45 |\n\n---\n\n**说明：**\n\n- 该表 `effect_dba_domain_cost_v2` 中 2024 年仅覆盖了 **5~8 月** 的数据（共 4 个月）。\n- 6 月总成本时间最高（926.00），8 月最低（405.45）。\n- 如果期望全年 12 个月的数据，可能需要确认数据是否完整入库，或者是否有其他成本表补充。",
+      "generated_sqls": [
+        "SELECT `year`, `month`, SUM(`cost_time`) AS total_cost_time\nFROM effect_dba_domain_cost_v2\nWHERE `year` = 2024\nGROUP BY `year`, `month`\nORDER BY `month` ASC"
+      ],
+      "tool_calls": [
+        {
+          "tool": "list_tables",
+          "args": {}
+        },
+        {
+          "tool": "describe_table",
+          "args": {}
+        },
+        {
+          "tool": "query_database",
+          "args": {}
+        },
+        {
+          "tool": "execute_sql",
+          "args": {}
+        }
+      ],
+      "sql_judge": {
+        "tier": 3,
+        "passed": true,
+        "score": 1.0,
+        "generated_sql": "SELECT `year`, `month`, SUM(`cost_time`) AS total_cost_time\nFROM effect_dba_domain_cost_v2\nWHERE `year` = 2024\nGROUP BY `year`, `month`\nORDER BY `month` ASC",
+        "reference_sql": "SELECT CONCAT(year, '-', LPAD(month, 2, '0')) AS month,\n       SUM(cost_time) AS total_cost_time\nFROM effect_dba_domain_cost_v2\nWHERE year = 2024\nGROUP BY year, month\nORDER BY month ASC;",
+        "generated_row_count": 4,
+        "reference_row_count": 4,
+        "diff_summary": "仅生成结果有: {'col_3'}",
+        "llm_judge_explanation": "两个SQL查询在语义上等价，都统计了2024年每月的总成本时间并按月份升序排列。参考SQL将年月拼接为'YYYY-MM'格式，生成SQL分别输出年和月列，但数据内容一致，且生成SQL的结果能正确回答原始问题。"
+      },
+      "quality_judge": {
+        "score": 0.925,
+        "completeness": 0.8,
+        "accuracy": 0.9,
+        "clarity": 1.0,
+        "sql_transparency": 1.0,
+        "explanation": "回答完整覆盖了用户问题，展示了SQL并给出了结果，但未按用户要求显示为'2024-05'格式，而是分开显示年份和月份，略有不足。SQL正确，结果准确，清晰度高，SQL透明度满分。"
+      },
+      "efficiency": {
+        "tool_call_count": 4,
+        "tool_call_details": {
+          "list_tables": 1,
+          "describe_table": 1,
+          "query_database": 1,
+          "execute_sql": 1
+        },
+        "turns": 6,
+        "total_tokens": 13610,
+        "latency_ms": 39381,
+        "score": 0.8372
+      },
+      "dimensions": {
+        "sql_syntax": 1.0,
+        "table_column": 1.0,
+        "filter_condition": 1.0,
+        "result_data": 1.0,
+        "sql_standard": 0.7
+      },
+      "overall_score": 0.97,
+      "passed": true,
+      "error": null
+    },
+    {
+      "test_case": {
+        "case_id": "TC-015",
+        "difficulty": "Medium",
+        "question": "查询栾尚飞负责的所有业务域的成本统计，按成本降序排列。",
+        "reference_sql": "SELECT business_domain,\n       SUM(cost_time) AS total_cost_time\nFROM effect_dba_domain_cost_v2\nWHERE dba_owner_name = '栾尚飞'\nGROUP BY business_domain\nORDER BY total_cost_time DESC;",
+        "expected_row_count": null,
+        "category": "多条件过滤",
+        "tables": [
+          "effect_dba_domain_cost_v2"
+        ],
+        "judging_criteria": [
+          "必须使用 `dba_owner_name = '栾尚飞'`",
+          "排序方向为 DESC"
+        ]
+      },
+      "started_at": "2026-07-02T22:27:40.369216",
+      "completed_at": "2026-07-02T22:28:26.913707",
+      "duration_ms": 46545,
+      "agent_response": "查询完成！以下是栾尚飞负责的所有业务域的成本统计，按成本降序排列：\n\n## 查询结果\n\n**数据来源**：`effect_dba_domain_cost_v2`  \n**负责人**：栾尚飞  \n**业务域数量**：20 个\n\n| 序号 | 负责人 | 业务域 | 总成本 | 记录数 |\n| --- | --- | --- | --- | --- |\n| 1 | 栾尚飞 | 社区技术 | 167.47 | 190 |\n| 2 | 栾尚飞 | 商家 | 98.94 | 135 |\n| 3 | 栾尚飞 | 客服 | 59.40 | 124 |\n| 4 | 栾尚飞 | 质量平台 | 29.98 | 63 |\n| 5 | 栾尚飞 | 研发效能 | 27.72 | 79 |\n| 6 | 栾尚飞 | 效率工程 | 23.05 | 75 |\n| 7 | 栾尚飞 | 交易平台 | 21.71 | 76 |\n| 8 | 栾尚飞 | 技术保障 | 12.50 | 30 |\n| 9 | 栾尚飞 | 汇金平台 | 6.80 | 34 |\n| 10 | 栾尚飞 | 供应链平台 | 5.10 | 37 |\n| 11 | 栾尚飞 | 国际技术 | 4.10 | 28 |\n| 12 | 栾尚飞 | 无线平台 | 2.80 | 17 |\n| 13 | 栾尚飞 | 洗护 | 2.80 | 6 |\n| 14 | 栾尚飞 | 风控 | 1.90 | 14 |\n| 15 | 栾尚飞 | 数据平台 | 1.70 | 16 |\n| 16 | 栾尚飞 | 算法平台 | 1.50 | 10 |\n| 17 | 栾尚飞 | 安全 | 0.60 | 6 |\n| 18 | 栾尚飞 | 中间件平台 | 0.50 | 5 |\n| 19 | 栾尚飞 | 稳定生产 | 0.50 | 3 |\n| 20 | 栾尚飞 | 前端平台 | 0.20 | 1 |\n\n### 📊 执行 SQL\n\n```sql\nSELECT dba_owner_name, business_domain, SUM(cost_time) AS total_cost, COUNT(*) AS record_count\nFROM effect_dba_domain_cost_v2\nWHERE dba_owner_name = '栾尚飞'\nGROUP BY dba_owner_name, business_domain\nORDER BY total_cost DESC\n```\n\n### 📈 关键洞察\n\n- **总成本合计**：约 **469.77**（20 个业务域合计）\n- **TOP 3 业务域**：社区技术（167.47）、商家（98.94）、客服（59.40），合计占总量约 **69.3%**\n- **长尾明显**：有 8 个业务域的成本低于 2.0，合计仅占约 1.79%",
+      "generated_sqls": [
+        "SELECT dba_owner_name, business_domain, SUM(cost_time) AS total_cost, COUNT(*) AS record_count\nFROM effect_dba_domain_cost_v2\nWHERE dba_owner_name = '栾尚飞'\nGROUP BY dba_owner_name, business_domain\nORDER BY total_cost DESC"
+      ],
+      "tool_calls": [
+        {
+          "tool": "list_tables",
+          "args": {}
+        },
+        {
+          "tool": "describe_table",
+          "args": {}
+        },
+        {
+          "tool": "query_database",
+          "args": {}
+        },
+        {
+          "tool": "execute_sql",
+          "args": {}
+        }
+      ],
+      "sql_judge": {
+        "tier": 3,
+        "passed": true,
+        "score": 1.0,
+        "generated_sql": "SELECT dba_owner_name, business_domain, SUM(cost_time) AS total_cost, COUNT(*) AS record_count\nFROM effect_dba_domain_cost_v2\nWHERE dba_owner_name = '栾尚飞'\nGROUP BY dba_owner_name, business_domain\nORDER BY total_cost DESC",
+        "reference_sql": "SELECT business_domain,\n       SUM(cost_time) AS total_cost_time\nFROM effect_dba_domain_cost_v2\nWHERE dba_owner_name = '栾尚飞'\nGROUP BY business_domain\nORDER BY total_cost_time DESC;",
+        "generated_row_count": 20,
+        "reference_row_count": 20,
+        "diff_summary": "仅生成结果有: {'col_3', 'col_4'}",
+        "llm_judge_explanation": "两个SQL查询都筛选了dba_owner_name='栾尚飞'，并按business_domain分组计算cost_time的总和，按总和降序排列。生成SQL额外选择了dba_owner_name和COUNT(*)，但原始问题只要求业务域和成本统计，这些额外列不影响核心结果。两个查询返回的业务域和成本总和完全一致，因此语义等价。"
+      },
+      "quality_judge": {
+        "score": 1.0,
+        "completeness": 1.0,
+        "accuracy": 1.0,
+        "clarity": 1.0,
+        "sql_transparency": 1.0,
+        "explanation": "回答完整覆盖了用户问题，准确展示了成本统计并按降序排列，结构清晰易读，并展示了实际执行的SQL语句。"
+      },
+      "efficiency": {
+        "tool_call_count": 4,
+        "tool_call_details": {
+          "list_tables": 1,
+          "describe_table": 1,
+          "query_database": 1,
+          "execute_sql": 1
+        },
+        "turns": 10,
+        "total_tokens": 42822,
+        "latency_ms": 45428,
+        "score": 0.7663
+      },
+      "dimensions": {
+        "sql_syntax": 1.0,
+        "table_column": 1.0,
+        "filter_condition": 1.0,
+        "result_data": 1.0,
+        "sql_standard": 0.7
+      },
+      "overall_score": 0.97,
+      "passed": true,
+      "error": null
+    },
+    {
+      "test_case": {
+        "case_id": "TC-016",
+        "difficulty": "Medium",
+        "question": "查询成本最高的前 5 个业务域，返回业务域名称和总成本时间。",
+        "reference_sql": "SELECT business_domain,\n       SUM(cost_time) AS total_cost_time\nFROM effect_dba_domain_cost_v2\nGROUP BY business_domain\nORDER BY total_cost_time DESC\nLIMIT 5;",
+        "expected_row_count": 5,
+        "category": "排名",
+        "tables": [
+          "effect_dba_domain_cost_v2"
+        ],
+        "judging_criteria": [
+          "必须有 `LIMIT 5`",
+          "排序方向为 DESC"
+        ]
+      },
+      "started_at": "2026-07-02T22:28:30.241586",
+      "completed_at": "2026-07-02T22:29:20.120693",
+      "duration_ms": 49880,
+      "agent_response": "查询成功！以下是成本最高的前 5 个业务域：\n\n## 查询结果\n\n**执行 SQL：**\n```sql\nSELECT business_domain AS 业务域名称, \n       SUM(cost_time) AS 总成本时间 \nFROM effect_dba_domain_cost_v2 \nGROUP BY business_domain \nORDER BY 总成本时间 DESC \nLIMIT 5\n```\n\n| 排名 | 业务域名称 | 总成本时间 |\n|------|-----------|------------|\n| 1 | 算法平台 | 489.73 |\n| 2 | 交易平台 | 454.24 |\n| 3 | 汇金平台 | 254.86 |\n| 4 | 数据平台 | 250.39 |\n| 5 | 无线平台 | 222.05 |\n\n**数据来源：** `effect_dba_domain_cost_v2` 表\n\n成本最高的两个业务域「算法平台」（489.73）和「交易平台」（454.24）明显领先于其他业务域，两者合计占总成本的比例较高。",
+      "generated_sqls": [
+        "SELECT business_domain AS 业务域名称, SUM(cost_time) AS 总成本时间 FROM effect_dba_domain_cost_v2 GROUP BY business_domain ORDER BY 总成本时间 DESC LIMIT 5"
+      ],
+      "tool_calls": [
+        {
+          "tool": "list_tables",
+          "args": {}
+        },
+        {
+          "tool": "describe_table",
+          "args": {}
+        },
+        {
+          "tool": "query_database",
+          "args": {}
+        },
+        {
+          "tool": "execute_sql",
+          "args": {}
+        }
+      ],
+      "sql_judge": {
+        "tier": 2,
+        "passed": true,
+        "score": 1.0,
+        "generated_sql": "SELECT business_domain AS 业务域名称, SUM(cost_time) AS 总成本时间 FROM effect_dba_domain_cost_v2 GROUP BY business_domain ORDER BY 总成本时间 DESC LIMIT 5",
+        "reference_sql": "SELECT business_domain,\n       SUM(cost_time) AS total_cost_time\nFROM effect_dba_domain_cost_v2\nGROUP BY business_domain\nORDER BY total_cost_time DESC\nLIMIT 5;",
+        "generated_row_count": 5,
+        "reference_row_count": 5,
+        "diff_summary": "结果数据完全一致",
+        "llm_judge_explanation": null
+      },
+      "quality_judge": {
+        "score": 1.0,
+        "completeness": 1.0,
+        "accuracy": 1.0,
+        "clarity": 1.0,
+        "sql_transparency": 1.0,
+        "explanation": "回答完整覆盖了用户问题（前5个业务域名称和总成本时间），SQL正确且结果准确，使用Markdown表格清晰展示，并展示了实际执行的SQL语句。"
+      },
+      "efficiency": {
+        "tool_call_count": 4,
+        "tool_call_details": {
+          "list_tables": 1,
+          "describe_table": 1,
+          "query_database": 1,
+          "execute_sql": 1
+        },
+        "turns": 8,
+        "total_tokens": 40202,
+        "latency_ms": 48155,
+        "score": 0.7897
+      },
+      "dimensions": {
+        "sql_syntax": 1.0,
+        "table_column": 1.0,
+        "filter_condition": 1.0,
+        "result_data": 1.0,
+        "sql_standard": 1.0
+      },
+      "overall_score": 1.0,
+      "passed": true,
+      "error": null
+    },
+    {
+      "test_case": {
+        "case_id": "TC-017",
+        "difficulty": "Easy",
+        "question": "查询所有问题排查类型的工作记录，返回工作ID、DBA飞书ID、耗时和创建时间。",
+        "reference_sql": "SELECT id, dba_feishu_id, cost_time_minute, created_time\nFROM effect_daily_work_v2\nWHERE work_type = '问题排查'\nORDER BY created_time DESC;",
+        "expected_row_count": 19,
+        "category": "单表过滤",
+        "tables": [
+          "effect_daily_work_v2"
+        ],
+        "judging_criteria": [
+          "必须使用 `work_type = '问题排查'`，不能写错枚举值",
+          "排序方向为 DESC"
+        ]
+      },
+      "started_at": "2026-07-02T22:29:21.682807",
+      "completed_at": "2026-07-02T22:30:16.304459",
+      "duration_ms": 54650,
+      "agent_response": "查询完成！以下是 **问题排查** 类型的所有工作记录：\n\n**执行的 SQL：**\n```sql\nSELECT id, dba_feishu_id, cost_time_minute, created_time \nFROM effect_daily_work_v2 \nWHERE work_type = '问题排查' \nORDER BY created_time DESC\n```\n\n**查询结果（共 19 条）：**\n\n| 序号 | 工作ID | DBA飞书ID | 耗时(分钟) | 创建时间 |\n| --- | --- | --- | --- | --- |\n| 1 | 22 | 10046675 | 20 | 2024-09-19 21:01:30 |\n| 2 | 21 | 10046675 | 20 | 2024-08-27 17:18:56 |\n| 3 | 20 | 10046675 | 10 | 2024-08-14 15:35:37 |\n| 4 | 19 | 10046675 | 10 | 2024-08-13 20:37:30 |\n| 5 | 8 | 10046675 | 10 | 2024-08-13 20:31:23 |\n| 6 | 15 | 10046675 | 15 | 2024-08-08 13:32:15 |\n| 7 | 14 | 10046675 | 15 | 2024-08-08 13:32:14 |\n| 8 | 13 | 10046675 | 15 | 2024-08-08 13:32:14 |\n| 9 | 12 | 10046675 | 15 | 2024-08-08 13:32:13 |\n| 10 | 11 | 10046675 | 15 | 2024-08-08 13:32:13 |\n| 11 | 10 | 10046675 | 15 | 2024-08-08 13:32:12 |\n| 12 | 9 | 10046675 | 15 | 2024-08-08 13:32:11 |\n| 13 | 7 | 10046675 | 15 | 2024-08-08 13:32:10 |\n| 14 | 6 | 10046675 | 15 | 2024-08-08 13:32:10 |\n| 15 | 5 | 10046675 | 15 | 2024-08-08 13:32:09 |\n| 16 | 4 | 10046675 | 15 | 2024-08-08 13:32:09 |\n| 17 | 3 | 10046675 | 15 | 2024-08-08 13:32:08 |\n| 18 | 2 | 10006019 | 28 | 2024-08-07 16:28:52 |\n| 19 | 1 | 10046675 | 15 | 2024-08-07 16:23:37 |\n\n**汇总：**\n- 共有 **19 条**问题排查工作记录\n- 涉及 **2 位** DBA（飞书ID：`10046675` 和 `10006019`）\n- 耗时范围：**10~28 分钟**\n- 时间跨度：2024-08-07 至 2024-09-19",
+      "generated_sqls": [
+        "SELECT * FROM effect_daily_work_type_v2",
+        "SELECT id, dba_feishu_id, cost_time_minute, created_time FROM effect_daily_work_v2 WHERE work_type = '问题排查' ORDER BY created_time DESC"
+      ],
+      "tool_calls": [
+        {
+          "tool": "list_tables",
+          "args": {}
+        },
+        {
+          "tool": "describe_table",
+          "args": {}
+        },
+        {
+          "tool": "execute_sql",
+          "args": {}
+        },
+        {
+          "tool": "query_database",
+          "args": {}
+        }
+      ],
+      "sql_judge": {
+        "tier": 1,
+        "passed": true,
+        "score": 1.0,
+        "generated_sql": "SELECT id, dba_feishu_id, cost_time_minute, created_time FROM effect_daily_work_v2 WHERE work_type = '问题排查' ORDER BY created_time DESC",
+        "reference_sql": "SELECT id, dba_feishu_id, cost_time_minute, created_time\nFROM effect_daily_work_v2\nWHERE work_type = '问题排查'\nORDER BY created_time DESC;",
+        "generated_row_count": null,
+        "reference_row_count": null,
+        "diff_summary": "SQL 结构与参考完全一致",
+        "llm_judge_explanation": null
+      },
+      "quality_judge": {
+        "score": 1.0,
+        "completeness": 1.0,
+        "accuracy": 1.0,
+        "clarity": 1.0,
+        "sql_transparency": 1.0,
+        "explanation": "回答完整覆盖了用户问题要求的所有字段（工作ID、DBA飞书ID、耗时、创建时间），SQL与参考SQL一致且正确，结果以清晰的Markdown表格呈现并包含汇总信息，同时展示了执行的SQL语句。"
+      },
+      "efficiency": {
+        "tool_call_count": 4,
+        "tool_call_details": {
+          "list_tables": 1,
+          "describe_table": 1,
+          "execute_sql": 1,
+          "query_database": 1
+        },
+        "turns": 7,
+        "total_tokens": 18688,
+        "latency_ms": 53174,
+        "score": 0.8078
+      },
+      "dimensions": {
+        "sql_syntax": 1.0,
+        "table_column": 1.0,
+        "filter_condition": 1.0,
+        "result_data": 1.0,
+        "sql_standard": 0.7
+      },
+      "overall_score": 0.97,
+      "passed": true,
+      "error": null
+    },
+    {
+      "test_case": {
+        "case_id": "TC-018",
+        "difficulty": "Easy",
+        "question": "统计每种工作类型的数量。",
+        "reference_sql": "SELECT work_type, COUNT(*) AS work_count\nFROM effect_daily_work_v2\nGROUP BY work_type\nORDER BY work_count DESC;",
+        "expected_row_count": null,
+        "category": "聚合",
+        "tables": [
+          "effect_daily_work_v2"
+        ],
+        "judging_criteria": [
+          "必须使用 `GROUP BY` 和 `COUNT`",
+          "总计 22 条记录"
+        ]
+      },
+      "started_at": "2026-07-02T22:30:17.803710",
+      "completed_at": "2026-07-02T22:31:09.514677",
+      "duration_ms": 51715,
+      "agent_response": "查询成功！以下是 `effect_daily_work_v2` 表中每种工作类型的统计结果：\n\n## 执行 SQL\n\n```sql\nSELECT work_type, COUNT(*) AS cnt \nFROM effect_daily_work_v2 \nGROUP BY work_type \nORDER BY cnt DESC\n```\n\n## 查询结果\n\n| 序号 | 工作类型 | 数量 |\n|------|----------|------|\n| 1 | 问题排查 | 19 |\n| 2 | 应急处理 | 1 |\n| 3 | 解决方案编写 | 1 |\n| 4 | 数据库拆分/迁移 | 1 |\n\n---\n\n**总结**：`effect_daily_work_v2` 表中一共记录了 **4 种工作类型**，总计 22 条记录。其中\"问题排查\"类型占比最高，达到 19 条（约 86%），其余三种类型各只有 1 条记录。",
+      "generated_sqls": [
+        "SELECT work_type, COUNT(*) AS cnt FROM effect_daily_work_v2 GROUP BY work_type ORDER BY cnt DESC"
+      ],
+      "tool_calls": [
+        {
+          "tool": "list_tables",
+          "args": {}
+        },
+        {
+          "tool": "describe_table",
+          "args": {}
+        },
+        {
+          "tool": "query_database",
+          "args": {}
+        },
+        {
+          "tool": "execute_sql",
+          "args": {}
+        }
+      ],
+      "sql_judge": {
+        "tier": 2,
+        "passed": true,
+        "score": 1.0,
+        "generated_sql": "SELECT work_type, COUNT(*) AS cnt FROM effect_daily_work_v2 GROUP BY work_type ORDER BY cnt DESC",
+        "reference_sql": "SELECT work_type, COUNT(*) AS work_count\nFROM effect_daily_work_v2\nGROUP BY work_type\nORDER BY work_count DESC;",
+        "generated_row_count": 4,
+        "reference_row_count": 4,
+        "diff_summary": "结果数据完全一致",
+        "llm_judge_explanation": null
+      },
+      "quality_judge": {
+        "score": 1.0,
+        "completeness": 1.0,
+        "accuracy": 1.0,
+        "clarity": 1.0,
+        "sql_transparency": 1.0,
+        "explanation": "回答完整覆盖了用户问题，SQL正确，结果清晰展示，并提供了执行SQL。"
+      },
+      "efficiency": {
+        "tool_call_count": 4,
+        "tool_call_details": {
+          "list_tables": 1,
+          "describe_table": 1,
+          "query_database": 1,
+          "execute_sql": 1
+        },
+        "turns": 8,
+        "total_tokens": 39920,
+        "latency_ms": 50069,
+        "score": 0.7879
+      },
+      "dimensions": {
+        "sql_syntax": 1.0,
+        "table_column": 1.0,
+        "filter_condition": 1.0,
+        "result_data": 1.0,
+        "sql_standard": 0.7
+      },
+      "overall_score": 0.97,
+      "passed": true,
+      "error": null
+    },
+    {
+      "test_case": {
+        "case_id": "TC-019",
+        "difficulty": "Medium",
+        "question": "统计每种SQL类型的数量，按数量降序排列前 10 名。",
+        "reference_sql": "SELECT sql_type, COUNT(*) AS sql_count\nFROM order_audit_record\nGROUP BY sql_type\nORDER BY sql_count DESC\nLIMIT 10;",
+        "expected_row_count": null,
+        "category": "聚合",
+        "tables": [
+          "order_audit_record"
+        ],
+        "judging_criteria": [
+          "必须使用 `GROUP BY` 和 `COUNT`",
+          "必须有 `LIMIT 10`",
+          "排序方向为 DESC"
+        ]
+      },
+      "started_at": "2026-07-02T22:31:10.771289",
+      "completed_at": "2026-07-02T22:31:46.765186",
+      "duration_ms": 35995,
+      "agent_response": "已向你展示了三个候选表，请选择一个表并确认 SQL 类型的分类方式，我会继续帮你统计。",
+      "generated_sqls": [],
+      "tool_calls": [
+        {
+          "tool": "list_tables",
+          "args": {}
+        },
+        {
+          "tool": "describe_table",
+          "args": {}
+        },
+        {
+          "tool": "ask_user",
+          "args": {}
+        }
+      ],
+      "sql_judge": {
+        "tier": 0,
+        "passed": false,
+        "score": 0.0,
+        "generated_sql": "",
+        "reference_sql": "SELECT sql_type, COUNT(*) AS sql_count\nFROM order_audit_record\nGROUP BY sql_type\nORDER BY sql_count DESC\nLIMIT 10;",
+        "generated_row_count": null,
+        "reference_row_count": null,
+        "diff_summary": "Agent 未生成 SQL",
+        "llm_judge_explanation": null
+      },
+      "quality_judge": {
+        "score": 0.0,
+        "completeness": 0.0,
+        "accuracy": 0.0,
+        "clarity": 0.0,
+        "sql_transparency": 0.0,
+        "explanation": "Agent 未直接回答用户问题，而是要求用户选择表和确认分类方式，未提供任何统计结果或SQL，因此所有维度均为0分。"
+      },
+      "efficiency": {
+        "tool_call_count": 3,
+        "tool_call_details": {
+          "list_tables": 1,
+          "describe_table": 1,
+          "ask_user": 1
+        },
+        "turns": 6,
+        "total_tokens": 28991,
+        "latency_ms": 34720,
+        "score": 0.8443
+      },
+      "dimensions": {
+        "sql_syntax": 0.0,
+        "table_column": 0.0,
+        "filter_condition": 0.0,
+        "result_data": 0.0,
+        "sql_standard": 0.0
+      },
+      "overall_score": 0.0,
+      "passed": false,
+      "error": null
+    },
+    {
+      "test_case": {
+        "case_id": "TC-020",
+        "difficulty": "Medium",
+        "question": "统计 2024 年 12 月每天的审计记录数量，按日期升序排列。",
+        "reference_sql": "SELECT DATE(create_time) AS audit_date,\n       COUNT(*) AS audit_count\nFROM order_audit_record\nWHERE create_time >= '2024-12-01'\n  AND create_time < '2025-01-01'\nGROUP BY DATE(create_time)\nORDER BY audit_date ASC;",
+        "expected_row_count": null,
+        "category": "时间窗口",
+        "tables": [
+          "order_audit_record"
+        ],
+        "judging_criteria": [
+          "必须使用 `DATE()` 函数提取日期",
+          "时间范围过滤使用 `>=` 和 `<` 模式",
+          "排序方向为 ASC"
+        ]
+      },
+      "started_at": "2026-07-02T22:31:48.071515",
+      "completed_at": "2026-07-02T22:32:07.894539",
+      "duration_ms": 19823,
+      "agent_response": "请您选择需要统计的表，我将根据您的选择继续查询。",
+      "generated_sqls": [],
+      "tool_calls": [
+        {
+          "tool": "list_tables",
+          "args": {}
+        },
+        {
+          "tool": "ask_user",
+          "args": {}
+        }
+      ],
+      "sql_judge": {
+        "tier": 0,
+        "passed": false,
+        "score": 0.0,
+        "generated_sql": "",
+        "reference_sql": "SELECT DATE(create_time) AS audit_date,\n       COUNT(*) AS audit_count\nFROM order_audit_record\nWHERE create_time >= '2024-12-01'\n  AND create_time < '2025-01-01'\nGROUP BY DATE(create_time)\nORDER BY audit_date ASC;",
+        "generated_row_count": null,
+        "reference_row_count": null,
+        "diff_summary": "Agent 未生成 SQL",
+        "llm_judge_explanation": null
+      },
+      "quality_judge": {
+        "score": 0.0,
+        "completeness": 0.0,
+        "accuracy": 0.0,
+        "clarity": 0.0,
+        "sql_transparency": 0.0,
+        "explanation": "Agent 未回答用户问题，而是要求用户选择表，完全未覆盖问题内容，无任何有效信息。"
+      },
+      "efficiency": {
+        "tool_call_count": 2,
+        "tool_call_details": {
+          "list_tables": 1,
+          "ask_user": 1
+        },
+        "turns": 3,
+        "total_tokens": 6898,
+        "latency_ms": 18694,
+        "score": 0.9196
+      },
+      "dimensions": {
+        "sql_syntax": 0.0,
+        "table_column": 0.0,
+        "filter_condition": 0.0,
+        "result_data": 0.0,
+        "sql_standard": 0.0
+      },
+      "overall_score": 0.0,
+      "passed": false,
+      "error": null
+    },
+    {
+      "test_case": {
+        "case_id": "TC-021",
+        "difficulty": "Easy",
+        "question": "查询所有角色为 0 的用户，返回用户ID、真实姓名、邮箱和飞书用户名，按用户ID升序。",
+        "reference_sql": "SELECT id, realname, email, feishu_name\nFROM account\nWHERE role = 0\nORDER BY id ASC;",
+        "expected_row_count": 53993,
+        "category": "单表过滤",
+        "tables": [
+          "account"
+        ],
+        "judging_criteria": [
+          "必须使用 `role = 0`（role 字段为 INT 类型，不要用字符串）",
+          "排序方向为 ASC"
+        ]
+      },
+      "started_at": "2026-07-02T22:32:09.330429",
+      "completed_at": "2026-07-02T22:32:56.215051",
+      "duration_ms": 46886,
+      "agent_response": "查询完成。以下是结果汇总：\n\n---\n\n## 查询结果\n\n**执行 SQL：**\n```sql\nSELECT id, realname, email, feishu_name \nFROM account \nWHERE role = 0 \nORDER BY id ASC\n```\n\n**统计信息：**\n- 符合条件的记录总数：**53,993** 条\n- 上表展示：前 **50** 条（ID 1 ~ 51）\n\n**关键字段说明：**\n\n| 字段 | 说明 |\n|------|------|\n| `id` | 用户ID |\n| `realname` | 真实姓名 |\n| `email` | 邮箱 |\n| `feishu_name` | 飞书用户名 |\n\n---\n\n由于结果集较大（5.3 万条），你是否需要我进一步筛选？比如：\n\n- 只看**在职**用户（排除飞书名含\"已离职\"的）？\n- 按**邮箱域名**筛选？\n- 导出更多行（如全部结果）？\n- 按指定 ID 范围查看？",
+      "generated_sqls": [
+        "SELECT id, realname, email, feishu_name FROM account WHERE role = 0 ORDER BY id ASC",
+        "SELECT id, realname, email, feishu_name FROM account WHERE role = 0 ORDER BY id ASC LIMIT 50",
+        "SELECT COUNT(*) AS total FROM account WHERE role = 0"
+      ],
+      "tool_calls": [
+        {
+          "tool": "list_tables",
+          "args": {}
+        },
+        {
+          "tool": "describe_table",
+          "args": {}
+        },
+        {
+          "tool": "execute_sql",
+          "args": {}
+        }
+      ],
+      "sql_judge": {
+        "tier": 3,
+        "passed": false,
+        "score": 0.20025,
+        "generated_sql": "SELECT COUNT(*) AS total FROM account WHERE role = 0",
+        "reference_sql": "SELECT id, realname, email, feishu_name\nFROM account\nWHERE role = 0\nORDER BY id ASC;",
+        "generated_row_count": 1,
+        "reference_row_count": 2000,
+        "diff_summary": "行数不一致：生成=1, 参考=2000",
+        "llm_judge_explanation": "生成SQL查询的是角色为0的用户总数，而参考SQL查询的是用户详细信息，两者语义完全不同，无法回答原始问题。"
+      },
+      "quality_judge": {
+        "score": 1.0,
+        "completeness": 1.0,
+        "accuracy": 1.0,
+        "clarity": 1.0,
+        "sql_transparency": 1.0,
+        "explanation": "回答完整覆盖了用户问题，展示了正确的SQL、结果汇总、字段说明，并提供了进一步筛选选项，结构清晰，所有维度均满分。"
+      },
+      "efficiency": {
+        "tool_call_count": 3,
+        "tool_call_details": {
+          "list_tables": 1,
+          "describe_table": 1,
+          "execute_sql": 1
+        },
+        "turns": 10,
+        "total_tokens": 28759,
+        "latency_ms": 45993,
+        "score": 0.7827
+      },
+      "dimensions": {
+        "sql_syntax": 0.20025,
+        "table_column": 0.20025,
+        "filter_condition": 0.20025,
+        "result_data": 0.20025,
+        "sql_standard": 0.7
+      },
+      "overall_score": 0.2502,
+      "passed": false,
+      "error": null
+    },
+    {
+      "test_case": {
+        "case_id": "TC-022",
+        "difficulty": "Easy",
+        "question": "统计每种角色的用户数量。",
+        "reference_sql": "SELECT role, COUNT(*) AS user_count\nFROM account\nGROUP BY role\nORDER BY user_count DESC;",
+        "expected_row_count": null,
+        "category": "聚合",
+        "tables": [
+          "account"
+        ],
+        "judging_criteria": [
+          "必须使用 `GROUP BY` 和 `COUNT`",
+          "排序方向为 DESC"
+        ]
+      },
+      "started_at": "2026-07-02T22:32:59.340934",
+      "completed_at": "2026-07-02T22:34:32.842964",
+      "duration_ms": 93504,
+      "agent_response": "## 统计结果\n\n### 1. `account` 表（主用户表，已过滤 `is_delete=0`）\n\n| 角色编码 | 用户数量 | 占比 |\n| :---: | ---: | ---: |\n| 0 | 53,993 | 91.13% |\n| 1 | 5,232 | 8.83% |\n| 99 | 15 | 0.025% |\n| 6 | 7 | 0.012% |\n| 999 | 1 | 0.002% |\n\n### 2. `db_employee` 表（员工表，已过滤 `is_active=1`）\n\n| 角色编码 | 用户数量 |\n| :---: | ---: |\n| 99 | 7 |\n| 0 | 2 |\n| 6 | 2 |\n| 999 | 1 |\n| 1 | 1 |\n\n---\n\n> **说明**：`account` 表中的 `role` 字段是整数编码，数据库中未找到对应的角色名称映射表（`db_ecs_role` 表是 ECS 组件角色如 StarRocks FE/BE 等，与用户角色无关）。根据常见平台惯例推测：`0` 为普通用户，`1` 为 DBA/管理员，`99` 为超级管理员，`999` 为平台管理员。如需确认角色编码的具体含义，建议查阅平台文档或询问平台管理员。",
+      "generated_sqls": [
+        "SELECT role, COUNT(*) AS user_count FROM account WHERE is_delete = 0 GROUP BY role ORDER BY user_count DESC",
+        "SELECT * FROM db_ecs_role",
+        "SELECT DISTINCT role, role_groups FROM account WHERE is_delete = 0 AND role != 0 LIMIT 20",
+        "SELECT user_role, COUNT(*) AS user_count FROM db_employee WHERE is_active = 1 GROUP BY user_role ORDER BY user_count DESC"
+      ],
+      "tool_calls": [
+        {
+          "tool": "list_tables",
+          "args": {}
+        },
+        {
+          "tool": "describe_table",
+          "args": {}
+        },
+        {
+          "tool": "query_database",
+          "args": {}
+        },
+        {
+          "tool": "execute_sql",
+          "args": {}
+        }
+      ],
+      "sql_judge": {
+        "tier": 3,
+        "passed": false,
+        "score": 1.0,
+        "generated_sql": "SELECT user_role, COUNT(*) AS user_count FROM db_employee WHERE is_active = 1 GROUP BY user_role ORDER BY user_count DESC",
+        "reference_sql": "SELECT role, COUNT(*) AS user_count\nFROM account\nGROUP BY role\nORDER BY user_count DESC;",
+        "generated_row_count": 5,
+        "reference_row_count": 5,
+        "diff_summary": "数据内容不一致：10 行不匹配",
+        "llm_judge_explanation": "生成SQL添加了WHERE is_active = 1条件，筛选了活跃用户，而参考SQL统计所有用户，语义不等价。"
+      },
+      "quality_judge": {
+        "score": 0.625,
+        "completeness": 0.7,
+        "accuracy": 0.9,
+        "clarity": 0.9,
+        "sql_transparency": 0.0,
+        "explanation": "回答完整覆盖了用户问题，但额外提供了db_employee表的数据，可能超出需求。准确性高，数据与参考SQL逻辑一致。清晰度好，使用表格和说明。未展示实际执行的SQL语句，sql_transparency得分为0。"
+      },
+      "efficiency": {
+        "tool_call_count": 4,
+        "tool_call_details": {
+          "list_tables": 1,
+          "describe_table": 1,
+          "query_database": 1,
+          "execute_sql": 1
+        },
+        "turns": 14,
+        "total_tokens": 75653,
+        "latency_ms": 91837,
+        "score": 0.6515
+      },
+      "dimensions": {
+        "sql_syntax": 1.0,
+        "table_column": 1.0,
+        "filter_condition": 1.0,
+        "result_data": 1.0,
+        "sql_standard": 0.7
+      },
+      "overall_score": 0.97,
+      "passed": true,
+      "error": null
+    },
+    {
+      "test_case": {
+        "case_id": "TC-023",
+        "difficulty": "Medium",
+        "question": "查询工单及其提交人信息，返回工单ID、工单类型、提交人姓名、提交人邮箱，按工单创建时间降序。",
+        "reference_sql": "SELECT o.id, o.order_type, o.committer_name, a.email\nFROM order_record o\nLEFT JOIN account a ON o.committer_id = a.feishu_user_id\nORDER BY o.create_time DESC;",
+        "expected_row_count": 1174,
+        "category": "JOIN",
+        "tables": [
+          "order_record",
+          "account"
+        ],
+        "judging_criteria": [
+          "必须使用 `LEFT JOIN`",
+          "关联条件是 `committer_id = feishu_user_id`",
+          "排序方向为 DESC"
+        ]
+      },
+      "started_at": "2026-07-02T22:34:35.884314",
+      "completed_at": "2026-07-02T22:47:10.844735",
+      "duration_ms": 125024,
+      "agent_response": "",
+      "generated_sqls": [
+        "SELECT id, order_type, committer_id, committer_name FROM order_record LIMIT 5",
+        "SELECT id, order_id, order_data FROM order_record_detail LIMIT 2",
+        "SELECT id, realname, email FROM account WHERE id = 10006019",
+        "SELECT id, username, realname, email, feishu_user_id FROM account LIMIT 5",
+        "SELECT DISTINCT committer_id, committer_name FROM order_record ORDER BY create_time DESC LIMIT 10",
+        "SELECT id, username, realname, email, feishu_open_id, aliyun_user_id, feishu_user_id FROM account WHERE aliyun_user_id = '10006019' OR feishu_open_id = '10006019' OR feishu_user_id = '10006019'"
+      ],
+      "tool_calls": [
+        {
+          "tool": "list_tables",
+          "args": {}
+        },
+        {
+          "tool": "describe_table",
+          "args": {}
+        },
+        {
+          "tool": "execute_sql",
+          "args": {}
+        }
+      ],
+      "sql_judge": {
+        "tier": 3,
+        "passed": false,
+        "score": 0.5,
+        "generated_sql": "SELECT id, username, realname, email, feishu_open_id, aliyun_user_id, feishu_user_id FROM account WHERE aliyun_user_id = '10006019' OR feishu_open_id = '10006019' OR feishu_user_id = '10006019'",
+        "reference_sql": "SELECT o.id, o.order_type, o.committer_name, a.email\nFROM order_record o\nLEFT JOIN account a ON o.committer_id = a.feishu_user_id\nORDER BY o.create_time DESC;",
+        "generated_row_count": 1,
+        "reference_row_count": 0,
+        "diff_summary": "行数不一致：生成=1, 参考=0",
+        "llm_judge_explanation": "生成SQL仅查询account表，返回用户信息，未涉及工单数据，与原始问题要求查询工单及提交人信息完全不符。"
+      },
+      "quality_judge": null,
+      "efficiency": {
+        "tool_call_count": 3,
+        "tool_call_details": {
+          "list_tables": 1,
+          "describe_table": 1,
+          "execute_sql": 1
+        },
+        "turns": 0,
+        "total_tokens": 0,
+        "latency_ms": 0,
+        "score": 0.97
+      },
+      "dimensions": {
+        "sql_syntax": 0.5,
+        "table_column": 0.5,
+        "filter_condition": 0.5,
+        "result_data": 0.5,
+        "sql_standard": 0.39999999999999997
+      },
+      "overall_score": 0.49,
+      "passed": false,
+      "error": "执行超时（120.0秒）"
+    },
+    {
+      "test_case": {
+        "case_id": "TC-024",
+        "difficulty": "Medium",
+        "question": "查询工单及其工作流实例信息，返回工单ID、工单类型、工单状态、工作流状态，按工单创建时间降序。",
+        "reference_sql": "SELECT o.id, o.order_type, o.status_desc, w.status_desc AS workflow_status\nFROM order_record o\nLEFT JOIN workflow_instance w ON o.id = w.order_id\nORDER BY o.create_time DESC;",
+        "expected_row_count": null,
+        "category": "JOIN",
+        "tables": [
+          "order_record",
+          "workflow_instance"
+        ],
+        "judging_criteria": [
+          "必须使用 `LEFT JOIN`",
+          "关联条件是 `order_record.id = workflow_instance.order_id`",
+          "排序方向为 DESC"
+        ]
+      },
+      "started_at": "2026-07-02T22:47:12.724263",
+      "completed_at": "2026-07-02T22:55:08.668313",
+      "duration_ms": 89407,
+      "agent_response": "API Error: Connection closed mid-response. The response above may be incomplete.",
+      "generated_sqls": [],
+      "tool_calls": [
+        {
+          "tool": "list_tables",
+          "args": {}
+        },
+        {
+          "tool": "describe_table",
+          "args": {}
+        },
+        {
+          "tool": "query_database",
+          "args": {}
+        }
+      ],
+      "sql_judge": {
+        "tier": 0,
+        "passed": false,
+        "score": 0.0,
+        "generated_sql": "",
+        "reference_sql": "SELECT o.id, o.order_type, o.status_desc, w.status_desc AS workflow_status\nFROM order_record o\nLEFT JOIN workflow_instance w ON o.id = w.order_id\nORDER BY o.create_time DESC;",
+        "generated_row_count": null,
+        "reference_row_count": null,
+        "diff_summary": "Agent 未生成 SQL",
+        "llm_judge_explanation": null
+      },
+      "quality_judge": {
+        "score": 0.0,
+        "completeness": 0.0,
+        "accuracy": 0.0,
+        "clarity": 0.0,
+        "sql_transparency": 0.0,
+        "explanation": "Agent回复仅包含错误信息，未提供任何有效回答，所有维度均为0分。"
+      },
+      "efficiency": {
+        "tool_call_count": 3,
+        "tool_call_details": {
+          "list_tables": 1,
+          "describe_table": 1,
+          "query_database": 1
+        },
+        "turns": 7,
+        "total_tokens": 22018,
+        "latency_ms": 87734,
+        "score": 0.7801
+      },
+      "dimensions": {
+        "sql_syntax": 0.0,
+        "table_column": 0.0,
+        "filter_condition": 0.0,
+        "result_data": 0.0,
+        "sql_standard": 0.0
+      },
+      "overall_score": 0.0,
+      "passed": false,
+      "error": null
+    },
+    {
+      "test_case": {
+        "case_id": "TC-025",
+        "difficulty": "Medium",
+        "question": "查询有严重告警的业务域名称，去重。",
+        "reference_sql": "SELECT DISTINCT business_subdomain\nFROM db_alert_history\nWHERE level = 'critical'\nORDER BY business_subdomain;",
+        "expected_row_count": null,
+        "category": "子查询",
+        "tables": [
+          "db_alert_history"
+        ],
+        "judging_criteria": [
+          "必须使用 `DISTINCT`",
+          "必须使用 `level = 'critical'`"
+        ]
+      },
+      "started_at": "2026-07-02T23:09:30.017814",
+      "completed_at": "2026-07-02T23:31:26.263468",
+      "duration_ms": 109116,
+      "agent_response": "API Error: Connection closed mid-response. The response above may be incomplete.",
+      "generated_sqls": [
+        "SELECT DISTINCT level FROM db_alert_current WHERE level IS NOT NULL",
+        "SELECT DISTINCT business_subdomain FROM db_alert_current WHERE business_subdomain IS NOT NULL AND business_subdomain != '' LIMIT 20"
+      ],
+      "tool_calls": [
+        {
+          "tool": "list_tables",
+          "args": {}
+        },
+        {
+          "tool": "describe_table",
+          "args": {}
+        },
+        {
+          "tool": "query_database",
+          "args": {}
+        },
+        {
+          "tool": "execute_sql",
+          "args": {}
+        }
+      ],
+      "sql_judge": {
+        "tier": 3,
+        "passed": false,
+        "score": 0.7142857142857143,
+        "generated_sql": "SELECT DISTINCT business_subdomain FROM db_alert_current WHERE business_subdomain IS NOT NULL AND business_subdomain != '' LIMIT 20",
+        "reference_sql": "SELECT DISTINCT business_subdomain\nFROM db_alert_history\nWHERE level = 'critical'\nORDER BY business_subdomain;",
+        "generated_row_count": 15,
+        "reference_row_count": 35,
+        "diff_summary": "行数不一致：生成=15, 参考=35",
+        "llm_judge_explanation": "参考SQL查询db_alert_history中level='critical'的业务域，生成SQL查询db_alert_current且无level条件，语义完全不同，结果集无交集，不等价。"
+      },
+      "quality_judge": {
+        "score": 0.0,
+        "completeness": 0.0,
+        "accuracy": 0.0,
+        "clarity": 0.0,
+        "sql_transparency": 0.0,
+        "explanation": "Agent回复为API错误，未提供任何有效回答，所有维度均为0分。"
+      },
+      "efficiency": {
+        "tool_call_count": 4,
+        "tool_call_details": {
+          "list_tables": 1,
+          "describe_table": 1,
+          "query_database": 1,
+          "execute_sql": 1
+        },
+        "turns": 12,
+        "total_tokens": 19773,
+        "latency_ms": 107847,
+        "score": 0.6878
+      },
+      "dimensions": {
+        "sql_syntax": 0.7142857142857143,
+        "table_column": 0.7142857142857143,
+        "filter_condition": 0.7142857142857143,
+        "result_data": 0.7142857142857143,
+        "sql_standard": 0.7
+      },
+      "overall_score": 0.7129,
+      "passed": false,
+      "error": null
+    },
+    {
+      "test_case": {
+        "case_id": "TC-026",
+        "difficulty": "Hard",
+        "question": "查询每个业务域的告警数量，并按告警数量在该业务域内排名。",
+        "reference_sql": "SELECT business_subdomain,\n       metric_name,\n       COUNT(*) AS alert_count,\n       ROW_NUMBER() OVER (PARTITION BY business_subdomain ORDER BY COUNT(*) DESC) AS rn\nFROM db_alert_history\nGROUP BY business_subdomain, metric_name\nORDER BY business_subdomain, rn;",
+        "expected_row_count": null,
+        "category": "窗口函数",
+        "tables": [
+          "db_alert_history"
+        ],
+        "judging_criteria": [
+          "必须使用 `ROW_NUMBER()` 窗口函数",
+          "必须使用 `PARTITION BY business_subdomain`"
+        ]
+      },
+      "started_at": "2026-07-02T23:50:03.329968",
+      "completed_at": "2026-07-03T00:08:30.201415",
+      "duration_ms": 91959,
+      "agent_response": "API Error: Connection closed mid-response. The response above may be incomplete.",
+      "generated_sqls": [],
+      "tool_calls": [
+        {
+          "tool": "list_tables",
+          "args": {}
+        },
+        {
+          "tool": "describe_table",
+          "args": {}
+        }
+      ],
+      "sql_judge": {
+        "tier": 0,
+        "passed": false,
+        "score": 0.0,
+        "generated_sql": "",
+        "reference_sql": "SELECT business_subdomain,\n       metric_name,\n       COUNT(*) AS alert_count,\n       ROW_NUMBER() OVER (PARTITION BY business_subdomain ORDER BY COUNT(*) DESC) AS rn\nFROM db_alert_history\nGROUP BY business_subdomain, metric_name\nORDER BY business_subdomain, rn;",
+        "generated_row_count": null,
+        "reference_row_count": null,
+        "diff_summary": "Agent 未生成 SQL",
+        "llm_judge_explanation": null
+      },
+      "quality_judge": {
+        "score": 0.0,
+        "completeness": 0.0,
+        "accuracy": 0.0,
+        "clarity": 0.0,
+        "sql_transparency": 0.0,
+        "explanation": "Agent回复仅包含API错误信息，未提供任何有效回答，所有维度均为0分。"
+      },
+      "efficiency": {
+        "tool_call_count": 2,
+        "tool_call_details": {
+          "list_tables": 1,
+          "describe_table": 1
+        },
+        "turns": 8,
+        "total_tokens": 8639,
+        "latency_ms": 90368,
+        "score": 0.7815
+      },
+      "dimensions": {
+        "sql_syntax": 0.0,
+        "table_column": 0.0,
+        "filter_condition": 0.0,
+        "result_data": 0.0,
+        "sql_standard": 0.0
+      },
+      "overall_score": 0.0,
+      "passed": false,
+      "error": null
+    },
+    {
+      "test_case": {
+        "case_id": "TC-027",
+        "difficulty": "Hard",
+        "question": "统计每种工单类型的完成率（已完成工单数 / 总工单数），按完成率降序排列。",
+        "reference_sql": "SELECT order_type,\n       COUNT(*) AS total_count,\n       SUM(CASE WHEN is_finished = 1 THEN 1 ELSE 0 END) AS finished_count,\n       ROUND(SUM(CASE WHEN is_finished = 1 THEN 1 ELSE 0 END) * 100.0 / COUNT(*), 2) AS finish_rate\nFROM order_record\nGROUP BY order_type\nORDER BY finish_rate DESC;",
+        "expected_row_count": null,
+        "category": "派生指标",
+        "tables": [
+          "order_record"
+        ],
+        "judging_criteria": [
+          "必须使用 `CASE WHEN` 进行条件聚合",
+          "必须正确计算完成率"
+        ]
+      },
+      "started_at": "2026-07-03T00:08:31.539885",
+      "completed_at": "2026-07-03T00:30:19.805513",
+      "duration_ms": 103320,
+      "agent_response": "查询成功！以下是 **每种工单类型的完成率**统计结果，按完成率降序排列：\n\n## 📊 工单类型完成率统计\n\n| 排名 | 工单类型 | 总工单数 | 已完成工单数 | 完成率 |\n| ---: | --- | ---: | ---: | ---: |\n| 1 | **structureSync** | 89 | 86 | **96.63%** |\n| 2 | **dataExport** | 50 | 44 | **88.00%** |\n| 3 | **dataChange** | 354 | 289 | **81.64%** |\n| 4 | **dataChangeChunk** | 35 | 27 | **77.14%** |\n| 5 | **userRoleApply** | 8 | 6 | **75.00%** |\n| 6 | **permission** | 130 | 87 | **66.92%** |\n| 7 | **offlineInstance** | 27 | 16 | **59.26%** |\n| 8 | **clearKey** | 17 | 10 | **58.82%** |\n| 9 | **dataArchive** | 29 | 17 | **58.62%** |\n| 10 | **dataQuery** | 24 | 14 | **58.33%** |\n| 11 | **other** | 48 | 25 | **52.08%** |\n| 12 | **createDatabase** | 64 | 31 | **48.44%** |\n| 13 | **configChange** | 32 | 15 | **46.88%** |\n| 14 | **createInstance** | 99 | 46 | **46.46%** |\n| 15 | **appendWhitelist** | 51 | 21 | **41.18%** |\n| 16 | **decryptApply** | 6 | 2 | **33.33%** |\n| 17 | **passwordApply** | 6 | 2 | **33.33%** |\n| 18 | **parameterChange** | 11 | 3 | **27.27%** |\n| 19 | **dataClean** | 25 | 6 | **24.00%** |\n| 20 | **structureDesign** | 69 | 15 | **21.74%** |\n\n---\n\n### 📈 关键洞察\n\n- **总工单数**：1,174 条，其中已完成 762 条，整体完成率约 **64.91%**\n- **完成率最高**：`structureSync`（结构同步）以 96.63% 位居榜首，说明结构同步类工单执行最为顺畅\n- **完成率最低**：`structureDesign`（结构设计）仅 21.74%，`dataClean`（数据清理）24.00%，`parameterChange`（参数变更）27.27%，这几类工单可能存在较大的流程阻塞或审批延迟\n- **工单量最大**：`dataChange`（数据变更）共 354 条，占比 30%+，是最高频的工单类型，完成率 81.64% 也较为健康\n\n```sql\n-- 实际执行的 SQL\nSELECT \n    order_type AS 工单类型,\n    COUNT(*) AS 总工单数,\n    SUM(is_finished) AS 已完成工单数,\n    ROUND(SUM(is_finished) * 100.0 / COUNT(*), 2) AS 完成率\nFROM order_record\nGROUP BY order_type\nORDER BY 完成率 DESC\n```",
+      "generated_sqls": [
+        "SELECT \n    order_type AS 工单类型,\n    COUNT(*) AS 总工单数,\n    SUM(is_finished) AS 已完成工单数,\n    ROUND(SUM(is_finished) * 100.0 / COUNT(*), 2) AS 完成率\nFROM order_record\nGROUP BY order_type\nORDER BY 完成率 DESC"
+      ],
+      "tool_calls": [
+        {
+          "tool": "list_tables",
+          "args": {}
+        },
+        {
+          "tool": "describe_table",
+          "args": {}
+        },
+        {
+          "tool": "query_database",
+          "args": {}
+        },
+        {
+          "tool": "execute_sql",
+          "args": {}
+        }
+      ],
+      "sql_judge": {
+        "tier": 2,
+        "passed": true,
+        "score": 1.0,
+        "generated_sql": "SELECT \n    order_type AS 工单类型,\n    COUNT(*) AS 总工单数,\n    SUM(is_finished) AS 已完成工单数,\n    ROUND(SUM(is_finished) * 100.0 / COUNT(*), 2) AS 完成率\nFROM order_record\nGROUP BY order_type\nORDER BY 完成率 DESC",
+        "reference_sql": "SELECT order_type,\n       COUNT(*) AS total_count,\n       SUM(CASE WHEN is_finished = 1 THEN 1 ELSE 0 END) AS finished_count,\n       ROUND(SUM(CASE WHEN is_finished = 1 THEN 1 ELSE 0 END) * 100.0 / COUNT(*), 2) AS finish_rate\nFROM order_record\nGROUP BY order_type\nORDER BY finish_rate DESC;",
+        "generated_row_count": 20,
+        "reference_row_count": 20,
+        "diff_summary": "结果数据完全一致",
+        "llm_judge_explanation": null
+      },
+      "quality_judge": {
+        "score": 1.0,
+        "completeness": 1.0,
+        "accuracy": 1.0,
+        "clarity": 1.0,
+        "sql_transparency": 1.0,
+        "explanation": "回答完整覆盖了用户问题，准确展示了每种工单类型的完成率并按降序排列，数据与参考SQL逻辑一致。结构清晰，使用Markdown表格和关键洞察，并展示了实际执行的SQL语句。"
+      },
+      "efficiency": {
+        "tool_call_count": 4,
+        "tool_call_details": {
+          "list_tables": 1,
+          "describe_table": 1,
+          "query_database": 1,
+          "execute_sql": 1
+        },
+        "turns": 8,
+        "total_tokens": 19954,
+        "latency_ms": 102508,
+        "score": 0.7432
+      },
+      "dimensions": {
+        "sql_syntax": 1.0,
+        "table_column": 1.0,
+        "filter_condition": 1.0,
+        "result_data": 1.0,
+        "sql_standard": 0.7
+      },
+      "overall_score": 0.97,
+      "passed": true,
+      "error": null
+    },
+    {
+      "test_case": {
+        "case_id": "TC-028",
+        "difficulty": "Hard",
+        "question": "对比 2024 年 4 月和 5 月每天的告警数量，返回日期、4月告警数、5月告警数。",
+        "reference_sql": "SELECT\n    DATE(alert_time) AS alert_date,\n    SUM(CASE WHEN MONTH(alert_time) = 4 THEN 1 ELSE 0 END) AS april_count,\n    SUM(CASE WHEN MONTH(alert_time) = 5 THEN 1 ELSE 0 END) AS may_count\nFROM db_alert_history\nWHERE alert_time >= '2024-04-01'\n  AND alert_time < '2024-06-01'\nGROUP BY DATE(alert_time)\nORDER BY alert_date;",
+        "expected_row_count": null,
+        "category": "时间窗口",
+        "tables": [
+          "db_alert_history"
+        ],
+        "judging_criteria": [
+          "必须使用 `CASE WHEN` 进行条件聚合",
+          "必须正确过滤时间范围"
+        ]
+      },
+      "started_at": "2026-07-03T00:30:22.820687",
+      "completed_at": "2026-07-03T00:33:06.780573",
+      "duration_ms": 50309,
+      "agent_response": "API Error: Connection closed mid-response. The response above may be incomplete.",
+      "generated_sqls": [],
+      "tool_calls": [],
+      "sql_judge": {
+        "tier": 0,
+        "passed": false,
+        "score": 0.0,
+        "generated_sql": "",
+        "reference_sql": "SELECT\n    DATE(alert_time) AS alert_date,\n    SUM(CASE WHEN MONTH(alert_time) = 4 THEN 1 ELSE 0 END) AS april_count,\n    SUM(CASE WHEN MONTH(alert_time) = 5 THEN 1 ELSE 0 END) AS may_count\nFROM db_alert_history\nWHERE alert_time >= '2024-04-01'\n  AND alert_time < '2024-06-01'\nGROUP BY DATE(alert_time)\nORDER BY alert_date;",
+        "generated_row_count": null,
+        "reference_row_count": null,
+        "diff_summary": "Agent 未生成 SQL",
+        "llm_judge_explanation": null
+      },
+      "quality_judge": {
+        "score": 0.0,
+        "completeness": 0.0,
+        "accuracy": 0.0,
+        "clarity": 0.0,
+        "sql_transparency": 0.0,
+        "explanation": "Agent回复仅包含API错误信息，未提供任何有效回答，所有维度均为0分。"
+      },
+      "efficiency": {
+        "tool_call_count": 0,
+        "tool_call_details": {},
+        "turns": 1,
+        "total_tokens": 0,
+        "latency_ms": 48988,
+        "score": 0.9365
+      },
+      "dimensions": {
+        "sql_syntax": 0.0,
+        "table_column": 0.0,
+        "filter_condition": 0.0,
+        "result_data": 0.0,
+        "sql_standard": 0.0
+      },
+      "overall_score": 0.0,
+      "passed": false,
+      "error": null
+    },
+    {
+      "test_case": {
+        "case_id": "TC-029",
+        "difficulty": "Hard",
+        "question": "统计每位DBA负责的业务域的告警数量，返回DBA标识、业务域、告警数量，按告警数量降序排列前 20 名。",
+        "reference_sql": "SELECT dba_owner,\n       business_subdomain,\n       COUNT(*) AS alert_count\nFROM db_alert_history\nGROUP BY dba_owner, business_subdomain\nORDER BY alert_count DESC\nLIMIT 20;",
+        "expected_row_count": 20,
+        "category": "复合查询",
+        "tables": [
+          "db_alert_history"
+        ],
+        "judging_criteria": [
+          "必须使用 `GROUP BY` 和 `COUNT`",
+          "必须有 `LIMIT 20`",
+          "排序方向为 DESC"
+        ]
+      },
+      "started_at": "2026-07-03T00:33:08.027321",
+      "completed_at": "2026-07-03T00:49:43.982033",
+      "duration_ms": 93326,
+      "agent_response": "API Error: Connection closed mid-response. The response above may be incomplete.",
+      "generated_sqls": [
+        "SELECT \n    b.dba AS dba_标识,\n    b.business_subdomain AS 业务域,\n    SUM(a.cnt) AS 告警数量\nFROM db_alert_history_day_dba a\nJOIN db_dba_businessdomain b ON a.dba_owner = b.dba\nGROUP BY b.dba, b.business_subdomain\nORDER BY 告警数量 DESC\nLIMIT 20"
+      ],
+      "tool_calls": [
+        {
+          "tool": "list_tables",
+          "args": {}
+        },
+        {
+          "tool": "describe_table",
+          "args": {}
+        },
+        {
+          "tool": "query_database",
+          "args": {}
+        },
+        {
+          "tool": "execute_sql",
+          "args": {}
+        }
+      ],
+      "sql_judge": {
+        "tier": 3,
+        "passed": false,
+        "score": 0.5,
+        "generated_sql": "SELECT \n    b.dba AS dba_标识,\n    b.business_subdomain AS 业务域,\n    SUM(a.cnt) AS 告警数量\nFROM db_alert_history_day_dba a\nJOIN db_dba_businessdomain b ON a.dba_owner = b.dba\nGROUP BY b.dba, b.business_subdomain\nORDER BY 告警数量 DESC\nLIMIT 20",
+        "reference_sql": "SELECT dba_owner,\n       business_subdomain,\n       COUNT(*) AS alert_count\nFROM db_alert_history\nGROUP BY dba_owner, business_subdomain\nORDER BY alert_count DESC\nLIMIT 20;",
+        "generated_row_count": 0,
+        "reference_row_count": 20,
+        "diff_summary": "行数不一致：生成=0, 参考=20",
+        "llm_judge_explanation": "生成SQL使用了不同的表（db_alert_history_day_dba和db_dba_businessdomain），且聚合方式为SUM而非COUNT，导致结果为空，与参考SQL语义不等价。"
+      },
+      "quality_judge": {
+        "score": 0.0,
+        "completeness": 0.0,
+        "accuracy": 0.0,
+        "clarity": 0.0,
+        "sql_transparency": 0.0,
+        "explanation": "Agent回复仅包含API错误信息，未提供任何有效回答，所有维度均为0分。"
+      },
+      "efficiency": {
+        "tool_call_count": 4,
+        "tool_call_details": {
+          "list_tables": 1,
+          "describe_table": 1,
+          "query_database": 1,
+          "execute_sql": 1
+        },
+        "turns": 7,
+        "total_tokens": 11304,
+        "latency_ms": 92379,
+        "score": 0.7706
+      },
+      "dimensions": {
+        "sql_syntax": 0.5,
+        "table_column": 0.5,
+        "filter_condition": 0.5,
+        "result_data": 0.5,
+        "sql_standard": 1.0
+      },
+      "overall_score": 0.55,
+      "passed": false,
+      "error": null
+    },
+    {
+      "test_case": {
+        "case_id": "TC-030",
+        "difficulty": "Hard",
+        "question": "统计每种工单类型在各状态下的数量，返回工单类型、状态、数量，按工单类型和数量降序排列。",
+        "reference_sql": "SELECT order_type,\n       status_code,\n       COUNT(*) AS order_count\nFROM order_record\nGROUP BY order_type, status_code\nORDER BY order_type, order_count DESC;",
+        "expected_row_count": null,
+        "category": "复合查询",
+        "tables": [
+          "order_record"
+        ],
+        "judging_criteria": [
+          "必须使用 `GROUP BY` 和 `COUNT`",
+          "排序方向正确"
+        ]
+      },
+      "started_at": "2026-07-03T00:52:50.724243",
+      "completed_at": "2026-07-03T01:20:38.861675",
+      "duration_ms": 125019,
+      "agent_response": "",
+      "generated_sqls": [],
+      "tool_calls": [
+        {
+          "tool": "list_tables",
+          "args": {}
+        },
+        {
+          "tool": "describe_table",
+          "args": {}
+        },
+        {
+          "tool": "query_database",
+          "args": {}
+        }
+      ],
+      "sql_judge": {
+        "tier": 0,
+        "passed": false,
+        "score": 0.0,
+        "generated_sql": "",
+        "reference_sql": "SELECT order_type,\n       status_code,\n       COUNT(*) AS order_count\nFROM order_record\nGROUP BY order_type, status_code\nORDER BY order_type, order_count DESC;",
+        "generated_row_count": null,
+        "reference_row_count": null,
+        "diff_summary": "Agent 未生成 SQL",
+        "llm_judge_explanation": null
+      },
+      "quality_judge": null,
+      "efficiency": {
+        "tool_call_count": 3,
+        "tool_call_details": {
+          "list_tables": 1,
+          "describe_table": 1,
+          "query_database": 1
+        },
+        "turns": 0,
+        "total_tokens": 0,
+        "latency_ms": 0,
+        "score": 0.97
+      },
+      "dimensions": {
+        "sql_syntax": 0.0,
+        "table_column": 0.0,
+        "filter_condition": 0.0,
+        "result_data": 0.0,
+        "sql_standard": 0.0
+      },
+      "overall_score": 0.0,
+      "passed": false,
+      "error": "执行超时（120.0秒）"
+    }
+  ],
+  "baseline_comparison": null
+}

@@ -1,0 +1,110 @@
+{
+  "generated_at": "2026-07-02T13:50:43.214075",
+  "schema_id": 65938636,
+  "total_cases": 1,
+  "passed_cases": 0,
+  "failed_cases": 1,
+  "error_cases": 0,
+  "overall_pass_rate": 0.0,
+  "average_score": 0.6357,
+  "average_latency_ms": 53652.0,
+  "average_tool_calls": 4.0,
+  "average_turns": 9.0,
+  "average_tokens": 39721.0,
+  "dimension_averages": {
+    "sql_syntax": 0.6285347043701799,
+    "table_column": 0.6285347043701799,
+    "filter_condition": 0.6285347043701799,
+    "result_data": 0.6285347043701799,
+    "sql_standard": 0.7
+  },
+  "case_results": [
+    {
+      "test_case": {
+        "case_id": "TC-001",
+        "difficulty": "Easy",
+        "question": "查询所有数据变更类型的工单，返回工单ID、提交人、状态和创建时间，按创建时间降序。",
+        "reference_sql": "SELECT id, committer_name, status_desc, create_time\nFROM order_record\nWHERE order_type = 'dataChange'\nORDER BY create_time DESC\nLIMIT 100;",
+        "expected_row_count": 354,
+        "category": "单表过滤",
+        "tables": [
+          "order_record"
+        ],
+        "judging_criteria": [
+          "必须使用 `order_type = 'dataChange'`，不能写错枚举值",
+          "排序方向为 DESC",
+          "不能出现 `SELECT *`"
+        ]
+      },
+      "started_at": "2026-07-02T13:49:45.934319",
+      "completed_at": "2026-07-02T13:50:39.598838",
+      "duration_ms": 53652,
+      "agent_response": "查询完成！以下是结果汇总：\n\n---\n\n## 数据变更类工单查询结果\n\n**数据库**：`dw_onedba` · **表**：`order_record`  \n**筛选条件**：`order_type IN ('dataChange', 'dataChangeChunk')`  \n**排序**：按创建时间降序\n\n```sql\nSELECT id, committer_name, status_desc, create_time \nFROM order_record \nWHERE order_type IN ('dataChange', 'dataChangeChunk') \nORDER BY create_time DESC\n```\n\n| 指标 | 数值 |\n|------|------|\n| **总记录数** | **389 条** |\n| 时间跨度 | 2021-11-30 ~ 2026-06-08 |\n\n### 状态分布概览\n\n| 状态 | 大致数量 |\n|------|----------|\n| 工单关闭（系统关闭/手动关闭等） | ~180+ |\n| 执行成功 | ~90+ |\n| 工单审批中 | ~20+ |\n| 执行中 | ~15+ |\n| 待提交审批 | ~10+ |\n| 预检查失败 | ~10+ |\n| 等待执行 | ~10+ |\n| 其他 | 少量 |\n\n### 主要提交人\n\n| 提交人 | 大致数量 |\n|--------|----------|\n| 彭东稳 | ~150+ |\n| 数据订正平台 | ~60+ |\n| 东青(dongwen) | ~50+ |\n| 北洛(Zevin) | ~30+ |\n| 陈松 | ~25+ |\n| 张金星 | ~20+ |\n| 陈浩 | ~15+ |\n| 其他 | 少量 |\n\n---\n\n以上是全部 389 条数据变更类型工单的完整结果。如需进一步筛选（如只看特定状态、某个提交人、某个时间段），请告诉我。",
+      "generated_sqls": [
+        "SELECT DISTINCT order_type, COUNT(*) AS cnt FROM order_record GROUP BY order_type ORDER BY cnt DESC",
+        "SELECT id, committer_name, status_desc, create_time FROM order_record WHERE order_type IN ('dataChange', 'dataChangeChunk') ORDER BY create_time DESC"
+      ],
+      "tool_calls": [
+        {
+          "tool": "list_tables",
+          "args": {}
+        },
+        {
+          "tool": "describe_table",
+          "args": {}
+        },
+        {
+          "tool": "execute_sql",
+          "args": {}
+        },
+        {
+          "tool": "query_database",
+          "args": {}
+        }
+      ],
+      "sql_judge": {
+        "tier": 3,
+        "passed": false,
+        "score": 0.6285347043701799,
+        "generated_sql": "SELECT id, committer_name, status_desc, create_time FROM order_record WHERE order_type IN ('dataChange', 'dataChangeChunk') ORDER BY create_time DESC",
+        "reference_sql": "SELECT id, committer_name, status_desc, create_time\nFROM order_record\nWHERE order_type = 'dataChange'\nORDER BY create_time DESC\nLIMIT 100;",
+        "generated_row_count": 389,
+        "reference_row_count": 100,
+        "diff_summary": "行数不一致：生成=389, 参考=100",
+        "llm_judge_explanation": "生成SQL在WHERE条件中增加了'dataChangeChunk'类型，导致结果集包含更多行，与原始问题'所有数据变更类型的工单'不完全一致，但部分重叠。参考SQL限制了LIMIT 100，而生成SQL无限制，导致行数差异。语义上不完全等价。"
+      },
+      "quality_judge": {
+        "score": 0.9,
+        "completeness": 0.8,
+        "accuracy": 0.9,
+        "clarity": 0.9,
+        "sql_transparency": 1.0,
+        "explanation": "回答完整覆盖了用户问题，返回了工单ID、提交人、状态和创建时间，并按创建时间降序。但SQL中使用了IN ('dataChange', 'dataChangeChunk')，与用户要求的'数据变更类型'略有扩展，不过可能合理。准确性高，清晰度好，SQL完全透明。"
+      },
+      "efficiency": {
+        "tool_call_count": 4,
+        "tool_call_details": {
+          "list_tables": 1,
+          "describe_table": 1,
+          "execute_sql": 1,
+          "query_database": 1
+        },
+        "turns": 9,
+        "total_tokens": 39721,
+        "latency_ms": 52722,
+        "score": 0.7727
+      },
+      "dimensions": {
+        "sql_syntax": 0.6285347043701799,
+        "table_column": 0.6285347043701799,
+        "filter_condition": 0.6285347043701799,
+        "result_data": 0.6285347043701799,
+        "sql_standard": 0.7
+      },
+      "overall_score": 0.6357,
+      "passed": false,
+      "error": null
+    }
+  ],
+  "baseline_comparison": null
+}
