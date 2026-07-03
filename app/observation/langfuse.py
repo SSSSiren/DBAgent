@@ -22,6 +22,7 @@ Tool span 生命周期：
 
 from __future__ import annotations
 
+import asyncio
 from dataclasses import dataclass, field
 from typing import Any
 
@@ -67,27 +68,19 @@ class TraceMetrics:
         }
 
 
-_langfuse_client = None
-
-
 def _get_langfuse_client():
-    """获取 Langfuse 客户端（懒初始化 + 缓存，全局复用同一个实例）"""
-    global _langfuse_client
-    if _langfuse_client is not None:
-        return _langfuse_client
-
+    """获取 Langfuse 客户端（每次调用创建新实例，支持并发 trace 隔离）"""
     settings = get_settings()
     if not settings.langfuse_enabled:
         return None
     try:
         from langfuse import Langfuse
 
-        _langfuse_client = Langfuse(
+        return Langfuse(
             public_key=settings.langfuse_public_key,
             secret_key=settings.langfuse_secret_key,
             host=settings.langfuse_host,
         )
-        return _langfuse_client
     except ImportError as e:
         print(f"[Langfuse] ImportError: {e}")
         return None
@@ -111,10 +104,17 @@ class LangfuseObserver:
     - flush 时兜底 end 所有未关闭的 span（SDK MCP 模式）
     """
 
-    def __init__(self, session_id: str, user_input: str = "", user_id: str = ""):
+    def __init__(
+        self,
+        session_id: str,
+        user_input: str = "",
+        user_id: str = "",
+        trace_name: str = "SDK-DBAgent-Chat",
+    ):
         self.session_id = session_id
         self.user_input = user_input
         self.user_id = user_id
+        self.trace_name = trace_name
         self.metrics = TraceMetrics()
         self._client = _get_langfuse_client()
         self._trace_id: str | None = None
@@ -126,20 +126,24 @@ class LangfuseObserver:
     def enabled(self) -> bool:
         return self._client is not None
 
-    def start_trace(self, name: str = "SDK-DBAgent-Chat") -> None:
+    def start_trace(self, name: str | None = None) -> None:
         """
         开始一个 trace（创建 root span）。
 
         v4.x: 用 client.start_observation(as_type="span") 创建 root span，
         并通过 update(**kwargs) 传入 session_id/user_id/tags。
+
+        Args:
+            name: trace 名称。如果为 None，使用 self.trace_name 默认值。
         """
         if not self._client:
             return
+        trace_name = name or self.trace_name
         try:
             self._trace_id = self._client.create_trace_id()
             self._root_span = self._client.start_observation(
                 trace_context={"trace_id": self._trace_id},
-                name=name,
+                name=trace_name,
                 as_type="span",
                 input=self.user_input[:500] if self.user_input else None,
                 metadata={
@@ -240,13 +244,17 @@ class LangfuseObserver:
             except Exception:
                 pass
 
-    def flush(self, response: str = "") -> None:
+    async def flush(self, response: str = "") -> None:
         """
         写入最终指标并发送数据。
 
         1. 兜底 end 所有未关闭的 tool span（SDK MCP 模式）
         2. 更新 root span 的 output/metadata，打分，end
-        3. flush client
+        3. flush + 异步等待，确保 HTTP 请求在 observer 被 GC 前完成
+
+        注意：不能使用 shutdown() —— 它会关闭 HTTP 连接池，
+        导致后续 observer 实例的 shutdown 等待已关闭的资源而卡死。
+        使用 flush() + asyncio.sleep() 确保每次 trace 数据完整发送。
         """
         # 兜底：end 所有未关闭的 tool span
         for tool_name, spans in self._pending_tool_spans.items():
@@ -281,7 +289,9 @@ class LangfuseObserver:
 
         if self._client:
             try:
-                self._client.flush()
+                # flush() 是同步阻塞的，在 asyncio 事件循环中调用会阻塞所有协程。
+                # 用 to_thread 将阻塞调用移到独立线程，避免阻塞事件循环。
+                await asyncio.to_thread(self._client.flush)
                 if self._trace_id:
                     trace_url = self._client.get_trace_url(trace_id=self._trace_id)
                     if trace_url:

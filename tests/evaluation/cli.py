@@ -53,6 +53,8 @@ def cmd_run(args: argparse.Namespace) -> None:
         return
 
     print(f"\n开始评测 {len(filtered)} 条用例...")
+    if args.repeat > 1:
+        print(f"（每条用例重复 {args.repeat} 次，取平均值）")
     if args.no_llm_judge:
         print("（已跳过 LLM 评判 Tier 3）")
     if args.no_quality_judge:
@@ -67,6 +69,7 @@ def cmd_run(args: argparse.Namespace) -> None:
             schema_id=args.schema_id,
             timeout=args.timeout,
             concurrency=args.concurrency,
+            repeat=args.repeat,
             use_llm_judge=not args.no_llm_judge,
             use_quality_judge=not args.no_quality_judge,
             keep_langfuse=args.keep_langfuse,
@@ -125,6 +128,10 @@ def main() -> None:
     run_parser.add_argument(
         "--concurrency", type=int, default=1,
         help="并发数（默认 1=顺序执行）",
+    )
+    run_parser.add_argument(
+        "--repeat", type=int, default=1,
+        help="每条用例重复执行次数（默认 1，取平均以消除 LLM 随机性）",
     )
     run_parser.add_argument(
         "--no-llm-judge", action="store_true",

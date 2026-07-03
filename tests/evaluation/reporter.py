@@ -130,6 +130,11 @@ def _render_markdown(report: EvaluationReport) -> str:
     lines.append(f"| 平均工具调用 | {report.average_tool_calls:.1f} |")
     lines.append(f"| 平均 Turns | {report.average_turns:.1f} |")
     lines.append(f"| 平均 Token | {report.average_tokens:.0f} |")
+    if report.std_tool_calls > 0 or report.std_tokens > 0:
+        lines.append(f"| 工具调用波动 (σ) | ±{report.std_tool_calls:.1f} |")
+        lines.append(f"| Token 波动 (σ) | ±{report.std_tokens:.0f} |")
+        lines.append(f"| 延迟波动 (σ) | ±{report.std_latency_ms:.0f}ms |")
+        lines.append(f"| Turns 波动 (σ) | ±{report.std_turns:.1f} |")
     lines.append("")
 
     # 维度平均分
@@ -176,24 +181,45 @@ def _render_markdown(report: EvaluationReport) -> str:
     # 用例详情
     lines.append("## 📝 用例详情")
     lines.append("")
-    lines.append(
-        f"| 用例 | 难度 | 类别 | 通过 | 总分 | SQL | 质量 | 效率 | 延迟 | 工具调用 |"
-    )
-    lines.append(
-        f"|------|------|------|------|------|-----|------|------|------|---------|"
-    )
+    # 如果有重复执行，显示 std
+    has_repeat = any(cr.repeat_count > 1 for cr in report.case_results)
+    if has_repeat:
+        lines.append(
+            f"| 用例 | 难度 | 类别 | 通过 | 总分 | SQL | 工具调用 | Token | 延迟 |"
+        )
+        lines.append(
+            f"|------|------|------|------|------|-----|----------|-------|------|"
+        )
+    else:
+        lines.append(
+            f"| 用例 | 难度 | 类别 | 通过 | 总分 | SQL | 质量 | 效率 | 延迟 | 工具调用 |"
+        )
+        lines.append(
+            f"|------|------|------|------|------|-----|------|------|------|---------|"
+        )
     for cr in report.case_results:
         sql_score = cr.sql_judge.score if cr.sql_judge else 0.0
         quality_score = cr.quality_judge.score if cr.quality_judge else 0.0
         eff_score = cr.efficiency.score if cr.efficiency else 0.0
         eff_tools = cr.efficiency.tool_call_count if cr.efficiency else 0
+        eff_tokens = cr.efficiency.total_tokens if cr.efficiency else 0
         status = "✅" if cr.passed else ("❌" if cr.error is None else "⚠️")
-        lines.append(
-            f"| {cr.test_case.case_id} | {cr.test_case.difficulty.value} | "
-            f"{cr.test_case.category} | {status} | {cr.overall_score:.2%} | "
-            f"{sql_score:.2%} | {quality_score:.2%} | {eff_score:.2%} | "
-            f"{cr.duration_ms}ms | {eff_tools} |"
-        )
+        if has_repeat:
+            tools_str = f"{eff_tools}±{cr.std_tool_calls:.0f}" if cr.repeat_count > 1 else str(eff_tools)
+            tokens_str = f"{eff_tokens}±{cr.std_tokens:.0f}" if cr.repeat_count > 1 else str(eff_tokens)
+            latency_str = f"{cr.duration_ms}±{cr.std_latency_ms:.0f}ms" if cr.repeat_count > 1 else f"{cr.duration_ms}ms"
+            lines.append(
+                f"| {cr.test_case.case_id} | {cr.test_case.difficulty.value} | "
+                f"{cr.test_case.category} | {status} | {cr.overall_score:.2%} | "
+                f"{sql_score:.2%} | {tools_str} | {tokens_str} | {latency_str} |"
+            )
+        else:
+            lines.append(
+                f"| {cr.test_case.case_id} | {cr.test_case.difficulty.value} | "
+                f"{cr.test_case.category} | {status} | {cr.overall_score:.2%} | "
+                f"{sql_score:.2%} | {quality_score:.2%} | {eff_score:.2%} | "
+                f"{cr.duration_ms}ms | {eff_tools} |"
+            )
     lines.append("")
 
     # 失败/错误用例详情
@@ -218,6 +244,39 @@ def _render_markdown(report: EvaluationReport) -> str:
                 if cr.sql_judge and cr.sql_judge.llm_judge_explanation:
                     lines.append(f"**LLM 评判**: {cr.sql_judge.llm_judge_explanation}")
                 lines.append("")
+
+    # 稳定性分析（重复执行时）
+    if has_repeat:
+        lines.append("## 🔬 稳定性分析")
+        lines.append("")
+        lines.append("标准差越小表示 Agent 对该用例的回答越稳定。")
+        lines.append("")
+        lines.append(f"| 用例 | 工具调用 (σ) | Token (σ) | 延迟 (σ) | Turns (σ) | 各次工具调用 |")
+        lines.append(f"|------|-------------|-----------|----------|-----------|-------------|")
+        for cr in report.case_results:
+            if cr.repeat_count <= 1:
+                continue
+            per_run_tools = " → ".join(
+                str(r.tool_call_count) for r in cr.run_details
+            )
+            lines.append(
+                f"| {cr.test_case.case_id} | ±{cr.std_tool_calls:.1f} | "
+                f"±{cr.std_tokens:.0f} | ±{cr.std_latency_ms:.0f}ms | "
+                f"±{cr.std_turns:.1f} | {per_run_tools} |"
+            )
+        lines.append("")
+
+        # 找出最不稳定的用例
+        most_unstable = max(
+            [cr for cr in report.case_results if cr.repeat_count > 1],
+            key=lambda c: c.std_tool_calls,
+            default=None,
+        )
+        if most_unstable:
+            lines.append(f"**最不稳定用例**: {most_unstable.test_case.case_id} "
+                         f"(工具调用 σ=±{most_unstable.std_tool_calls:.1f})")
+            lines.append(f"> {most_unstable.test_case.question}")
+            lines.append("")
 
     # 基线对比
     if report.baseline_comparison:

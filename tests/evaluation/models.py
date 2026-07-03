@@ -79,6 +79,17 @@ class DimensionScores(BaseModel):
 
 # ========== 用例结果 ==========
 
+class RunDetail(BaseModel):
+    """单次运行的效率指标（用于重复执行时收集 per-run 数据）"""
+    duration_ms: int = Field(default=0, description="本次运行耗时（毫秒）")
+    tool_call_count: int = Field(default=0, description="工具调用次数")
+    tool_call_details: dict[str, int] = Field(default_factory=dict, description="各工具调用次数")
+    turns: int = Field(default=0, description="Agent 循环轮次")
+    total_tokens: int = Field(default=0, description="Token 消耗")
+    generated_sqls: list[str] = Field(default_factory=list, description="生成的 SQL 列表")
+    error: Optional[str] = Field(default=None, description="本次运行错误信息")
+
+
 class CaseResult(BaseModel):
     """单条用例的完整评测结果"""
     test_case: TestCase
@@ -95,6 +106,13 @@ class CaseResult(BaseModel):
     overall_score: float = Field(default=0.0, ge=0.0, le=1.0, description="加权总分")
     passed: bool = Field(default=False, description="是否通过（>= 80%）")
     error: Optional[str] = Field(default=None, description="执行错误信息")
+    # 重复执行相关字段
+    repeat_count: int = Field(default=1, description="重复执行次数")
+    run_details: list[RunDetail] = Field(default_factory=list, description="每次运行的详细指标")
+    std_tool_calls: float = Field(default=0.0, description="工具调用次数标准差")
+    std_tokens: float = Field(default=0.0, description="Token 消耗标准差")
+    std_latency_ms: float = Field(default=0.0, description="延迟标准差（毫秒）")
+    std_turns: float = Field(default=0.0, description="Turns 标准差")
 
 
 # ========== 评测报告 ==========
@@ -113,6 +131,10 @@ class EvaluationReport(BaseModel):
     average_tool_calls: float = Field(default=0.0)
     average_turns: float = Field(default=0.0)
     average_tokens: float = Field(default=0.0)
+    std_tool_calls: float = Field(default=0.0, description="工具调用次数标准差（跨用例平均）")
+    std_tokens: float = Field(default=0.0, description="Token 消耗标准差（跨用例平均）")
+    std_latency_ms: float = Field(default=0.0, description="延迟标准差（跨用例平均）")
+    std_turns: float = Field(default=0.0, description="Turns 标准差（跨用例平均）")
     dimension_averages: DimensionScores = Field(default_factory=DimensionScores)
     case_results: list[CaseResult] = Field(default_factory=list)
     baseline_comparison: Optional[dict[str, Any]] = Field(default=None, description="与基线的对比数据")

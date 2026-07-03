@@ -14,7 +14,6 @@ from app.tools.list_tables import list_tables
 from app.tools.describe_table import describe_table
 from app.tools.query_database import query_database
 from app.tools.execute_sql import execute_sql
-from app.tools.ask_user import ask_user
 from app.tools.formatters import format_as_markdown_table
 
 # 工具元信息列表
@@ -142,21 +141,6 @@ TOOLS = [
             "required": ["schema_id", "sql"],
         },
     },
-    {
-        "name": "ask_user",
-        "description": "向用户提问，获取更多信息。当信息不足或存在歧义时使用。",
-        "handler": ask_user,
-        "parameters": {
-            "type": "object",
-            "properties": {
-                "question": {
-                    "type": "string",
-                    "description": "清晰明确的问题",
-                },
-            },
-            "required": ["question"],
-        },
-    },
 ]
 
 # 工具名称到 handler 的映射，方便快速查找
@@ -180,6 +164,5 @@ __all__ = [
     "describe_table",
     "query_database",
     "execute_sql",
-    "ask_user",
     "format_as_markdown_table",
 ]

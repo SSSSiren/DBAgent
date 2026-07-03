@@ -25,22 +25,34 @@ from app.observation.langfuse import LangfuseObserver, extract_result_size
 
 # ========== 工具适配层 ==========
 
-# SDK MCP 工具执行结果队列。
-# SDK 模式下工具在内部执行，ToolResultBlock 不出现在流式消息中。
+import contextvars
+
+# 每个 asyncio Task 独立的工具执行结果队列（contextvars 替代全局变量，支持并行执行）。
+# SDK 模式下工具在 SDK 内部执行，ToolResultBlock 不出现在流式消息中。
 # 通过在 SDK tool wrapper 中 push 结果到此队列，_run_with_sdk 消费队列
 # 来合成 tool_end 事件，从而让 Langfuse 能记录完整的 tool input + output。
-_tool_result_queue: list[tuple[str, str]] = []
+_tool_result_queue: contextvars.ContextVar[list[tuple[str, str]]] = contextvars.ContextVar(
+    "_tool_result_queue"
+)
 
 
 def _push_tool_result(tool_name: str, result: str) -> None:
-    """将工具执行结果推入队列（由 SDK tool wrapper 调用）"""
-    _tool_result_queue.append((tool_name, result))
+    """将工具执行结果推入当前 Task 的队列（由 SDK tool wrapper 调用）"""
+    try:
+        queue = _tool_result_queue.get()
+    except LookupError:
+        return  # ContextVar 未设置，忽略（正常流程不会发生）
+    queue.append((tool_name, result))
 
 
 def _pop_tool_results() -> list[tuple[str, str]]:
-    """取出队列中所有待消费的工具结果"""
-    results = _tool_result_queue[:]
-    _tool_result_queue.clear()
+    """取出当前 Task 队列中所有待消费的工具结果"""
+    try:
+        queue = _tool_result_queue.get()
+    except LookupError:
+        return []
+    results = queue[:]
+    queue.clear()
     return results
 
 def _build_tool_schemas() -> list[dict[str, Any]]:
@@ -186,15 +198,6 @@ def _build_sdk_mcp_server():
         _push_tool_result("execute_sql", result)
         return {"content": [{"type": "text", "text": result}]}
 
-    @tool("ask_user", "向用户提问获取更多信息", {
-        "question": str,
-    })
-    async def ask_user_sdk(args):
-        from app.tools.ask_user import ask_user
-        result = await ask_user(question=args["question"])
-        _push_tool_result("ask_user", result)
-        return {"content": [{"type": "text", "text": result}]}
-
     return create_sdk_mcp_server(
         name="onedba",
         version="1.0.0",
@@ -205,7 +208,6 @@ def _build_sdk_mcp_server():
             describe_table_sdk,
             query_database_sdk,
             execute_sql_sdk,
-            ask_user_sdk,
         ],
     )
 
@@ -228,6 +230,9 @@ async def _run_with_sdk(
     """
     from claude_agent_sdk import query, ClaudeAgentOptions, AssistantMessage, ResultMessage
 
+    # 为当前 asyncio Task 初始化独立的工具结果队列（支持并行执行）
+    _tool_result_queue.set([])
+
     onedba_server = _build_sdk_mcp_server()
     tool_names = [f"mcp__onedba__{t['name']}" for t in tool_schemas]
 
@@ -245,11 +250,20 @@ async def _run_with_sdk(
     # tool_use_id → short_name 映射，用于 tool_end 事件
     tool_name_map: dict[str, str] = {}
 
+    # 累计 token 使用量（从 AssistantMessage.usage 实时累加，
+    # 因为 DeepSeek 等后端下 ResultMessage.usage 可能为 None）
+    _accumulated_tokens: dict[str, Any] = {}
+
     def _short_name(raw: str) -> str:
         return raw[len(prefix):] if raw.startswith(prefix) else raw
 
     async for message in query(prompt=prompt, options=options):
         if isinstance(message, AssistantMessage):
+            # 累计 token 使用量（从 AssistantMessage.usage）
+            msg_usage = getattr(message, "usage", None)
+            if isinstance(msg_usage, dict):
+                _accumulated_tokens = msg_usage  # 最后一个 AssistantMessage 的 usage 通常是累计值
+
             # 聚合同一 message 内的所有 text block（SDK 流式分块）
             text_parts: list[str] = []
             for block in message.content:
@@ -315,10 +329,25 @@ async def _run_with_sdk(
             # 提取执行统计
             duration_ms = getattr(message, "duration_ms", 0) or 0
             num_turns = getattr(message, "num_turns", 0) or 0
+
+            # usage 优先级：ResultMessage.usage > ResultMessage.model_usage > 累计的 AssistantMessage.usage
             usage = getattr(message, "usage", None)
+            if not isinstance(usage, dict) or not usage:
+                usage = getattr(message, "model_usage", None)
+            if not isinstance(usage, dict) or not usage:
+                usage = _accumulated_tokens
+
             token_count = 0
             if isinstance(usage, dict):
-                token_count = usage.get("input_tokens", 0) + usage.get("output_tokens", 0)
+                # 支持 snake_case 和 camelCase 两种键名
+                input_tokens = usage.get("input_tokens", 0) or usage.get("inputTokens", 0) or 0
+                output_tokens = usage.get("output_tokens", 0) or usage.get("outputTokens", 0) or 0
+                # 也支持嵌套 usage 结构（某些 SDK 版本）
+                if isinstance(usage.get("usage"), dict):
+                    inner = usage["usage"]
+                    input_tokens = input_tokens or inner.get("input_tokens", 0) or inner.get("inputTokens", 0) or 0
+                    output_tokens = output_tokens or inner.get("output_tokens", 0) or inner.get("outputTokens", 0) or 0
+                token_count = input_tokens + output_tokens
 
             stats = {
                 "duration_ms": duration_ms,
@@ -497,6 +526,7 @@ def _extract_sql_from_tool_input(tool_name: str, input_data: dict[str, Any]) -> 
 async def run_agent_stream(
     user_input: str,
     session_state: dict[str, Any],
+    trace_name: str = "SDK-DBAgent-Chat",
 ) -> AsyncIterator[tuple[str, dict[str, Any]]]:
     """
     流式运行 Agent，产出 SSE 事件。
@@ -512,6 +542,7 @@ async def run_agent_stream(
     Args:
         user_input: 用户当前输入的消息
         session_state: 会话状态字典
+        trace_name: Langfuse trace 名称（默认 "SDK-DBAgent-Chat"）
 
     Yields:
         (event_type, data) 元组
@@ -519,8 +550,10 @@ async def run_agent_stream(
     session_id = session_state.get("session_id", "")
 
     # 0. 创建 Langfuse 观测器
-    observer = LangfuseObserver(session_id=session_id, user_input=user_input)
-    observer.start_trace("SDK-DBAgent-Chat")
+    observer = LangfuseObserver(
+        session_id=session_id, user_input=user_input, trace_name=trace_name
+    )
+    observer.start_trace()
 
     # 1. 构建上下文
     context = build_context(session_state)
@@ -534,7 +567,7 @@ async def run_agent_stream(
 
     # 3. 收集执行信息
     tool_calls_info: list[dict[str, Any]] = []
-    seen_events: set[str] = set()
+    tool_call_counter: dict[str, int] = {}
     all_texts: list[str] = []
 
     # 4. 选择执行引擎
@@ -585,13 +618,14 @@ async def run_agent_stream(
             elif event_type == "tool_start":
                 # 工具调用开始
                 tool_name = event.get("name", "unknown")
-                step_key = f"tool_start:{tool_name}"
-                if step_key not in seen_events:
-                    seen_events.add(step_key)
-                    yield "step", {
-                        "step": f"tool:{tool_name}",
-                        "status": "running",
-                    }
+                # 用计数器生成唯一标识，支持同名工具多次调用
+                call_index = tool_call_counter.get(tool_name, 0)
+                tool_call_counter[tool_name] = call_index + 1
+                yield "step", {
+                    "step": f"tool:{tool_name}",
+                    "status": "running",
+                    "call_index": call_index,
+                }
 
                 # 从工具输入中提取 SQL（用于 execute_sql_tool）
                 tool_input = event.get("input", {})
@@ -616,13 +650,12 @@ async def run_agent_stream(
                 # 工具调用完成
                 tool_name = event.get("name", "unknown")
                 content = event.get("content", "")
-                step_key = f"tool_end:{tool_name}"
-                if step_key not in seen_events:
-                    seen_events.add(step_key)
-                    yield "step", {
-                        "step": f"tool:{tool_name}",
-                        "status": "completed",
-                    }
+                call_index = tool_call_counter.get(tool_name, 0) - 1  # 对应最近的 tool_start
+                yield "step", {
+                    "step": f"tool:{tool_name}",
+                    "status": "completed",
+                    "call_index": max(call_index, 0),
+                }
 
                 # 从工具结果中提取 SQL
                 sql = _extract_sql_from_tool_result(tool_name, content)
@@ -677,7 +710,7 @@ async def run_agent_stream(
     )
 
     # === Langfuse: 写入最终指标 ===
-    observer.flush(response=final_response)
+    await observer.flush(response=final_response)
 
     # 7. yield 最终事件
     yield "final", {
