@@ -110,7 +110,7 @@ def _is_sdk_available() -> bool:
 def _build_sdk_mcp_server():
     """
     使用 SDK 的 create_sdk_mcp_server() + @tool 装饰器，
-    将 7 个 OneDBA 工具注册为进程内 MCP Server。
+    将 OneDBA 工具注册为进程内 MCP Server。
 
     工具名会带上 mcp__onedba__ 前缀，例如：
     - list_databases → mcp__onedba__list_databases
@@ -141,21 +141,20 @@ def _build_sdk_mcp_server():
         _push_tool_result("select_database", result)
         return {"content": [{"type": "text", "text": result}]}
 
-    @tool("list_tables", "列出指定数据库中的表", {
-        "schema_id": int,
+    @tool("find_table", "跨库搜索表名，一次调用遍历所有数据库", {
         "keyword": str,
+        "env_type": str,
     })
-    async def list_tables_sdk(args):
-        from app.tools.list_tables import list_tables
-        result = await list_tables(
-            schema_id=args["schema_id"],
+    async def find_table_sdk(args):
+        from app.tools.find_table import find_table
+        result = await find_table(
             keyword=args.get("keyword", ""),
+            env_type=args.get("env_type", "test"),
         )
-        _push_tool_result("list_tables", result)
-        # print(f"list_tables_sdk: schema_id={args['schema_id']} keyword='{args.get('keyword', '')}' result={(result)}")
+        _push_tool_result("find_table", result)
         return {"content": [{"type": "text", "text": result}]}
 
-    @tool("describe_table", "查看表结构（字段名、类型等）", {
+    @tool("describe_table", "查看表结构（仅用户明确要求时使用，不要在其他场景手动调用）", {
         "schema_id": int,
         "table_name": str,
     })
@@ -204,7 +203,7 @@ def _build_sdk_mcp_server():
         tools=[
             list_databases_sdk,
             select_database_sdk,
-            list_tables_sdk,
+            find_table_sdk,
             describe_table_sdk,
             query_database_sdk,
             execute_sql_sdk,

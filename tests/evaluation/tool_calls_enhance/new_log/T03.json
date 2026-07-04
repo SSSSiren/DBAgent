@@ -1,0 +1,428 @@
+{
+  "generated_at": "2026-07-03T15:56:52.453091",
+  "schema_id": 65938636,
+  "total_cases": 1,
+  "passed_cases": 1,
+  "failed_cases": 0,
+  "error_cases": 0,
+  "overall_pass_rate": 1.0,
+  "average_score": 0.97,
+  "average_latency_ms": 370864.0,
+  "average_tool_calls": 13.0,
+  "average_turns": 11.0,
+  "average_tokens": 63450.0,
+  "std_tool_calls": 5.92,
+  "std_tokens": 26082.52,
+  "std_latency_ms": 20256.73,
+  "std_turns": 4.9,
+  "dimension_averages": {
+    "sql_syntax": 1.0,
+    "table_column": 1.0,
+    "filter_condition": 1.0,
+    "result_data": 1.0,
+    "sql_standard": 0.7
+  },
+  "case_results": [
+    {
+      "test_case": {
+        "case_id": "TC-003",
+        "difficulty": "Easy",
+        "question": "统计每种工单类型的数量，按数量降序排列。",
+        "reference_sql": "SELECT order_type, COUNT(*) AS order_count\nFROM order_record\nGROUP BY order_type\nORDER BY order_count DESC;",
+        "expected_row_count": null,
+        "category": "聚合",
+        "tables": [
+          "order_record"
+        ],
+        "judging_criteria": [
+          "必须使用 `GROUP BY` 和 `COUNT`",
+          "排序方向为 DESC",
+          "总计 1174 条工单"
+        ]
+      },
+      "started_at": "2026-07-03T15:50:39.838560",
+      "completed_at": "2026-07-03T15:56:50.703184",
+      "duration_ms": 370864,
+      "agent_response": "查询成功！以下是 `dw_onedba` 数据库中 `order_record` 表的工单类型统计，按数量降序排列：\n\n```sql\nSELECT order_type, COUNT(*) AS cnt \nFROM order_record \nGROUP BY order_type \nORDER BY cnt DESC\n```\n\n| 序号 | 工单类型 | 数量 |\n|------|----------|------|\n| 1 | **dataChange**（数据变更） | 354 |\n| 2 | **permission**（权限申请） | 130 |\n| 3 | **createInstance**（创建实例） | 99 |\n| 4 | **structureSync**（结构同步） | 89 |\n| 5 | **structureDesign**（结构设计） | 69 |\n| 6 | **createDatabase**（创建数据库） | 64 |\n| 7 | **appendWhitelist**（添加白名单） | 51 |\n| 8 | **dataExport**（数据导出） | 50 |\n| 9 | **other**（其他） | 48 |\n| 10 | **dataChangeChunk**（分块数据变更） | 35 |\n| 11 | **configChange**（配置变更） | 32 |\n| 12 | **dataArchive**（数据归档） | 29 |\n| 13 | **offlineInstance**（下线实例） | 27 |\n| 14 | **dataClean**（数据清理） | 25 |\n| 15 | **dataQuery**（数据查询） | 24 |\n| 16 | **clearKey**（清理Key） | 17 |\n| 17 | **parameterChange**（参数变更） | 11 |\n| 18 | **userRoleApply**（用户角色申请） | 8 |\n| 19 | **passwordApply**（密码申请） | 6 |\n| 20 | **decryptApply**（解密申请） | 6 |\n\n**共 20 种工单类型，总计 1311 条工单记录。** `dataChange`（数据变更）是最多的工单类型，占比约 27%，远超其他类型。",
+      "generated_sqls": [
+        "SELECT order_type, COUNT(*) AS cnt FROM order_record GROUP BY order_type ORDER BY cnt DESC"
+      ],
+      "tool_calls": [
+        {
+          "tool": "list_databases",
+          "args": {}
+        },
+        {
+          "tool": "select_database",
+          "args": {}
+        },
+        {
+          "tool": "list_tables",
+          "args": {}
+        },
+        {
+          "tool": "select_database",
+          "args": {}
+        },
+        {
+          "tool": "list_tables",
+          "args": {}
+        },
+        {
+          "tool": "select_database",
+          "args": {}
+        },
+        {
+          "tool": "list_tables",
+          "args": {}
+        },
+        {
+          "tool": "query_database",
+          "args": {}
+        },
+        {
+          "tool": "describe_table",
+          "args": {}
+        },
+        {
+          "tool": "query_database",
+          "args": {}
+        },
+        {
+          "tool": "execute_sql",
+          "args": {}
+        }
+      ],
+      "sql_judge": {
+        "tier": 2,
+        "passed": true,
+        "score": 1.0,
+        "generated_sql": "SELECT order_type, COUNT(*) AS cnt FROM order_record GROUP BY order_type ORDER BY cnt DESC",
+        "reference_sql": "SELECT order_type, COUNT(*) AS order_count\nFROM order_record\nGROUP BY order_type\nORDER BY order_count DESC;",
+        "generated_row_count": 20,
+        "reference_row_count": 20,
+        "diff_summary": "结果数据完全一致",
+        "llm_judge_explanation": null
+      },
+      "quality_judge": {
+        "score": 1.0,
+        "completeness": 1.0,
+        "accuracy": 1.0,
+        "clarity": 1.0,
+        "sql_transparency": 1.0,
+        "explanation": "回答完整覆盖了用户问题，SQL正确，结果清晰展示为表格，并展示了实际执行的SQL语句。"
+      },
+      "efficiency": {
+        "tool_call_count": 13,
+        "tool_call_details": {
+          "list_databases": 4,
+          "select_database": 3,
+          "list_tables": 4,
+          "query_database": 1,
+          "describe_table": 1,
+          "execute_sql": 1
+        },
+        "turns": 11,
+        "total_tokens": 63450,
+        "latency_ms": 87903,
+        "score": 0.6092
+      },
+      "dimensions": {
+        "sql_syntax": 1.0,
+        "table_column": 1.0,
+        "filter_condition": 1.0,
+        "result_data": 1.0,
+        "sql_standard": 0.7
+      },
+      "overall_score": 0.97,
+      "passed": true,
+      "error": null,
+      "repeat_count": 16,
+      "run_details": [
+        {
+          "duration_ms": 86055,
+          "tool_call_count": 13,
+          "tool_call_details": {
+            "list_databases": 1,
+            "select_database": 4,
+            "list_tables": 4,
+            "query_database": 2,
+            "describe_table": 1,
+            "execute_sql": 1
+          },
+          "turns": 14,
+          "total_tokens": 81567,
+          "generated_sqls": [
+            "SELECT order_type, COUNT(*) AS cnt FROM order_record GROUP BY order_type ORDER BY cnt DESC"
+          ],
+          "error": null
+        },
+        {
+          "duration_ms": 93182,
+          "tool_call_count": 10,
+          "tool_call_details": {
+            "list_databases": 2,
+            "select_database": 1,
+            "list_tables": 2,
+            "query_database": 2,
+            "describe_table": 2,
+            "execute_sql": 1
+          },
+          "turns": 11,
+          "total_tokens": 68263,
+          "generated_sqls": [
+            "SELECT order_type AS 工单类型, COUNT(*) AS 数量 FROM order_record GROUP BY order_type ORDER BY 数量 DESC"
+          ],
+          "error": null
+        },
+        {
+          "duration_ms": 125024,
+          "tool_call_count": 32,
+          "tool_call_details": {
+            "list_databases": 24,
+            "list_tables": 7,
+            "describe_table": 1
+          },
+          "turns": 0,
+          "total_tokens": 0,
+          "generated_sqls": [],
+          "error": "执行超时（120.0秒）"
+        },
+        {
+          "duration_ms": 116302,
+          "tool_call_count": 16,
+          "tool_call_details": {
+            "list_databases": 2,
+            "select_database": 5,
+            "list_tables": 5,
+            "query_database": 2,
+            "describe_table": 1,
+            "execute_sql": 1
+          },
+          "turns": 17,
+          "total_tokens": 87629,
+          "generated_sqls": [
+            "SELECT order_type, COUNT(*) AS cnt FROM order_record GROUP BY order_type ORDER BY cnt DESC"
+          ],
+          "error": null
+        },
+        {
+          "duration_ms": 93432,
+          "tool_call_count": 14,
+          "tool_call_details": {
+            "list_databases": 1,
+            "select_database": 5,
+            "list_tables": 4,
+            "query_database": 1,
+            "describe_table": 2,
+            "execute_sql": 1
+          },
+          "turns": 15,
+          "total_tokens": 76012,
+          "generated_sqls": [
+            "SELECT order_type, COUNT(*) AS cnt FROM order_record GROUP BY order_type ORDER BY cnt DESC"
+          ],
+          "error": null
+        },
+        {
+          "duration_ms": 76356,
+          "tool_call_count": 10,
+          "tool_call_details": {
+            "list_databases": 3,
+            "select_database": 1,
+            "list_tables": 3,
+            "query_database": 1,
+            "describe_table": 1,
+            "execute_sql": 1
+          },
+          "turns": 11,
+          "total_tokens": 62096,
+          "generated_sqls": [
+            "SELECT order_type, COUNT(*) AS cnt FROM order_record GROUP BY order_type ORDER BY cnt DESC"
+          ],
+          "error": null
+        },
+        {
+          "duration_ms": 101526,
+          "tool_call_count": 13,
+          "tool_call_details": {
+            "list_databases": 5,
+            "select_database": 2,
+            "list_tables": 3,
+            "query_database": 1,
+            "describe_table": 1,
+            "execute_sql": 1
+          },
+          "turns": 14,
+          "total_tokens": 66745,
+          "generated_sqls": [
+            "SELECT order_type AS 工单类型, COUNT(*) AS 数量\nFROM order_record\nGROUP BY order_type\nORDER BY 数量 DESC"
+          ],
+          "error": null
+        },
+        {
+          "duration_ms": 65659,
+          "tool_call_count": 9,
+          "tool_call_details": {
+            "list_databases": 1,
+            "select_database": 2,
+            "list_tables": 3,
+            "query_database": 1,
+            "describe_table": 1,
+            "execute_sql": 1
+          },
+          "turns": 10,
+          "total_tokens": 62183,
+          "generated_sqls": [
+            "SELECT order_type, COUNT(*) AS cnt FROM order_record GROUP BY order_type ORDER BY cnt DESC"
+          ],
+          "error": null
+        },
+        {
+          "duration_ms": 75404,
+          "tool_call_count": 13,
+          "tool_call_details": {
+            "list_databases": 1,
+            "select_database": 5,
+            "list_tables": 4,
+            "query_database": 1,
+            "describe_table": 1,
+            "execute_sql": 1
+          },
+          "turns": 14,
+          "total_tokens": 74439,
+          "generated_sqls": [
+            "SELECT order_type, COUNT(*) AS cnt FROM order_record GROUP BY order_type ORDER BY cnt DESC"
+          ],
+          "error": null
+        },
+        {
+          "duration_ms": 73395,
+          "tool_call_count": 8,
+          "tool_call_details": {
+            "list_databases": 1,
+            "list_tables": 2,
+            "select_database": 1,
+            "query_database": 2,
+            "describe_table": 1,
+            "execute_sql": 1
+          },
+          "turns": 9,
+          "total_tokens": 59416,
+          "generated_sqls": [
+            "SELECT order_type, COUNT(*) AS count FROM order_record GROUP BY order_type ORDER BY count DESC"
+          ],
+          "error": null
+        },
+        {
+          "duration_ms": 70336,
+          "tool_call_count": 11,
+          "tool_call_details": {
+            "list_databases": 1,
+            "select_database": 4,
+            "list_tables": 3,
+            "query_database": 1,
+            "describe_table": 1,
+            "execute_sql": 1
+          },
+          "turns": 12,
+          "total_tokens": 66633,
+          "generated_sqls": [
+            "SELECT order_type, COUNT(*) AS cnt FROM order_record GROUP BY order_type ORDER BY cnt DESC"
+          ],
+          "error": null
+        },
+        {
+          "duration_ms": 74330,
+          "tool_call_count": 14,
+          "tool_call_details": {
+            "list_databases": 1,
+            "select_database": 5,
+            "list_tables": 4,
+            "query_database": 2,
+            "describe_table": 1,
+            "execute_sql": 1
+          },
+          "turns": 15,
+          "total_tokens": 86271,
+          "generated_sqls": [
+            "SELECT order_type, COUNT(*) AS cnt FROM order_record GROUP BY order_type ORDER BY cnt DESC"
+          ],
+          "error": null
+        },
+        {
+          "duration_ms": 125024,
+          "tool_call_count": 23,
+          "tool_call_details": {
+            "list_databases": 13,
+            "select_database": 5,
+            "list_tables": 5
+          },
+          "turns": 0,
+          "total_tokens": 0,
+          "generated_sqls": [],
+          "error": "执行超时（120.0秒）"
+        },
+        {
+          "duration_ms": 78413,
+          "tool_call_count": 13,
+          "tool_call_details": {
+            "list_databases": 1,
+            "select_database": 5,
+            "list_tables": 4,
+            "query_database": 1,
+            "describe_table": 1,
+            "execute_sql": 1
+          },
+          "turns": 14,
+          "total_tokens": 74229,
+          "generated_sqls": [
+            "SELECT order_type, COUNT(*) AS cnt FROM order_record GROUP BY order_type ORDER BY cnt DESC"
+          ],
+          "error": null
+        },
+        {
+          "duration_ms": 91575,
+          "tool_call_count": 13,
+          "tool_call_details": {
+            "list_databases": 1,
+            "select_database": 5,
+            "list_tables": 4,
+            "query_database": 1,
+            "describe_table": 1,
+            "execute_sql": 1
+          },
+          "turns": 14,
+          "total_tokens": 74874,
+          "generated_sqls": [
+            "SELECT order_type, COUNT(*) AS cnt FROM order_record GROUP BY order_type ORDER BY cnt DESC"
+          ],
+          "error": null
+        },
+        {
+          "duration_ms": 60445,
+          "tool_call_count": 11,
+          "tool_call_details": {
+            "list_databases": 1,
+            "select_database": 3,
+            "list_tables": 3,
+            "query_database": 2,
+            "describe_table": 1,
+            "execute_sql": 1
+          },
+          "turns": 12,
+          "total_tokens": 74847,
+          "generated_sqls": [
+            "SELECT order_type, COUNT(*) AS cnt FROM order_record GROUP BY order_type ORDER BY cnt DESC"
+          ],
+          "error": null
+        }
+      ],
+      "std_tool_calls": 5.92,
+      "std_tokens": 26082.52,
+      "std_latency_ms": 20256.73,
+      "std_turns": 4.9
+    }
+  ],
+  "baseline_comparison": null
+}

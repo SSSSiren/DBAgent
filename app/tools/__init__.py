@@ -10,10 +10,10 @@
 
 from app.tools.list_databases import list_databases
 from app.tools.select_database import select_database
-from app.tools.list_tables import list_tables
 from app.tools.describe_table import describe_table
 from app.tools.query_database import query_database
 from app.tools.execute_sql import execute_sql
+from app.tools.find_table import find_table
 from app.tools.formatters import format_as_markdown_table
 
 # 工具元信息列表
@@ -54,27 +54,30 @@ TOOLS = [
         },
     },
     {
-        "name": "list_tables",
-        "description": "列出指定数据库中的所有表。",
-        "handler": list_tables,
+        "name": "find_table",
+        "description": (
+            "在所有可访问数据库中搜索匹配的表名。"
+            "一次调用即可跨库搜索，返回 (schemaId, 数据库名, 表名) 列表，可用于浏览全部表或按关键词筛选。"
+            "这是查找表的首选工具，不要用 list_databases → select_database 逐个切换库找表。"
+        ),
+        "handler": find_table,
         "parameters": {
             "type": "object",
             "properties": {
-                "schema_id": {
-                    "type": "integer",
-                    "description": "数据库的 schemaId",
-                },
                 "keyword": {
                     "type": "string",
-                    "description": "搜索关键词，用于过滤表名",
+                    "description": "搜索关键词，用于过滤表名。为空时返回所有库的所有表。",
+                },
+                "env_type": {
+                    "type": "string",
+                    "description": "环境类型，默认 test",
                 },
             },
-            "required": ["schema_id"],
         },
     },
     {
         "name": "describe_table",
-        "description": "查看表结构，获取字段名、类型等信息。在生成 SQL 前使用此工具了解表结构。",
+        "description": "查看表结构，获取字段名、类型等信息。仅在用户明确要求'看看表结构'时使用，不要在其他场景手动调用。",
         "handler": describe_table,
         "parameters": {
             "type": "object",
@@ -160,7 +163,7 @@ __all__ = [
     "get_tool_handler",
     "list_databases",
     "select_database",
-    "list_tables",
+    "find_table",
     "describe_table",
     "query_database",
     "execute_sql",

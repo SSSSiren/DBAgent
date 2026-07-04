@@ -1,0 +1,195 @@
+{
+  "generated_at": "2026-07-03T16:44:37.861056",
+  "schema_id": 65938636,
+  "total_cases": 1,
+  "passed_cases": 1,
+  "failed_cases": 0,
+  "error_cases": 0,
+  "overall_pass_rate": 1.0,
+  "average_score": 1.0,
+  "average_latency_ms": 97879.0,
+  "average_tool_calls": 17.0,
+  "average_turns": 18.0,
+  "average_tokens": 36593.0,
+  "std_tool_calls": 0.0,
+  "std_tokens": 0.0,
+  "std_latency_ms": 0.0,
+  "std_turns": 0.0,
+  "dimension_averages": {
+    "sql_syntax": 1.0,
+    "table_column": 1.0,
+    "filter_condition": 1.0,
+    "result_data": 1.0,
+    "sql_standard": 1.0
+  },
+  "case_results": [
+    {
+      "test_case": {
+        "case_id": "TC-002",
+        "difficulty": "Easy",
+        "question": "查询所有已完成的工单数量。",
+        "reference_sql": "SELECT COUNT(*) AS finished_count\nFROM order_record\nWHERE is_finished = 1;",
+        "expected_row_count": 762,
+        "category": "单表过滤",
+        "tables": [
+          "order_record"
+        ],
+        "judging_criteria": [
+          "必须使用 `is_finished = 1`，不能写 `is_finished = 'true'` 或 `is_finished = 'yes'`",
+          "结果是单个数值"
+        ]
+      },
+      "started_at": "2026-07-03T16:42:56.047881",
+      "completed_at": "2026-07-03T16:44:33.927443",
+      "duration_ms": 97879,
+      "agent_response": "## 查询结果\n\n在 `dw_onedba_cs` 数据库的 `todo_record_detail`（工单记录表）中，**已完成的工单数量为 54 条**。\n\n### 执行详情\n\n| 项目 | 内容 |\n|------|------|\n| **数据库** | `dw_onedba_cs` (dw-dev-03) |\n| **表** | `todo_record_detail` |\n| **判定字段** | `is_finished = 1`（1 表示已完成） |\n| **已完成的工单数** | **54** |\n\n### 执行的 SQL\n\n```sql\nSELECT COUNT(*) AS finished_order_count \nFROM todo_record_detail \nWHERE is_finished = 1\n```\n\n如需进一步分析（如按 `record_type` 分组、按时间范围筛选等），请随时告诉我。",
+      "generated_sqls": [
+        "SHOW TABLES",
+        "SELECT COUNT(*) AS finished_order_count FROM todo_record_detail WHERE is_finished = 1 LIMIT 200"
+      ],
+      "tool_calls": [
+        {
+          "tool": "find_table",
+          "args": {}
+        },
+        {
+          "tool": "list_databases",
+          "args": {}
+        },
+        {
+          "tool": "select_database",
+          "args": {}
+        },
+        {
+          "tool": "list_tables",
+          "args": {}
+        },
+        {
+          "tool": "find_table",
+          "args": {}
+        },
+        {
+          "tool": "find_table",
+          "args": {}
+        },
+        {
+          "tool": "find_table",
+          "args": {}
+        },
+        {
+          "tool": "list_databases",
+          "args": {}
+        },
+        {
+          "tool": "list_databases",
+          "args": {}
+        },
+        {
+          "tool": "list_databases",
+          "args": {}
+        },
+        {
+          "tool": "list_databases",
+          "args": {}
+        },
+        {
+          "tool": "execute_sql",
+          "args": {}
+        },
+        {
+          "tool": "describe_table",
+          "args": {}
+        },
+        {
+          "tool": "describe_table",
+          "args": {}
+        },
+        {
+          "tool": "describe_table",
+          "args": {}
+        },
+        {
+          "tool": "describe_table",
+          "args": {}
+        },
+        {
+          "tool": "query_database",
+          "args": {}
+        }
+      ],
+      "sql_judge": {
+        "tier": 3,
+        "passed": false,
+        "score": 1.0,
+        "generated_sql": "SELECT COUNT(*) AS finished_order_count FROM todo_record_detail WHERE is_finished = 1 LIMIT 200",
+        "reference_sql": "SELECT COUNT(*) AS finished_count\nFROM order_record\nWHERE is_finished = 1;",
+        "generated_row_count": 1,
+        "reference_row_count": 1,
+        "diff_summary": "数据内容不一致：2 行不匹配",
+        "llm_judge_explanation": "两个SQL查询的表不同：参考SQL查询order_record表，生成SQL查询todo_record_detail表，且生成SQL使用了LIMIT 200，导致结果不完整且数据不一致，无法正确回答原始问题。"
+      },
+      "quality_judge": {
+        "score": 0.925,
+        "completeness": 0.8,
+        "accuracy": 0.9,
+        "clarity": 1.0,
+        "sql_transparency": 1.0,
+        "explanation": "回答完整覆盖了用户问题，但未提及参考SQL中的表名order_record，而是使用了todo_record_detail，可能因实际表名不同，但准确性略受影响。清晰度高，使用了Markdown表格和代码块。SQL透明度高，展示了实际执行的SQL。"
+      },
+      "efficiency": {
+        "tool_call_count": 17,
+        "tool_call_details": {
+          "find_table": 4,
+          "list_databases": 5,
+          "select_database": 1,
+          "list_tables": 1,
+          "execute_sql": 1,
+          "describe_table": 4,
+          "query_database": 1
+        },
+        "turns": 18,
+        "total_tokens": 36593,
+        "latency_ms": 97880,
+        "score": 0.4847
+      },
+      "dimensions": {
+        "sql_syntax": 1.0,
+        "table_column": 1.0,
+        "filter_condition": 1.0,
+        "result_data": 1.0,
+        "sql_standard": 1.0
+      },
+      "overall_score": 1.0,
+      "passed": true,
+      "error": null,
+      "repeat_count": 1,
+      "run_details": [
+        {
+          "duration_ms": 97880,
+          "tool_call_count": 17,
+          "tool_call_details": {
+            "find_table": 4,
+            "list_databases": 5,
+            "select_database": 1,
+            "list_tables": 1,
+            "execute_sql": 1,
+            "describe_table": 4,
+            "query_database": 1
+          },
+          "turns": 18,
+          "total_tokens": 36593,
+          "generated_sqls": [
+            "SHOW TABLES",
+            "SELECT COUNT(*) AS finished_order_count FROM todo_record_detail WHERE is_finished = 1 LIMIT 200"
+          ],
+          "error": null
+        }
+      ],
+      "std_tool_calls": 0.0,
+      "std_tokens": 0.0,
+      "std_latency_ms": 0.0,
+      "std_turns": 0.0
+    }
+  ],
+  "baseline_comparison": null
+}
