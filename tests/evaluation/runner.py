@@ -18,6 +18,7 @@ from app.agent.runner import run_agent_stream
 from app.agent.context import extract_sql_from_text
 from app.client.onedba import get_onedba_client
 from app.config import get_settings
+from app.observation import flush_langfuse
 
 from .models import TestCase, CaseResult, RunDetail, SQLJudgeResult, EvaluationReport, DimensionScores
 from .judges.sql_judge import judge_sql_correctness
@@ -110,11 +111,14 @@ def _make_session_state(schema_id: int) -> dict[str, Any]:
     """
     创建初始 session_state（每次执行独立创建）。
 
-    不预注入 selected_database / selected_schema_id，让 Agent 自己
-    通过 list_databases → select_database 探索并选择数据库。
-    schema_id 参数保留用于 Judge 阶段的 SQL 校验（与 Agent 执行无关）。
+    注入前置条件：当前数据库已选定为 dw_onedba (schema_id=65938636)。
+    模拟真实用户场景——用户在 OneDBA 平台上点击进入某个数据库后直接提问。
+    Agent 不需要调用 list_databases 或 select_database 探索数据库，
+    但需要自行发现表名、列名和枚举值。
     """
     return {
+        "selected_schema_id": schema_id,
+        "selected_database": {"schemaName": "dw_onedba"},
         "chat_history": [],
         "summary": "",
     }
@@ -184,7 +188,23 @@ async def _run_single_case(
             )
 
     if repeat > 1:
-        runs = list(await asyncio.gather(*[_run_one(i) for i in range(repeat)]))
+        # 为 asyncio.gather 加整体超时保护，防止死锁导致评测永久卡住。
+        # 每个单独 run 已有 timeout 秒超时，gather 超时设为 repeat * timeout * 2 留足余量。
+        gather_timeout = repeat * timeout * 2
+        try:
+            runs = list(await asyncio.wait_for(
+                asyncio.gather(*[_run_one(i) for i in range(repeat)]),
+                timeout=gather_timeout,
+            ))
+        except asyncio.TimeoutError:
+            # 超时时尽力收集已完成的结果
+            print(f"    [WARN] {test_case.case_id}: asyncio.gather 超时（{gather_timeout}s），部分 run 可能未完成")
+            runs = []
+            for i in range(repeat):
+                runs.append(_AgentRunOutput(
+                    tool_calls=[], tool_call_details={}, sqls=[], final_response="",
+                    stats={}, error=f"评测超时（gather {gather_timeout}s）", duration_ms=int(gather_timeout * 1000),
+                ))
     else:
         runs = [await _run_one(0)]
 
@@ -401,8 +421,19 @@ async def run_evaluation(
             _run_with_semaphore(i, tc)
             for i, tc in enumerate(test_cases)
         ]
-        await asyncio.gather(*tasks)
-        case_results = [results_map[i] for i in range(total)]
+        # 整体超时保护：每条用例 timeout * repeat * 2（留足余量），
+        # 防止死锁导致整个评测永久卡住。
+        overall_timeout = timeout * repeat * 2 * total
+        try:
+            await asyncio.wait_for(asyncio.gather(*tasks), timeout=overall_timeout)
+        except asyncio.TimeoutError:
+            print(f"\n[WARN] 整体评测超时（{overall_timeout}s），强制收集已完成的结果...")
+        case_results = [results_map[i] for i in range(total) if i in results_map]
+        if len(case_results) < total:
+            print(f"[WARN] 仅收集到 {len(case_results)}/{total} 条结果，{total - len(case_results)} 条未完成")
+
+    if keep_langfuse:
+        await asyncio.shield(flush_langfuse())
 
     # 汇总报告
     total = len(case_results)

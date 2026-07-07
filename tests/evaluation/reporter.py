@@ -143,10 +143,10 @@ def _render_markdown(report: EvaluationReport) -> str:
     dims = report.dimension_averages
     lines.append(f"| 维度 | 权重 | 平均分 |")
     lines.append(f"|------|------|--------|")
-    lines.append(f"| SQL 语法正确 | 20% | {dims.sql_syntax:.2%} |")
-    lines.append(f"| 表/列引用正确 | 20% | {dims.table_column:.2%} |")
-    lines.append(f"| 过滤条件正确 | 20% | {dims.filter_condition:.2%} |")
-    lines.append(f"| 结果数据正确 | 30% | {dims.result_data:.2%} |")
+    lines.append(f"| SQL 语法正确 | 10% | {dims.sql_syntax:.2%} |")
+    lines.append(f"| 表/列引用正确 | 10% | {dims.table_column:.2%} |")
+    lines.append(f"| 过滤条件正确 | 10% | {dims.filter_condition:.2%} |")
+    lines.append(f"| 结果数据正确 | 60% | {dims.result_data:.2%} |")
     lines.append(f"| SQL 规范 | 10% | {dims.sql_standard:.2%} |")
     lines.append("")
 

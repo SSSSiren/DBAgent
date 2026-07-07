@@ -49,22 +49,28 @@ def compute_dimension_scores(
     """
     将 Judge 结果聚合为 5 维度评分。
 
-    维度映射：
-    - SQL 语法正确 (20%)：SQL Judge score
-    - 表/列引用正确 (20%)：SQL Judge score（Tier 2/3 已包含列验证）
-    - 过滤条件正确 (20%)：SQL Judge score
-    - 结果数据正确 (30%)：SQL Judge Tier 2 结果对比（硬性要求）
+    维度映射（独立来源）：
+    - SQL 语法正确 (10%)：SQL 是否可执行（syntax_ok → 1.0/0.0）
+    - 表/列引用正确 (10%)：table_match 与 column_match 平均
+    - 过滤条件正确 (10%)：从 SQL Judge score 中扣除表/列影响后的语义分
+    - 结果数据正确 (60%)：Tier 2 结果对比（行数+数据匹配）
     - SQL 规范 (10%)：检测无 SELECT *、有 ORDER BY、有 LIMIT
     """
-    sql_score = sql_judge.score if sql_judge else 0.0
+    if not sql_judge:
+        return DimensionScores()
 
-    # 前三个维度都从 SQL Judge 派生
-    sql_syntax = sql_score
-    table_column = sql_score
-    filter_condition = sql_score
+    # SQL 语法正确：是否执行成功
+    sql_syntax = 1.0 if sql_judge.syntax_ok else 0.0
 
-    # 结果数据正确：直接使用 SQL Judge score（Tier 2 已做结果对比）
-    result_data = sql_score
+    # 表/列引用正确：表名匹配 + 列名匹配
+    table_column = (sql_judge.table_match + sql_judge.column_match) / 2
+
+    # 过滤条件正确：当表和列都对但结果仍不匹配时，问题在过滤条件
+    # 用 SQL Judge score 扣除表/列影响后的值
+    filter_condition = max(0.0, sql_judge.score - (1.0 - table_column) * 0.5)
+
+    # 结果数据正确：直接用 SQL Judge score（Tier 2 已有行数/数据对比）
+    result_data = sql_judge.score
 
     # SQL 规范
     generated_sql = sql_judge.generated_sql if sql_judge else ""
@@ -84,19 +90,19 @@ def compute_overall_score(dimensions: DimensionScores) -> float:
     计算加权总分。
 
     权重：
-    - SQL 语法正确：20%
-    - 表/列引用正确：20%
-    - 过滤条件正确：20%
-    - 结果数据正确：30%
+    - SQL 语法正确：10%
+    - 表/列引用正确：10%
+    - 过滤条件正确：10%
+    - 结果数据正确：60%
     - SQL 规范：10%
 
     硬性约束：结果数据正确不通过（< 0.5）→ 总分上限 70%
     """
     weighted = (
-        dimensions.sql_syntax * 0.20
-        + dimensions.table_column * 0.20
-        + dimensions.filter_condition * 0.20
-        + dimensions.result_data * 0.30
+        dimensions.sql_syntax * 0.10
+        + dimensions.table_column * 0.10
+        + dimensions.filter_condition * 0.10
+        + dimensions.result_data * 0.60
         + dimensions.sql_standard * 0.10
     )
 

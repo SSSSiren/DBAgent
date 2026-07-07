@@ -22,7 +22,7 @@ from app.tools.formatters import format_as_markdown_table
 TOOLS = [
     {
         "name": "list_databases",
-        "description": "列出当前用户有权限访问的数据库。当用户没有指定数据库时使用此工具。",
+        "description": "列出当前用户有权限访问的数据库。仅在用户想了解'有哪些数据库'时使用，找表请用 find_table。",
         "handler": list_databases,
         "parameters": {
             "type": "object",
@@ -56,9 +56,12 @@ TOOLS = [
     {
         "name": "find_table",
         "description": (
-            "在所有可访问数据库中搜索匹配的表名。"
-            "一次调用即可跨库搜索，返回 (schemaId, 数据库名, 表名) 列表，可用于浏览全部表或按关键词筛选。"
-            "这是查找表的首选工具，不要用 list_databases → select_database 逐个切换库找表。"
+            "在所有可访问数据库中搜索匹配的表名（自动覆盖所有环境）。"
+            "正常搜索：keyword 支持逗号分隔的多关键词（最多5个），取并集。"
+            "兜底模式：3-4 次关键词搜索仍找不到目标表时，keyword 留空调用，"
+            "返回所有环境的所有表（每环境最多 500 条）。"
+            "结果包含 (schemaId, 数据库名, 环境, 表名, 表注释)，"
+            "请根据表注释与用户问题的语义匹配，选择最合适的表。"
         ),
         "handler": find_table,
         "parameters": {
@@ -66,18 +69,15 @@ TOOLS = [
             "properties": {
                 "keyword": {
                     "type": "string",
-                    "description": "搜索关键词，用于过滤表名。为空时返回所有库的所有表。",
-                },
-                "env_type": {
-                    "type": "string",
-                    "description": "环境类型，默认 test",
+                    "description": "搜索关键词，支持逗号分隔多个（如'order,ticket,task'），最多5个，取并集。留空则返回所有表（兜底模式）。",
                 },
             },
+            "required": ["keyword"],
         },
     },
     {
         "name": "describe_table",
-        "description": "查看表结构，获取字段名、类型等信息。仅在用户明确要求'看看表结构'时使用，不要在其他场景手动调用。",
+        "description": "查看表结构，获取字段名、类型等信息。仅在用户明确要求'看看表结构'时使用，找表、查询数据时不要调用此工具。",
         "handler": describe_table,
         "parameters": {
             "type": "object",
@@ -97,8 +97,8 @@ TOOLS = [
     {
         "name": "query_database",
         "description": (
-            "自然语言查询数据库。根据用户问题自动生成 SQL 并执行。"
-            "当用户用自然语言描述查询需求时使用此工具，而不是直接写 SQL。"
+            "【首选】自然语言查询数据库，根据用户问题自动生成 SQL 并执行。"
+            "当用户用自然语言描述查询需求时优先使用此工具，不要自己写 SQL 用 execute_sql 试错。"
             "追问时也使用此工具，在 question 参数中包含完整需求。"
         ),
         "handler": query_database,
@@ -127,7 +127,7 @@ TOOLS = [
     },
     {
         "name": "execute_sql",
-        "description": "直接执行 SQL 查询。当用户提供了明确的 SQL 语句时使用。只允许 SELECT/SHOW/DESCRIBE。",
+        "description": "直接执行 SQL 查询。仅在用户提供了明确 SQL 语句时使用。不要用此工具搜索表名——找表请用 find_table，不要执行 SHOW TABLES。只允许 SELECT/SHOW/DESCRIBE。",
         "handler": execute_sql,
         "parameters": {
             "type": "object",

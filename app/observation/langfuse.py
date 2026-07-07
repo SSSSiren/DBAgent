@@ -68,25 +68,47 @@ class TraceMetrics:
         }
 
 
-def _get_langfuse_client():
-    """获取 Langfuse 客户端（每次调用创建新实例，支持并发 trace 隔离）"""
-    settings = get_settings()
-    if not settings.langfuse_enabled:
-        return None
-    try:
-        from langfuse import Langfuse
+import threading
 
-        return Langfuse(
-            public_key=settings.langfuse_public_key,
-            secret_key=settings.langfuse_secret_key,
-            host=settings.langfuse_host,
-        )
-    except ImportError as e:
-        print(f"[Langfuse] ImportError: {e}")
-        return None
-    except Exception as e:
-        print(f"[Langfuse] Client init error: {e}")
-        return None
+_langfuse_client: Any = None
+_langfuse_client_lock = threading.Lock()
+_flush_lock = asyncio.Lock()
+
+
+def _get_langfuse_client():
+    """
+    获取 Langfuse 客户端（单例，线程安全）。
+
+    并发场景下多个 LangfuseObserver 实例共享同一个 Langfuse 客户端。
+    Langfuse SDK 内部使用后台线程池批量发送 span 数据，天然支持并发 trace。
+    每个 Langfuse() 实例都有自己的后台线程池——创建多个实例会导致线程池竞争，
+    部分 trace 的数据在 flush 时丢失，表现为 Langfuse 上的 "unnamed trace"。
+    """
+    global _langfuse_client
+    if _langfuse_client is not None:
+        return _langfuse_client
+
+    with _langfuse_client_lock:
+        if _langfuse_client is not None:
+            return _langfuse_client
+        settings = get_settings()
+        if not settings.langfuse_enabled:
+            return None
+        try:
+            from langfuse import Langfuse
+
+            _langfuse_client = Langfuse(
+                public_key=settings.langfuse_public_key,
+                secret_key=settings.langfuse_secret_key,
+                host=settings.langfuse_host,
+            )
+            return _langfuse_client
+        except ImportError as e:
+            print(f"[Langfuse] ImportError: {e}")
+            return None
+        except Exception as e:
+            print(f"[Langfuse] Client init error: {e}")
+            return None
 
 
 class LangfuseObserver:
@@ -109,12 +131,15 @@ class LangfuseObserver:
         session_id: str,
         user_input: str = "",
         user_id: str = "",
-        trace_name: str = "SDK-DBAgent-Chat",
+        trace_name: str = "Chat",
     ):
+        settings = get_settings()
+        prefix = settings.langfuse_trace_prefix or "SDK-DBAgent"
         self.session_id = session_id
         self.user_input = user_input
         self.user_id = user_id
-        self.trace_name = trace_name
+        # trace_name 作为后缀拼在配置中定义的前缀后面：{prefix}-{trace_name}
+        self.trace_name = f"{prefix}-{trace_name}"
         self.metrics = TraceMetrics()
         self._client = _get_langfuse_client()
         self._trace_id: str | None = None
@@ -289,9 +314,12 @@ class LangfuseObserver:
 
         if self._client:
             try:
-                # flush() 是同步阻塞的，在 asyncio 事件循环中调用会阻塞所有协程。
-                # 用 to_thread 将阻塞调用移到独立线程，避免阻塞事件循环。
-                await asyncio.to_thread(self._client.flush)
+                # 并发场景下多个 observer 共享同一个 Langfuse 客户端，
+                # flush() 内部会操作共享的 HTTP 连接池，需要串行化。
+                # 使用 asyncio.Lock（而非 threading.Lock）：asyncio 锁在等待时
+                # 会让出事件循环，避免死锁。
+                async with _flush_lock:
+                    await asyncio.to_thread(self._client.flush)
                 if self._trace_id:
                     trace_url = self._client.get_trace_url(trace_id=self._trace_id)
                     if trace_url:
@@ -306,6 +334,17 @@ class LangfuseObserver:
                 self._root_span.score(name=name, value=value, comment=comment)
             except Exception:
                 pass
+
+
+async def flush_langfuse() -> None:
+    """Flush shared Langfuse client if it has already been initialized."""
+    if not _langfuse_client:
+        return
+    try:
+        async with _flush_lock:
+            await asyncio.to_thread(_langfuse_client.flush)
+    except Exception:
+        pass
 
 
 def extract_result_size(output: str) -> tuple[int, int]:

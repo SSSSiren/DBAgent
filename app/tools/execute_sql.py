@@ -8,6 +8,10 @@ import re
 
 from app.client.onedba import get_onedba_client
 from app.tools.formatters import format_as_markdown_table
+from app.tools.sql_utils import strip_limit
+
+
+DEFAULT_SAFETY_LIMIT = 500  # 工程安全 LIMIT，防止一次性返回太多数据挤爆 LLM 上下文
 
 
 # 安全检查
@@ -65,8 +69,13 @@ async def execute_sql(schema_id: int, sql: str) -> str:
         )
 
     client = get_onedba_client()
+
+    # 剥离 LLM 可能习惯性加的 LIMIT（不可靠），执行时加安全兜底
+    display_sql = strip_limit(sql)
+    execute_sql_str = f"{display_sql} LIMIT {DEFAULT_SAFETY_LIMIT}"
+
     try:
-        result = await client.execute_sql(schema_id=schema_id, sql=sql)
+        result = await client.execute_sql(schema_id=schema_id, sql=execute_sql_str)
     except Exception as exc:
         return f"执行失败：{exc}"
 

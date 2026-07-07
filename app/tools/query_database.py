@@ -24,22 +24,10 @@ from app.nl2sql.repair import repair_sql
 from app.nl2sql.validator import validate_sql
 from app.nl2sql.schema import parse_describe_result
 from app.tools.formatters import format_as_markdown_table
+from app.tools.sql_utils import strip_limit, to_count_sql
 
 
-def _strip_limit(sql: str) -> str:
-    """去除 SQL 末尾的 LIMIT 子句"""
-    return re.sub(r"\s+LIMIT\s+\d+(\s*;?\s*)$", "", sql, flags=re.IGNORECASE)
-
-
-def _to_count_sql(sql: str) -> str:
-    """将 SELECT ... FROM ... 替换为 SELECT COUNT(*) AS cnt FROM ..."""
-    return re.sub(
-        r"SELECT\s+.*?\s+FROM\s+",
-        "SELECT COUNT(*) AS cnt FROM ",
-        sql,
-        count=1,
-        flags=re.IGNORECASE,
-    )
+DEFAULT_SAFETY_LIMIT = 500  # 工程安全 LIMIT，防止一次性返回太多数据挤爆 LLM 上下文
 
 
 async def query_database(
@@ -136,20 +124,19 @@ async def query_database(
 
         final_sql = validation.sql
 
-        # 5. 工程层处理：先 COUNT 获取真实总数，再统一追加安全 LIMIT
+        # 5. 工程层处理：根据 LLM 的 has_topn 二分类结果决定是否保留 SQL 中的 LIMIT
         #
         # 设计意图：
-        # - LLM 生成的 SQL 可能带有习惯性 LIMIT（如 LIMIT 100），这是不可靠的
-        # - 工程层统一剥离 LLM 的 LIMIT，用 COUNT 获取真实总数
-        # - 然后追加工程安全 LIMIT（200 条），防止数据量太大挤爆 LLM 上下文窗口
-        # - 最终响应中告知 LLM 真实总数，LLM 用真实总数回答用户
+        # - LLM 做二分类：has_topn=true 表示用户明确要求了 TopN（如"前10条"）
+        # - has_topn=true：信任 LLM 在 SQL 中写的 LIMIT N（自然语言→SQL 翻译是 LLM 的强项）
+        # - has_topn=false：剥离 LLM 习惯性加的 LIMIT（不可靠），执行时加安全 LIMIT 500（防 OOM，不展示）
+        # - 先 COUNT 获取真实总数，告知用户当前返回量与真实总量的关系
         #
         total_count: int | None = None
-        safety_limit = 200  # 工程安全 LIMIT，防止一次性返回太多数据
 
-        # 5a. 剥离 LLM 可能加的 LIMIT，执行 COUNT 获取真实总数
-        count_sql = _strip_limit(final_sql)
-        count_sql = _to_count_sql(count_sql)
+        # 5a. 剥离 LLM 可能残留的 LIMIT（不可靠），执行 COUNT 获取真实总数
+        clean_sql = strip_limit(final_sql)
+        count_sql = to_count_sql(clean_sql)
         try:
             count_result = await client.execute_sql(schema_id, count_sql)
             count_rows = count_result.get("columnDatas") or []
@@ -160,13 +147,23 @@ async def query_database(
         except Exception:
             total_count = None
 
-        # 5b. 统一追加工程安全 LIMIT（不管 LLM 有没有加，一律替换）
-        final_sql = _strip_limit(final_sql)
-        final_sql = f"{final_sql} LIMIT {safety_limit}"
-        applied_limit = safety_limit
+        # 5b. 根据 has_topn 决定 display_sql 和 execute_sql
+        if generated.has_topn:
+            # 用户有明确 TopN 意图 → 保留 LLM 在 SQL 中写的 LIMIT N
+            # 注意：LLM 的 SQL 已通过 validate_sql 的 strip_sql 规范化，LIMIT 数字可靠
+            display_sql = final_sql
+            execute_sql_str = final_sql
+            # 从 SQL 中提取 LIMIT 值用作展示
+            limit_match = re.search(r"\bLIMIT\s+(\d+)\b", final_sql, re.IGNORECASE)
+            applied_limit = int(limit_match.group(1)) if limit_match else DEFAULT_SAFETY_LIMIT
+        else:
+            # 无 TopN 意图 → 最终 SQL 干净（无 LIMIT），执行时安全兜底
+            display_sql = clean_sql
+            execute_sql_str = f"{clean_sql} LIMIT {DEFAULT_SAFETY_LIMIT}"
+            applied_limit = DEFAULT_SAFETY_LIMIT
 
         # 6. 执行 SQL
-        result = await client.execute_sql(schema_id, final_sql)
+        result = await client.execute_sql(schema_id, execute_sql_str)
 
         # 7. 检查是否为空结果
         rows = result.get("columnDatas") or []
@@ -176,7 +173,7 @@ async def query_database(
         markdown_table = format_as_markdown_table(result)
 
         # 清理 SQL 显示
-        display_sql = final_sql.replace("\\n", " ").replace("\\r", "")
+        display_sql = display_sql.replace("\\n", " ").replace("\\r", "")
         display_sql = " ".join(display_sql.split())
 
         # 日志
@@ -201,11 +198,16 @@ async def query_database(
             for assumption in generated.assumptions:
                 response_parts.append(f"- {assumption}\n")
 
-        # 真实总数：工程层统一追加的 LIMIT，告知 LLM 这是工程限制
-        if total_count is not None:
+        # 真实总数
+        if total_count is not None and not generated.has_topn:
             response_parts.append(
                 f"\n**真实总数**: {total_count} 条"
                 f"（系统自动限制显示前 {applied_limit} 条，防止数据量过大）\n"
+            )
+        elif total_count is not None:
+            response_parts.append(
+                f"\n**真实总数**: {total_count} 条"
+                f"（按用户要求显示前 {applied_limit} 条）\n"
             )
 
         # 空结果说明

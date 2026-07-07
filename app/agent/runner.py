@@ -14,6 +14,7 @@ SDK Agent 执行器 — 基于 claude-agent-sdk 的 Agent 核心
 - SDK-DBAgent 的 demo/agent.py（SDK API 用法）
 """
 
+import asyncio
 import re
 from typing import Any, AsyncIterator
 
@@ -118,7 +119,7 @@ def _build_sdk_mcp_server():
     from claude_agent_sdk import tool, create_sdk_mcp_server
 
     # ---- 工具定义 ----
-    @tool("list_databases", "列出当前用户有权限访问的数据库", {
+    @tool("list_databases", "列出当前用户有权限访问的数据库。仅在用户想了解'有哪些数据库'时使用，找表请用 find_table", {
         "keyword": str,
         "env_type": str,
     })
@@ -141,20 +142,18 @@ def _build_sdk_mcp_server():
         _push_tool_result("select_database", result)
         return {"content": [{"type": "text", "text": result}]}
 
-    @tool("find_table", "跨库搜索表名，一次调用遍历所有数据库", {
+    @tool("find_table", "跨库搜索表名（自动覆盖所有环境）。提供 keyword 则按关键词 LIKE 搜索（支持逗号分隔多词并集）；keyword 留空则返回所有表（兜底模式，用于多次搜索无果时）", {
         "keyword": str,
-        "env_type": str,
     })
     async def find_table_sdk(args):
         from app.tools.find_table import find_table
         result = await find_table(
             keyword=args.get("keyword", ""),
-            env_type=args.get("env_type", "test"),
         )
         _push_tool_result("find_table", result)
         return {"content": [{"type": "text", "text": result}]}
 
-    @tool("describe_table", "查看表结构（仅用户明确要求时使用，不要在其他场景手动调用）", {
+    @tool("describe_table", "查看表结构。仅在用户明确要求'看看表结构'时使用，找表、查询数据时不要调用此工具", {
         "schema_id": int,
         "table_name": str,
     })
@@ -167,7 +166,7 @@ def _build_sdk_mcp_server():
         _push_tool_result("describe_table", result)
         return {"content": [{"type": "text", "text": result}]}
 
-    @tool("query_database", "自然语言查询数据库，自动生成并执行 SQL", {
+    @tool("query_database", "【首选】自然语言查询数据库，自动生成并执行 SQL。用户用自然语言描述需求时优先使用此工具，不要自己写 SQL 用 execute_sql", {
         "schema_id": int,
         "question": str,
         "table_name": str,
@@ -184,7 +183,7 @@ def _build_sdk_mcp_server():
         _push_tool_result("query_database", result)
         return {"content": [{"type": "text", "text": result}]}
 
-    @tool("execute_sql", "直接执行 SQL 查询（只允许 SELECT/SHOW/DESCRIBE）", {
+    @tool("execute_sql", "直接执行 SQL 查询。仅在用户提供了明确 SQL 语句时使用。不要用此工具搜索表名——找表请用 find_table，不要执行 SHOW TABLES", {
         "schema_id": int,
         "sql": str,
     })
@@ -691,9 +690,27 @@ async def run_agent_stream(
             # Normal completion — use collected text from stream
             if not final_response and all_texts:
                 final_response = all_texts[-1]
+        # DeepSeek API workaround: the API requires a 'signature' field in
+        # assistant messages with tool_calls. When the SDK replays messages
+        # across turns, this field may be lost, causing the API to reject the
+        # request. Treat as a soft error — use collected text if available.
+        elif "signature" in error_msg.lower():
+            if all_texts:
+                final_response = all_texts[-1] if not final_response else final_response
+            else:
+                final_response = "抱歉，查询过程中遇到了临时技术问题，请稍后重试。"
+                print(f"[SDK Agent] DeepSeek signature error: {error_msg[:200]}")
         else:
             final_response = f"查询过程中发生错误：{error_msg}"
             print(f"[SDK Agent] Error: {error_msg}")
+    finally:
+        response_for_trace = final_response or (all_texts[-1] if all_texts else "获取响应失败")
+        flush_task = asyncio.create_task(observer.flush(response=response_for_trace))
+        try:
+            await asyncio.shield(flush_task)
+        except asyncio.CancelledError:
+            await flush_task
+            raise
 
     # 5. 确保有最终响应
     if not final_response and all_texts:
@@ -707,9 +724,6 @@ async def run_agent_stream(
         user_input,
         final_response,
     )
-
-    # === Langfuse: 写入最终指标 ===
-    await observer.flush(response=final_response)
 
     # 7. yield 最终事件
     yield "final", {

@@ -26,6 +26,7 @@ class Settings(BaseSettings):
     langfuse_public_key: str = ""
     langfuse_secret_key: str = ""
     langfuse_host: str = "https://cloud.langfuse.com"
+    langfuse_trace_prefix: str = "SDK-DBAgent"
 
     # ========== 语义规则 ==========
     semantic_provider: str = "auto"

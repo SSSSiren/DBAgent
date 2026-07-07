@@ -33,6 +33,7 @@ class GeneratedSQL:
     assumptions: list[str] = field(default_factory=list)
     needs_clarification: bool = False
     clarification_question: str = ""
+    has_topn: bool = False  # 用户是否明确要求了 TopN（如"前10条"），工程层据此决定是否保留 SQL 中的 LIMIT
 
 
 def _extract_json_object(content: str) -> dict[str, Any]:
@@ -122,7 +123,7 @@ def build_generate_sql_prompt(
 5. 使用 MySQL 8 语法。窗口函数可以使用 ROW_NUMBER/RANK/DENSE_RANK，但聚合窗口场景应先在 CTE/子查询中完成聚合，再在外层做窗口排名。
 6. 聚合和 TopN 查询必须给出确定性 ORDER BY。排序指标相同时，尽量追加主键、维度字段或名称字段作为稳定 tie-breaker。
 7. 输出列尽量贴合用户问题，只返回回答问题必需的列；不要使用 SELECT *。
-8. 只有用户明确要求 TopN（如"前10条"、"TOP 5"）时才加 LIMIT。
+8. **has_topn 仅当用户明确要求了具体条数时才设为 true**。如"前10条""TOP 5""最近3条""只看5条"→true。用户只描述查询内容但未指定条数（如"查询工单信息""统计告警数量"）时→false。不确定时一律 false。
 
 业务语义层规则：
 {rendered_rules}
@@ -141,6 +142,7 @@ def build_generate_sql_prompt(
 输出 JSON：
 {{
   "sql": "SELECT ...",
+  "has_topn": false,
   "explanation": "简短解释",
   "used_columns": ["..."],
   "assumptions": ["..."],
@@ -220,4 +222,5 @@ async def generate_sql(
         assumptions=payload.get("assumptions") or [],
         needs_clarification=bool(payload.get("needs_clarification", False)),
         clarification_question=payload.get("clarification_question", ""),
+        has_topn=bool(payload.get("has_topn", False)),
     )

@@ -124,7 +124,6 @@ def validate_sql(
     sql: str,
     table_name: str,
     columns: list[ColumnSchema],
-    default_limit: int = 100,
 ) -> ValidationResult:
     """
     验证生成的 SQL。

@@ -11,6 +11,16 @@ from typing import Any
 from ..models import SQLJudgeResult
 
 
+# 公平比对：参考 SQL 也追加同样的安全 LIMIT，消除行数不一致的系统性偏差
+_JUDGE_SAFETY_LIMIT = 500
+
+
+def _strip_limit(sql: str) -> str:
+    """去除 SQL 末尾的 LIMIT 子句和分号"""
+    sql = re.sub(r"\s+LIMIT\s+\d+(\s*;?\s*)$", "", sql, flags=re.IGNORECASE)
+    return sql.rstrip(";").strip()
+
+
 def _safe_get_list(result: dict[str, Any] | None, key: str) -> list[Any]:
     """安全获取 list 字段，处理 key 不存在或值为 None 的情况"""
     if not result:
@@ -23,7 +33,50 @@ def _safe_get_list(result: dict[str, Any] | None, key: str) -> list[Any]:
     return []
 
 
+def _extract_table_names(sql: str) -> set[str]:
+    """从 SQL 中提取表名（FROM/JOIN 后的标识符）"""
+    import re
+    sql_upper = sql.upper()
+    tables: set[str] = set()
+    for match in re.finditer(
+        r'\b(?:FROM|JOIN)\s+`?(\w+)`?',
+        sql_upper,
+    ):
+        tables.add(match.group(1).lower())
+    return tables
+
+
+def _extract_column_names(sql: str) -> set[str]:
+    """从 SQL 中提取列名（SELECT 后的标识符，不含聚合函数参数）"""
+    import re
+    # 提取 SELECT 和 FROM 之间的部分
+    match = re.search(r'\bSELECT\b(.*?)\bFROM\b', sql, re.DOTALL | re.IGNORECASE)
+    if not match:
+        return set()
+    select_part = match.group(1)
+    columns: set[str] = set()
+    # 匹配列名：字母开头，可能含下划线，前面不是函数的括号
+    for m in re.finditer(r'(?<!\w)([a-zA-Z_][a-zA-Z0-9_]*)', select_part):
+        col = m.group(1).lower()
+        # 排除 SQL 关键字和聚合函数
+        if col not in {'count', 'sum', 'avg', 'min', 'max', 'as', 'distinct', 'all', 'null', 'true', 'false', 'limit', 'order', 'group', 'by', 'having', 'where', 'and', 'or', 'not', 'in', 'is', 'like', 'between'}:
+            columns.add(col)
+    return columns
+
+
+def _compute_overlap(gen_set: set[str], ref_set: set[str]) -> float:
+    """计算两个集合的重叠度"""
+    if not ref_set:
+        return 0.0
+    return len(gen_set & ref_set) / len(ref_set) if ref_set else 0.0
+
+
 def _normalize_sql(sql: str) -> str:
+    """规范化 SQL 字符串用于结构匹配"""
+    sql = re.sub(r"\s+", " ", sql.strip()).lower()
+    sql = sql.rstrip(";").strip()
+    sql = re.sub(r"\blimit\s+(\d+)", r"limit \1", sql)
+    return sql
     """规范化 SQL 字符串用于结构匹配"""
     sql = re.sub(r"\s+", " ", sql.strip()).lower()
     sql = sql.rstrip(";").strip()
@@ -147,7 +200,16 @@ async def judge_sql_correctness(
             tier=0, passed=False, score=0.0,
             generated_sql="", reference_sql=reference_sql,
             diff_summary="Agent 未生成 SQL",
+            syntax_ok=False, table_match=0.0, column_match=0.0,
         )
+
+    # 计算子维度（在 Tier 2 之前统一计算一次）
+    gen_tables = _extract_table_names(generated_sql)
+    ref_tables = _extract_table_names(reference_sql)
+    gen_cols_set = _extract_column_names(generated_sql)
+    ref_cols_set = _extract_column_names(reference_sql)
+    table_match = _compute_overlap(gen_tables, ref_tables)
+    column_match = _compute_overlap(gen_cols_set, ref_cols_set)
 
     # Tier 1: 结构匹配
     norm_gen = _normalize_sql(generated_sql)
@@ -157,21 +219,26 @@ async def judge_sql_correctness(
             tier=1, passed=True, score=1.0,
             generated_sql=generated_sql, reference_sql=reference_sql,
             diff_summary="SQL 结构与参考完全一致",
+            syntax_ok=True, table_match=1.0, column_match=1.0,
         )
 
     # Tier 2: 结果对比
+    # 统一剥离 LIMIT 并追加相同安全 LIMIT，消除"参考无 LIMIT vs 生成有 LIMIT"的系统性偏差
+    gen_sql_for_exec = f"{_strip_limit(generated_sql)} LIMIT {_JUDGE_SAFETY_LIMIT}"
+    ref_sql_for_exec = f"{_strip_limit(reference_sql)} LIMIT {_JUDGE_SAFETY_LIMIT}"
+
     gen_result = None
     ref_result = None
     gen_error = None
     ref_error = None
 
     try:
-        gen_result = await onedba_client.execute_sql(schema_id=schema_id, sql=generated_sql)
+        gen_result = await onedba_client.execute_sql(schema_id=schema_id, sql=gen_sql_for_exec)
     except Exception as e:
         gen_error = str(e)
 
     try:
-        ref_result = await onedba_client.execute_sql(schema_id=schema_id, sql=reference_sql)
+        ref_result = await onedba_client.execute_sql(schema_id=schema_id, sql=ref_sql_for_exec)
     except Exception as e:
         ref_error = str(e)
 
@@ -197,12 +264,14 @@ async def judge_sql_correctness(
                 generated_sql, reference_sql, question,
                 gen_result, ref_result, gen_error, ref_error,
                 "; ".join(diff_parts), partial_score, llm_client,
+                table_match, column_match,
             )
         return SQLJudgeResult(
             tier=2, passed=False, score=partial_score,
             generated_sql=generated_sql, reference_sql=reference_sql,
             generated_row_count=gen_row_count, reference_row_count=ref_row_count,
             diff_summary="; ".join(diff_parts),
+            syntax_ok=False, table_match=table_match, column_match=column_match,
         )
 
     # 结果对比
@@ -214,6 +283,7 @@ async def judge_sql_correctness(
             generated_sql=generated_sql, reference_sql=reference_sql,
             generated_row_count=gen_row_count, reference_row_count=ref_row_count,
             diff_summary="结果数据完全一致",
+            syntax_ok=True, table_match=1.0, column_match=1.0,
         )
 
     # 结果不一致，计算部分分
@@ -224,6 +294,7 @@ async def judge_sql_correctness(
             generated_sql, reference_sql, question,
             gen_result, ref_result, None, None,
             diff_desc, partial_score, llm_client,
+            table_match, column_match,
         )
 
     return SQLJudgeResult(
@@ -231,6 +302,7 @@ async def judge_sql_correctness(
         generated_sql=generated_sql, reference_sql=reference_sql,
         generated_row_count=gen_row_count, reference_row_count=ref_row_count,
         diff_summary=diff_desc,
+        syntax_ok=True, table_match=table_match, column_match=column_match,
     )
 
 
@@ -245,6 +317,8 @@ async def _llm_judge(
     diff_desc: str,
     partial_score: float,
     llm_client: Any,
+    table_match: float = 0.0,
+    column_match: float = 0.0,
 ) -> SQLJudgeResult:
     """Tier 3: 使用 LLM 判断语义等价性"""
     import json
@@ -313,10 +387,12 @@ async def _llm_judge(
             reference_row_count=ref_row_count,
             diff_summary=diff_desc,
             llm_judge_explanation=explanation,
+            syntax_ok=True, table_match=table_match, column_match=column_match,
         )
     except Exception as e:
         return SQLJudgeResult(
             tier=3, passed=False, score=partial_score,
             generated_sql=generated_sql, reference_sql=reference_sql,
             diff_summary=f"{diff_desc} (LLM 评判失败: {e})",
+            syntax_ok=False, table_match=table_match, column_match=column_match,
         )

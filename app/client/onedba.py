@@ -10,11 +10,23 @@ OneDBA HTTP 客户端 — 封装 OneDBA 平台的数据库操作 API
 
 from __future__ import annotations
 
+import asyncio
 from typing import Any
 
 import httpx
 
 from app.config import get_settings
+
+# 需要自动重试的瞬态网络错误
+_RETRYABLE_EXCEPTIONS = (
+    httpx.ConnectTimeout,
+    httpx.ConnectError,
+    httpx.ReadTimeout,
+    httpx.RemoteProtocolError,
+)
+
+_MAX_RETRIES = 3
+_RETRY_BASE_DELAY = 1.0  # 指数退避基数（秒）: 1s, 2s, 4s
 
 
 class OneDBAError(Exception):
@@ -43,7 +55,13 @@ class OneDBAClient:
                     "accessToken": self._access_token,
                     "Content-Type": "application/json",
                 },
-                timeout=60.0,
+                timeout=httpx.Timeout(60.0, connect=10.0),
+                limits=httpx.Limits(
+                    max_keepalive_connections=50,
+                    max_connections=200,
+                    keepalive_expiry=30.0,
+                ),
+                trust_env=False,  # OneDBA 是内网服务，不走系统代理
             )
         return self._client
 
@@ -53,6 +71,34 @@ class OneDBAClient:
         if code is not None and code != 0 and code != "0":
             message = data.get("message") or data.get("msg") or "未知错误"
             raise OneDBAError(f"OneDBA API 错误 (code={code}): {message}", code=code)
+
+    async def _retry_request(self, request_name: str, coro_factory):
+        """
+        对瞬态网络错误自动重试（指数退避）。
+
+        Args:
+            request_name: 请求名称（用于日志）
+            coro_factory: 返回 awaitable 的工厂函数，每次重试重新调用
+
+        Returns:
+            coro_factory 的返回值
+
+        Raises:
+            最后一次重试的异常（如果所有重试都失败）
+        """
+        last_exc: Exception | None = None
+        for attempt in range(_MAX_RETRIES + 1):
+            try:
+                return await coro_factory()
+            except _RETRYABLE_EXCEPTIONS as e:
+                last_exc = e
+                if attempt < _MAX_RETRIES:
+                    delay = _RETRY_BASE_DELAY * (2 ** attempt)
+                    print(f"[OneDBA] {request_name} 第{attempt+1}次重试（{delay:.0f}s 后）: {e}")
+                    await asyncio.sleep(delay)
+                else:
+                    print(f"[OneDBA] {request_name} 已重试{_MAX_RETRIES}次仍失败: {e}")
+        raise last_exc  # type: ignore[misc]
 
     async def list_databases(
         self,
@@ -89,15 +135,18 @@ class OneDBAClient:
         if keyword:
             params["keyword"] = keyword
 
-        response = await client.get(
-            "/api/external/v1/agent/instance/schema/user/list",
-            params=params,
-        )
-        response.raise_for_status()
-        data = response.json()
-        self._check_response(data)
-        payload = data.get("data") or {}
-        return payload.get("items") or []
+        async def _do_request():
+            response = await client.get(
+                "/api/external/v1/agent/instance/schema/user/list",
+                params=params,
+            )
+            response.raise_for_status()
+            data = response.json()
+            self._check_response(data)
+            payload = data.get("data") or {}
+            return payload.get("items") or []
+
+        return await self._retry_request("list_databases", _do_request)
 
     async def execute_sql(
         self, schema_id: int, sql: str, query_timeout: int = 30
@@ -120,14 +169,17 @@ class OneDBAClient:
             "queryTimeout": query_timeout,
         }
 
-        response = await client.post(
-            "/api/external/v1/agent/query",
-            json=payload,
-        )
-        response.raise_for_status()
-        data = response.json()
-        self._check_response(data)
-        return data.get("data") or {}
+        async def _do_request():
+            response = await client.post(
+                "/api/external/v1/agent/query",
+                json=payload,
+            )
+            response.raise_for_status()
+            data = response.json()
+            self._check_response(data)
+            return data.get("data") or {}
+
+        return await self._retry_request("execute_sql", _do_request)
 
     async def close(self) -> None:
         """关闭 HTTP 客户端"""

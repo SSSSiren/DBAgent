@@ -57,6 +57,7 @@ async def repair_sql(
 输出 JSON：
 {{
   "sql": "SELECT ...",
+  "has_topn": false,
   "explanation": "修复原因",
   "used_columns": ["..."],
   "assumptions": ["..."],
@@ -73,4 +74,5 @@ async def repair_sql(
         assumptions=payload.get("assumptions") or [],
         needs_clarification=bool(payload.get("needs_clarification", False)),
         clarification_question=payload.get("clarification_question", ""),
+        has_topn=bool(payload.get("has_topn", False)),
     )

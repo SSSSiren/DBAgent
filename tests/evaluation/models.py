@@ -37,13 +37,17 @@ class SQLJudgeResult(BaseModel):
     """SQL 正确性评判结果"""
     tier: int = Field(description="判断层级：1=结构匹配, 2=结果对比, 3=LLM评判")
     passed: bool = Field(description="是否通过")
-    score: float = Field(default=0.0, ge=0.0, le=1.0, description="得分 0.0-1.0")
+    score: float = Field(default=0.0, ge=0.0, le=1.0, description="综合得分 0.0-1.0")
     generated_sql: str = Field(default="", description="Agent 生成的 SQL")
     reference_sql: str = Field(default="", description="参考 SQL")
     generated_row_count: Optional[int] = Field(default=None, description="生成 SQL 执行结果行数")
     reference_row_count: Optional[int] = Field(default=None, description="参考 SQL 执行结果行数")
     diff_summary: str = Field(default="", description="差异描述")
     llm_judge_explanation: Optional[str] = Field(default=None, description="Tier 3 LLM 评判解释")
+    # 子维度评分（独立来源，不全部复用 score）
+    syntax_ok: bool = Field(default=True, description="SQL 语法是否可执行")
+    table_match: float = Field(default=0.0, ge=0.0, le=1.0, description="表名匹配度")
+    column_match: float = Field(default=0.0, ge=0.0, le=1.0, description="列名匹配度")
 
 
 class QualityJudgeResult(BaseModel):
