@@ -119,7 +119,7 @@ def _build_sdk_mcp_server():
     from claude_agent_sdk import tool, create_sdk_mcp_server
 
     # ---- 工具定义 ----
-    @tool("list_databases", "列出当前用户有权限访问的数据库。仅在用户想了解'有哪些数据库'时使用，找表请用 find_table", {
+    @tool("list_databases", "列出当前用户有权限访问的数据库。仅在用户想了解'有哪些数据库'时使用，若找表请用 find_table", {
         "keyword": str,
         "env_type": str,
     })
