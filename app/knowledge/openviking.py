@@ -72,6 +72,21 @@ class OpenVikingClient:
             return data["result"]
         return data
 
+    async def _get_raw(self, path: str, uri: str) -> dict:
+        """GET 请求，uri 直接拼接在 URL 中（避免 httpx params 二次编码）。
+
+        fs/ls 和 fs/read 返回的 URI 已经编码（如 %E6%9F%A5），
+        直接用字符串拼接而非 httpx params，避免 % → %25 的二次编码。
+        """
+        if self._client is None:
+            await self.start()
+        resp = await self._client.get(f"{path}?uri={uri}")
+        resp.raise_for_status()
+        data = resp.json()
+        if isinstance(data, dict) and data.get("status") == "ok" and "result" in data:
+            return data["result"]
+        return data
+
     # ── 会话管理 ──
 
     async def create_session(self) -> str:
@@ -134,7 +149,7 @@ class OpenVikingClient:
             for category in memory_categories:
                 try:
                     uri = f"viking://user/{self._user_id}/{base_path}/{category}"
-                    entries = await self._get("/api/v1/fs/ls", {"uri": uri})
+                    entries = await self._get_raw("/api/v1/fs/ls", uri)
                     entries = entries if isinstance(entries, list) else entries.get("result", [])
                     if entries:
                         print(f"[KB] retrieve: {base_path}/{category} -> {len(entries)} entries")
@@ -147,7 +162,7 @@ class OpenVikingClient:
                         continue
                     file_uri = entry.get("uri", "")
                     try:
-                        detail = await self._get("/api/v1/fs/read", {"uri": file_uri})
+                        detail = await self._get_raw("/api/v1/fs/read", file_uri)
                         abstract = detail.get("abstract", "") if isinstance(detail, dict) else ""
                         if abstract:
                             all_memories.append({
@@ -164,7 +179,7 @@ class OpenVikingClient:
             if not all_memories:
                 try:
                     uri = f"viking://user/{self._user_id}/{base_path}"
-                    entries = await self._get("/api/v1/fs/ls", {"uri": uri})
+                    entries = await self._get_raw("/api/v1/fs/ls", uri)
                     entries = entries if isinstance(entries, list) else entries.get("result", [])
                     print(f"[KB] retrieve: flat {base_path} -> {len(entries)} entries")
                     for entry in entries:
@@ -173,7 +188,7 @@ class OpenVikingClient:
                             continue
                         file_uri = entry.get("uri", "")
                         try:
-                            detail = await self._get("/api/v1/fs/read", {"uri": file_uri})
+                            detail = await self._get_raw("/api/v1/fs/read", file_uri)
                             abstract = detail.get("abstract", "") if isinstance(detail, dict) else ""
                             if abstract:
                                 all_memories.append({
