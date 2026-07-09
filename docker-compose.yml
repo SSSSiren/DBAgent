@@ -1,15 +1,15 @@
 services:
-  sdk-dbagent:
+  dbagent:
     build:
       context: .
       dockerfile: Dockerfile
-    container_name: sdk-dbagent
+    container_name: dbagent
     ports:
       - "${HOST_PORT:-8000}:8000"
     environment:
       - LLM_API_KEY=${LLM_API_KEY}
-      - LLM_BASE_URL=${LLM_BASE_URL:-https://api.deepseek.com/v1}
-      - LLM_MODEL=${LLM_MODEL:-deepseek-chat}
+      - LLM_BASE_URL=${LLM_BASE_URL:-https://dwai-data.dewu-inc.com/openai/v1}
+      - LLM_MODEL=${LLM_MODEL:-deepseek-v4-flash-260425}
       - ONEDBA_BASE_URL=${ONEDBA_BASE_URL:-https://onedba.shizhuang-inc.com}
       - ONEDBA_ACCESS_TOKEN=${ONEDBA_ACCESS_TOKEN}
       - LANGFUSE_ENABLED=${LANGFUSE_ENABLED:-false}

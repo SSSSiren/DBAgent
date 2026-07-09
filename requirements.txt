@@ -1,5 +1,5 @@
-# SDK-DBAgent 依赖
-# 基于 claude-agent-sdk 的 NL2SQL Agent
+# DBAgent 依赖
+# 基于 OpenAI 兼容 API 的 ReAct NL2SQL Agent
 
 # Web 框架
 fastapi>=0.109.0
@@ -14,11 +14,8 @@ pydantic>=2.5.0
 pydantic-settings>=2.1.0
 python-dotenv>=1.0.0
 
-# LLM 客户端（用于 NL2SQL 管道中的 SQL 生成和修复）
+# LLM 客户端（ReAct Agent 循环 + NL2SQL 管道 SQL 生成/修复）
 openai>=1.0.0
-
-# Agent SDK
-claude-agent-sdk
 
 # 可观测性
 langfuse>=2.0.0
