@@ -135,6 +135,7 @@ async def _execute_agent_stream(
         user_id: 用户标识（用于存储层的用户命名空间隔离）
     """
     final_payload = None
+    latest_sql = ""  # 收集本次对话中最后生成的 SQL
 
     async for event_type, data in run_agent_stream(
         initial_state["user_input"],
@@ -143,6 +144,7 @@ async def _execute_agent_stream(
         if event_type == "step":
             yield "step", data
         elif event_type == "sql":
+            latest_sql = data.get("sql", "")
             yield "sql", data
         elif event_type == "final":
             final_payload = data
@@ -157,6 +159,10 @@ async def _execute_agent_stream(
             "tool_calls": [],
             "stats": {},
         }
+
+    # 将本次 SQL 持久化到会话状态
+    if latest_sql:
+        final_payload["updated_state"]["latest_sql"] = latest_sql
 
     # ── 记录对话到 OpenViking（在 save 之前，确保 kb_session_id 被持久化）──
     user_input = initial_state.get("user_input", "")
@@ -181,6 +187,7 @@ async def _execute_agent_stream(
         "needs_confirmation": final_payload["needs_confirmation"],
         "tool_calls": final_payload["tool_calls"],
         "stats": final_payload.get("stats", {}),
+        "latest_sql": latest_sql,
     }
 
 
@@ -376,6 +383,7 @@ async def get_session_info(session_id: str, user_id: str = Query(...)) -> Sessio
         summary=session.get("summary", ""),
         selected_schema_id=session.get("selected_schema_id"),
         selected_database=session.get("selected_database"),
+        latest_sql=session.get("latest_sql", ""),
     )
 
 
