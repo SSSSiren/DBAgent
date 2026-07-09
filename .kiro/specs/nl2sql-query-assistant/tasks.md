@@ -84,7 +84,7 @@
   - _Boundary: SessionManager_
 
 - [ ] 4. 集成与接线
-- [ ] 4.1 将存储生命周期接入应用启动和关闭
+- [x] 4.1 将存储生命周期接入应用启动和关闭
   - 在 `app/main.py` 的 `lifespan` 中调用 `store.initialize()` 初始化存储（创建数据库表和索引）
   - 在 `lifespan` 的 shutdown 阶段调用 `store.close()` 关闭连接
   - `store` 实例通过 `get_store()` 工厂函数获取，与应用生命周期绑定

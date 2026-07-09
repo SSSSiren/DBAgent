@@ -20,6 +20,7 @@ from fastapi.staticfiles import StaticFiles
 from app.api.routes import router
 from app.api.schemas import HealthResponse
 from app.config import get_settings
+from app.memory.store import get_store
 
 
 @asynccontextmanager
@@ -31,11 +32,17 @@ async def lifespan(app: FastAPI):
     print(f"[DBAgent] LLM: {settings.llm_model} @ {settings.llm_base_url}")
     print(f"[DBAgent] OneDBA: {settings.onedba_base_url}")
     print(f"[DBAgent] KB: {'enabled' if settings.kb_enabled else 'disabled'} (provider=openviking, url={settings.kb_openviking_url}, auto_commit={settings.kb_auto_commit_turns}turns)")
+    print(f"[DBAgent] Storage backend: {settings.storage_backend}")
+
+    # 初始化存储（创建数据库表和索引）
+    store = get_store()
+    await store.initialize()
 
     yield
 
     # 关闭时
     print("[DBAgent] Shutting down")
+    await store.close()
     from app.client.onedba import get_onedba_client
     await get_onedba_client().close()
 
