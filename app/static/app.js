@@ -667,8 +667,94 @@ function addStep(step, state) {
     runSteps.appendChild(item);
   }
 
-  item.innerHTML = `<strong>${escapeHtml(step)}</strong><span>${escapeHtml(status)}</span>`;
+  const label = status === "running" ? `${escapeHtml(step)}` : `${escapeHtml(step)}`;
+  item.innerHTML = `<strong>${label}</strong><span>${escapeHtml(status)}</span>`;
   item.className = `step ${status}`;
+
+  // 动态渲染到聊天区域
+  updateStreamingMessage(step, state);
+}
+
+// ── 流式消息渲染 ──────────────────────────────────────────────
+
+let streamingMessage = null;   // 当前流式消息的 DOM 元素
+let streamingText = "";        // 累积的思考文本
+let streamingSteps = [];       // 累积的步骤信息
+
+function updateStreamingMessage(step, state) {
+  const status = state?.status || "running";
+  const text = state?.text || "";
+
+  // 累积思考文本
+  if (step === "thinking" && text) {
+    streamingText += text;
+  }
+
+  // 记录工具步骤
+  const existing = streamingSteps.find((s) => s.step === step);
+  if (existing) {
+    existing.status = status;
+  } else {
+    streamingSteps.push({ step, status, text });
+  }
+
+  // 创建或更新流式消息气泡
+  if (!streamingMessage) {
+    streamingMessage = createStreamingBubble();
+  }
+
+  // 渲染当前累积内容
+  let html = "";
+  if (streamingText) {
+    html += renderMarkdown(streamingText);
+  }
+  if (streamingSteps.length) {
+    html += "<div class=\"streaming-steps\">";
+    streamingSteps.forEach((s) => {
+      const icon = s.status === "running" ? "⏳" : s.status === "completed" ? "✅" : "❌";
+      const label = s.step === "thinking" ? "思考中" : s.step.replace("tool:", "");
+      html += `<div class="streaming-step ${s.status}"><span>${icon} ${escapeHtml(label)}</span></div>`;
+    });
+    html += "</div>";
+  }
+
+  const body = streamingMessage.querySelector(".content");
+  if (body) body.innerHTML = html;
+
+  messages.scrollTop = messages.scrollHeight;
+}
+
+function createStreamingBubble() {
+  const article = document.createElement("article");
+  article.className = "message assistant streaming";
+
+  const avatar = document.createElement("div");
+  avatar.className = "avatar";
+  avatar.textContent = "A";
+
+  const bubble = document.createElement("div");
+  bubble.className = "bubble";
+
+  const meta = document.createElement("div");
+  meta.className = "meta";
+  meta.textContent = "DBAgent";
+
+  const body = document.createElement("div");
+  body.className = "content";
+
+  bubble.append(meta, body);
+  article.append(avatar, bubble);
+  messages.appendChild(article);
+  return article;
+}
+
+function finalizeStreamingMessage() {
+  if (streamingMessage) {
+    streamingMessage.remove();
+    streamingMessage = null;
+    streamingText = "";
+    streamingSteps = [];
+  }
 }
 
 function parseSseChunk(buffer, onEvent) {
@@ -715,7 +801,7 @@ async function sendMessage(message) {
       buffer += decoder.decode(value, { stream: true });
       buffer = parseSseChunk(buffer, (event) => {
         if (event.type === "step") {
-          addStep(event.step, {status: event.status});
+          addStep(event.step, {status: event.status, text: event.text || ""});
         }
         if (event.type === "sql") {
           console.log('[SQL Event]', event.sql);
@@ -725,6 +811,9 @@ async function sendMessage(message) {
       });
     }
     if (finalPayload) {
+      // 清除流式消息
+      finalizeStreamingMessage();
+
       // 渲染执行摘要
       const stats = finalPayload.stats || {};
       const toolCount = (finalPayload.tool_calls || []).length;

@@ -582,6 +582,8 @@ class TestSessionStoreKbPersistence:
 
     def setup_method(self):
         """每个测试前清空 SESSION_STORE"""
+        from app.memory.store import reset_store
+        reset_store()
         SESSION_STORE.clear()
 
     def test_new_session_has_default_kb_fields(self):

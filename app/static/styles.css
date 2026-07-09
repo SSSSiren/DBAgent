@@ -717,3 +717,46 @@ textarea:focus {
     justify-content: flex-end;
   }
 }
+
+/* ── 流式消息 ─────────────────────────────────────────────── */
+
+.message.streaming .bubble {
+  border-left: 3px solid var(--accent);
+  animation: pulse-border 1.5s ease-in-out infinite;
+}
+
+@keyframes pulse-border {
+  0%, 100% { border-color: var(--accent); }
+  50% { border-color: #93c5fd; }
+}
+
+.streaming-steps {
+  margin-top: 0.5rem;
+  font-size: 0.82rem;
+  color: var(--muted);
+}
+
+.streaming-step {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  padding: 0.2rem 0;
+}
+
+.streaming-step.running {
+  color: var(--accent);
+}
+
+.streaming-step.completed {
+  color: var(--ok);
+}
+
+.streaming-step.error {
+  color: var(--err);
+}
+
+.streaming-step span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}

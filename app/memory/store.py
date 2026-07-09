@@ -476,9 +476,9 @@ def get_store() -> StorageBackend:
 
 
 def reset_store() -> None:
-    """重置全局存储实例（仅用于测试）"""
+    """重置全局存储实例（仅用于测试）。总是使用 InMemoryStore 确保测试隔离。"""
     global _store
-    _store = None
+    _store = InMemoryStore()
 
 
 # ============================================================================
