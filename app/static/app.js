@@ -245,7 +245,7 @@ function switchSession(sessionId) {
   copySqlStatus.textContent = "";
   setConfirmationMode(false);
 
-  refreshSession();
+  refreshSession(true);
   listSessions();
 }
 
@@ -349,7 +349,7 @@ function formatRelativeTime(isoStr) {
 /**
  * 刷新当前会话信息（从服务端获取最新状态）。
  */
-async function refreshSession() {
+async function refreshSession(renderHistory = false) {
   const id = activeSessionId;
   if (!id) return;
   try {
@@ -367,9 +367,24 @@ async function refreshSession() {
     sessionStatus.textContent = `${selected}${data.needs_confirmation ? "，等待确认" : ""}`;
     updateLatestSql(data.latest_sql);
     setConfirmationMode(Boolean(data.needs_confirmation));
+
+    if (renderHistory && data.chat_history && data.chat_history.length) {
+      renderChatHistory(data.chat_history);
+    }
   } catch {
     sessionStatus.textContent = "会话状态读取失败";
   }
+}
+
+/**
+ * 将会话历史渲染到消息区域。
+ */
+function renderChatHistory(chatHistory) {
+  chatHistory.forEach((entry) => {
+    const role = entry.role;
+    const content = entry.content || "";
+    appendMessage(role, content, []);
+  });
 }
 
 /**
@@ -382,7 +397,7 @@ function initSession() {
   }
   listSessions();
   if (activeSessionId) {
-    refreshSession();
+    refreshSession(true);
   }
 }
 
