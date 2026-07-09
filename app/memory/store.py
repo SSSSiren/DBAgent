@@ -152,9 +152,12 @@ class InMemoryStore:
         如果会话已存在，覆盖写入（幂等操作）。
         """
         now = datetime.datetime.now().isoformat()
+        # 深拷贝 chat_history，避免多会话共享同一个可变列表
+        chat_history = list(state.get("chat_history", []))
         with self._lock:
             self._store[(user_id, session_id)] = {
                 **state,
+                "chat_history": chat_history,
                 "session_id": session_id,
                 "user_id": user_id,
                 "created_at": state.get("created_at", now),
@@ -531,6 +534,7 @@ def get_session(session_id: str, user_id: str = "default") -> dict[str, Any]:
                 "session_id": session_id,
                 "user_id": user_id,
                 **DEFAULT_SESSION,
+                "chat_history": [],  # 每个会话独立的 chat_history
             }
             _run_async(store.create_session(user_id, session_id, new_state))
             return new_state
@@ -561,6 +565,7 @@ def save_session(session_id: str, state: dict[str, Any], user_id: str = "default
     merged = {
         **DEFAULT_SESSION,
         **state,
+        "chat_history": list(state.get("chat_history", [])),  # 每个会话独立的 chat_history
         "session_id": session_id,
         "user_id": user_id,
     }
