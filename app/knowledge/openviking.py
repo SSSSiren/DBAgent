@@ -98,3 +98,51 @@ class OpenVikingClient:
             session_id, task_id, self._user_id,
         )
         return task_id
+
+    # ── 记忆检索 ──
+
+    async def retrieve_memories(self) -> list[dict[str, str]]:
+        """
+        检索用户的所有长期记忆。
+
+        遍历 viking://user/{user_id}/memories/ 下的子目录，
+        读取每个记忆文件的 abstract 字段。
+
+        Returns:
+            记忆列表，每项包含 category、abstract、content
+        """
+        memory_categories = [
+            "experiences", "events", "entities",
+            "preferences", "tools", "skills", "trajectories",
+        ]
+        all_memories: list[dict[str, str]] = []
+
+        for category in memory_categories:
+            try:
+                uri = f"viking://user/{self._user_id}/memories/{category}"
+                entries = await self._post("/api/v1/fs/ls", {"uri": uri})
+                entries = entries if isinstance(entries, list) else entries.get("result", [])
+            except Exception:
+                continue
+
+            for entry in entries:
+                if entry.get("isDir", False):
+                    continue
+                uri = entry.get("uri", "")
+                try:
+                    detail = await self._post("/api/v1/fs/read", {"uri": uri})
+                    abstract = detail.get("abstract", "") if isinstance(detail, dict) else ""
+                    if abstract:
+                        all_memories.append({
+                            "category": category,
+                            "abstract": abstract,
+                            "name": entry.get("name", ""),
+                        })
+                except Exception:
+                    continue
+
+        log.info(
+            "OpenViking retrieve: user=%s memories=%d",
+            self._user_id, len(all_memories),
+        )
+        return all_memories

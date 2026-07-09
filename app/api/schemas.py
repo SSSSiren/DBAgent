@@ -31,6 +31,7 @@ class SessionState(BaseModel):
     selected_schema_id: Optional[int] = Field(default=None, description="已选数据库 schema ID")
     selected_database: Optional[dict[str, Any]] = Field(default=None, description="已选数据库详情")
     latest_sql: str = Field(default="", description="最近生成的 SQL 语句")
+    memory_count: int = Field(default=0, description="长期记忆条数")
 
 
 class HealthResponse(BaseModel):

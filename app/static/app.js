@@ -12,6 +12,7 @@ const messageInput = document.querySelector("#messageInput");
 const sendBtn = document.querySelector("#sendBtn");
 const confirmBtn = document.querySelector("#confirmBtn");
 const connectionBadge = document.querySelector("#connectionBadge");
+const memoryBadge = document.querySelector("#memoryBadge");
 const latestSql = document.querySelector("#latestSql");
 const copySqlBtn = document.querySelector("#copySqlBtn");
 const copySqlStatus = document.querySelector("#copySqlStatus");
@@ -366,6 +367,7 @@ async function refreshSession(renderHistory = false) {
       : "";
     sessionStatus.textContent = `${selected}${data.needs_confirmation ? "，等待确认" : ""}`;
     updateLatestSql(data.latest_sql);
+    updateMemoryBadge(data.memory_count || 0);
     setConfirmationMode(Boolean(data.needs_confirmation));
 
     if (renderHistory && data.chat_history && data.chat_history.length) {
@@ -404,6 +406,13 @@ function initSession() {
 function setBadge(text, mode = "") {
   connectionBadge.textContent = text;
   connectionBadge.className = `badge ${mode}`.trim();
+}
+
+function updateMemoryBadge(count) {
+  if (memoryBadge) {
+    memoryBadge.textContent = count > 0 ? `🧠 ${count}` : "🧠 --";
+    memoryBadge.title = count > 0 ? `已加载 ${count} 条长期记忆` : "无长期记忆";
+  }
 }
 
 function setConfirmationMode(needsConfirmation) {
@@ -728,6 +737,7 @@ async function sendMessage(message) {
         finalPayload.latest_sql || latestSqlFromToolCalls(finalPayload.tool_calls) || sqlFromReply(finalPayload.reply)
       );
       setBadge(finalPayload.needs_confirmation ? "等待确认" : "就绪", finalPayload.needs_confirmation ? "busy" : "");
+      updateMemoryBadge(finalPayload.memory_count || 0);
       setConfirmationMode(Boolean(finalPayload.needs_confirmation));
     } else {
       throw new Error("没有收到 final 事件");

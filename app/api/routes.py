@@ -134,6 +134,27 @@ async def _execute_agent_stream(
         initial_state: 会话状态字典
         user_id: 用户标识（用于存储层的用户命名空间隔离）
     """
+    # ── 检索长期记忆 ──
+    from app.config import get_settings as _get_kb_settings
+    _kb_settings = _get_kb_settings()
+    memories: list[dict[str, str]] = []
+    memory_count = 0
+    if _kb_settings.kb_enabled:
+        try:
+            from app.knowledge.openviking import OpenVikingClient
+            kb = OpenVikingClient(_kb_settings.kb_openviking_url, user_id)
+            await kb.start()
+            memories = await kb.retrieve_memories()
+            memory_count = len(memories)
+            await kb.close()
+        except Exception as e:
+            print(f"[KB] 记忆检索失败: {e}")
+
+    if memories:
+        # 将记忆注入到会话状态，供 build_context 使用
+        initial_state["_memories"] = memories
+        initial_state["_memory_count"] = memory_count
+
     final_payload = None
     latest_sql = ""  # 收集本次对话中最后生成的 SQL
 
@@ -188,6 +209,7 @@ async def _execute_agent_stream(
         "tool_calls": final_payload["tool_calls"],
         "stats": final_payload.get("stats", {}),
         "latest_sql": latest_sql,
+        "memory_count": memory_count,
     }
 
 
@@ -384,6 +406,7 @@ async def get_session_info(session_id: str, user_id: str = Query(...)) -> Sessio
         selected_schema_id=session.get("selected_schema_id"),
         selected_database=session.get("selected_database"),
         latest_sql=session.get("latest_sql", ""),
+        memory_count=session.get("_memory_count", 0),
     )
 
 

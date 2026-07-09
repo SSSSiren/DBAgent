@@ -58,6 +58,14 @@ def build_context(session_state: dict[str, Any]) -> str:
             f"当前选择的数据库: {schema_name} (schema_id={selected_schema_id})"
         )
 
+    # 4. 长期记忆（来自 OpenViking）
+    memories = session_state.get("_memories", [])
+    if memories:
+        memory_lines = ["[长期记忆 — 来自之前的对话]"]
+        for m in memories[:10]:  # 最多注入 10 条记忆，避免 prompt 过长
+            memory_lines.append(f"- {m['abstract']}")
+        context_parts.append("\n".join(memory_lines))
+
     return "\n\n".join(context_parts) if context_parts else ""
 
 
