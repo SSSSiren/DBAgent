@@ -61,6 +61,17 @@ class OpenVikingClient:
             return data["result"]
         return data
 
+    async def _get(self, path: str, params: dict = None) -> dict:
+        """GET 请求，自动解包 result 字段"""
+        if self._client is None:
+            await self.start()
+        resp = await self._client.get(path, params=params or {})
+        resp.raise_for_status()
+        data = resp.json()
+        if isinstance(data, dict) and data.get("status") == "ok" and "result" in data:
+            return data["result"]
+        return data
+
     # ── 会话管理 ──
 
     async def create_session(self) -> str:
@@ -122,7 +133,7 @@ class OpenVikingClient:
             for category in memory_categories:
                 try:
                     uri = f"viking://user/{self._user_id}/{base_path}/{category}"
-                    entries = await self._post("/api/v1/fs/ls", {"uri": uri})
+                    entries = await self._get("/api/v1/fs/ls", {"uri": uri})
                     entries = entries if isinstance(entries, list) else entries.get("result", [])
                 except Exception as e:
                     log.debug("OpenViking fs/ls %s failed: %s", category, e)
@@ -133,7 +144,7 @@ class OpenVikingClient:
                         continue
                     file_uri = entry.get("uri", "")
                     try:
-                        detail = await self._post("/api/v1/fs/read", {"uri": file_uri})
+                        detail = await self._get("/api/v1/fs/read", {"uri": file_uri})
                         abstract = detail.get("abstract", "") if isinstance(detail, dict) else ""
                         if abstract:
                             all_memories.append({
@@ -149,14 +160,14 @@ class OpenVikingClient:
             if not all_memories:
                 try:
                     uri = f"viking://user/{self._user_id}/{base_path}"
-                    entries = await self._post("/api/v1/fs/ls", {"uri": uri})
+                    entries = await self._get("/api/v1/fs/ls", {"uri": uri})
                     entries = entries if isinstance(entries, list) else entries.get("result", [])
                     for entry in entries:
                         if entry.get("isDir", False):
                             continue
                         file_uri = entry.get("uri", "")
                         try:
-                            detail = await self._post("/api/v1/fs/read", {"uri": file_uri})
+                            detail = await self._get("/api/v1/fs/read", {"uri": file_uri})
                             abstract = detail.get("abstract", "") if isinstance(detail, dict) else ""
                             if abstract:
                                 all_memories.append({

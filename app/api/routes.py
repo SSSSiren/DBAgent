@@ -146,7 +146,7 @@ async def _execute_agent_stream(
             await kb.start()
             # 先列根目录确认用户路径存在
             try:
-                root = await kb._post("/api/v1/fs/ls", {"uri": f"viking://user/{user_id}"})
+                root = await kb._get("/api/v1/fs/ls", {"uri": f"viking://user/{user_id}"})
                 entries = root if isinstance(root, list) else root.get("result", [])
                 names = [e.get("name", "?") for e in entries]
                 print(f"[KB] 用户根目录: viking://user/{user_id} -> {names}")
