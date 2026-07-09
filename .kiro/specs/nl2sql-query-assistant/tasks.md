@@ -110,7 +110,7 @@
   - _Boundary: SqliteStore, InMemoryStore_
   - _Depends: 1.2, 1.3_
 
-- [ ] 5.2 (P) 会话 API 集成测试
+- [x] 5.2 (P) 会话 API 集成测试
   - 使用 `TestClient` 测试完整会话生命周期：创建 → 列表（验证存在）→ 获取详情 → 删除 → 列表（验证不存在）
   - 测试 `user_id` 为空时返回 400
   - 测试访问不存在的会话返回 404
@@ -120,7 +120,7 @@
   - _Boundary: SessionAPI_
   - _Depends: 2.1, 2.2_
 
-- [ ] 5.3 (P) 多用户隔离端到端测试
+- [x] 5.3 (P) 多用户隔离端到端测试
   - 模拟两个不同 `user_id` 各自创建会话并发送查询消息
   - 验证用户 A 的会话列表不包含用户 B 的会话
   - 验证用户 A 无法通过直接指定 session_id 访问用户 B 的会话数据
@@ -130,7 +130,7 @@
   - _Boundary: SessionAPI, StorageBackend_
   - _Depends: 4.1_
 
-- [ ] 5.4 已有功能回归验证
+- [x] 5.4 已有功能回归验证
   - 运行现有 `tests/test_nl2sql.py` 确认 NL2SQL 生成和校验逻辑不受影响
   - 运行现有 `tests/test_knowledge_memory.py` 确认 OpenViking 集成不受影响
   - 手动验证 SSE 流式响应和 WebSocket 端点正常工作
