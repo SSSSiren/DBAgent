@@ -148,7 +148,7 @@ async def _execute_agent_stream(
             try:
                 root = await kb._get("/api/v1/fs/ls", {"uri": f"viking://user/{user_id}"})
                 entries = root if isinstance(root, list) else root.get("result", [])
-                names = [e.get("name", "?") for e in entries]
+                names = [e.get("uri", e.get("name", "?")) for e in entries]
                 print(f"[KB] 用户根目录: viking://user/{user_id} -> {names}")
             except Exception as re:
                 print(f"[KB] 根目录读取失败: {re}")

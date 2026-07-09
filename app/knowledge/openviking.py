@@ -130,13 +130,16 @@ class OpenVikingClient:
 
         # 先尝试 memories 路径，再回退到 peers
         for base_path in ("memories", "peers"):
+            print(f"[KB] retrieve: trying base_path={base_path}")
             for category in memory_categories:
                 try:
                     uri = f"viking://user/{self._user_id}/{base_path}/{category}"
                     entries = await self._get("/api/v1/fs/ls", {"uri": uri})
                     entries = entries if isinstance(entries, list) else entries.get("result", [])
+                    if entries:
+                        print(f"[KB] retrieve: {base_path}/{category} -> {len(entries)} entries")
                 except Exception as e:
-                    log.debug("OpenViking fs/ls %s failed: %s", category, e)
+                    print(f"[KB] retrieve: {base_path}/{category} failed: {e}")
                     entries = []
 
                 for entry in entries:
@@ -152,8 +155,9 @@ class OpenVikingClient:
                                 "abstract": abstract,
                                 "name": entry.get("name", ""),
                             })
+                            print(f"[KB] retrieve: +memory [{category}] {abstract[:80]}")
                     except Exception as e:
-                        log.debug("OpenViking fs/read %s failed: %s", file_uri, e)
+                        print(f"[KB] retrieve: fs/read {file_uri} failed: {e}")
                         continue
 
             # 回退：尝试平铺目录（文件直接在 base_path 下，无子分类）
@@ -162,8 +166,10 @@ class OpenVikingClient:
                     uri = f"viking://user/{self._user_id}/{base_path}"
                     entries = await self._get("/api/v1/fs/ls", {"uri": uri})
                     entries = entries if isinstance(entries, list) else entries.get("result", [])
+                    print(f"[KB] retrieve: flat {base_path} -> {len(entries)} entries")
                     for entry in entries:
                         if entry.get("isDir", False):
+                            print(f"[KB] retrieve:   skip dir: {entry.get('uri','?')}")
                             continue
                         file_uri = entry.get("uri", "")
                         try:
@@ -175,10 +181,11 @@ class OpenVikingClient:
                                     "abstract": abstract,
                                     "name": entry.get("name", ""),
                                 })
+                                print(f"[KB] retrieve: +memory [{base_path}] {abstract[:80]}")
                         except Exception:
                             continue
-                except Exception:
-                    pass
+                except Exception as e:
+                    print(f"[KB] retrieve: flat {base_path} failed: {e}")
 
             if all_memories:
                 log.info("OpenViking retrieve: user=%s path=%s memories=%d",
