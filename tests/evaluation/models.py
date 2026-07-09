@@ -125,6 +125,8 @@ class EvaluationReport(BaseModel):
     """顶层评测报告"""
     generated_at: datetime = Field(default_factory=datetime.now)
     schema_id: int = Field(description="测试数据库 schemaId")
+    llm_model: str = Field(default="", description="使用的 LLM 模型")
+    llm_base_url: str = Field(default="", description="LLM API 地址")
     total_cases: int = Field(default=0)
     passed_cases: int = Field(default=0)
     failed_cases: int = Field(default=0)

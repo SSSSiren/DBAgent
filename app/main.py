@@ -27,14 +27,15 @@ async def lifespan(app: FastAPI):
     """应用生命周期管理"""
     # 启动时
     settings = get_settings()
-    print(f"[SDK-DBAgent] Starting on {settings.host}:{settings.port}")
-    print(f"[SDK-DBAgent] LLM: {settings.llm_model} @ {settings.llm_base_url}")
-    print(f"[SDK-DBAgent] OneDBA: {settings.onedba_base_url}")
+    print(f"[DBAgent] Starting on {settings.host}:{settings.port}")
+    print(f"[DBAgent] LLM: {settings.llm_model} @ {settings.llm_base_url}")
+    print(f"[DBAgent] OneDBA: {settings.onedba_base_url}")
+    print(f"[DBAgent] KB: {'enabled' if settings.kb_enabled else 'disabled'} (provider=openviking, url={settings.kb_openviking_url}, auto_commit={settings.kb_auto_commit_turns}turns)")
 
     yield
 
     # 关闭时
-    print("[SDK-DBAgent] Shutting down")
+    print("[DBAgent] Shutting down")
     from app.client.onedba import get_onedba_client
     await get_onedba_client().close()
 
@@ -44,8 +45,8 @@ def create_app() -> FastAPI:
     settings = get_settings()
 
     app = FastAPI(
-        title="SDK-DBAgent",
-        description="基于 claude-agent-sdk 的 NL2SQL 智能数据库助手",
+        title="DBAgent",
+        description="基于 OpenAI 兼容 API 的 ReAct NL2SQL 智能数据库助手",
         version="0.1.0",
         lifespan=lifespan,
     )
@@ -70,10 +71,9 @@ def create_app() -> FastAPI:
     # 健康检查
     @app.get("/health", response_model=HealthResponse)
     async def health():
-        from app.agent.runner import _is_sdk_available
         return HealthResponse(
             status="ok",
-            sdk_available=_is_sdk_available(),
+            engine="openai-fallback",
         )
 
     # 首页
@@ -82,7 +82,7 @@ def create_app() -> FastAPI:
         index_path = os.path.join(os.path.dirname(__file__), "static", "index.html")
         if os.path.isfile(index_path):
             return FileResponse(index_path)
-        return HTMLResponse("<h1>SDK-DBAgent</h1><p>静态文件未找到，请检查 app/static/ 目录。</p>")
+        return HTMLResponse("<h1>DBAgent</h1><p>静态文件未找到，请检查 app/static/ 目录。</p>")
 
     return app
 

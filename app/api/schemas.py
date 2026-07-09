@@ -12,6 +12,7 @@ from pydantic import BaseModel, Field
 class ChatRequest(BaseModel):
     """聊天请求"""
     session_id: str = Field(default="default", description="会话 ID")
+    user_id: str = Field(default="default", description="用户标识（用于多用户记忆隔离）")
     message: str = Field(..., description="用户消息")
 
 
@@ -34,4 +35,4 @@ class SessionState(BaseModel):
 class HealthResponse(BaseModel):
     """健康检查响应"""
     status: str = "ok"
-    sdk_available: bool = False
+    engine: str = "openai-fallback"

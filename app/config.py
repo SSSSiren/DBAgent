@@ -14,8 +14,8 @@ class Settings(BaseSettings):
 
     # ========== LLM ==========
     llm_api_key: str = ""
-    llm_base_url: str = "https://api.deepseek.com/v1"
-    llm_model: str = "deepseek-chat"
+    llm_base_url: str = "https://dwai-data.dewu-inc.com/openai/v1"
+    llm_model: str = "deepseek-v4-flash-260425"
 
     # ========== OneDBA ==========
     onedba_base_url: str = "https://onedba.shizhuang-inc.com"
@@ -26,7 +26,7 @@ class Settings(BaseSettings):
     langfuse_public_key: str = ""
     langfuse_secret_key: str = ""
     langfuse_host: str = "https://cloud.langfuse.com"
-    langfuse_trace_prefix: str = "SDK-DBAgent"
+    langfuse_trace_prefix: str = "DBAgent"
 
     # ========== 语义规则 ==========
     semantic_provider: str = "auto"
@@ -40,6 +40,11 @@ class Settings(BaseSettings):
     host: str = "0.0.0.0"
     port: int = 8000
     debug: bool = False
+
+    # ========== OpenViking 对话记忆（可选）==========
+    kb_enabled: bool = False
+    kb_openviking_url: str = "http://localhost:1933"
+    kb_auto_commit_turns: int = 10
 
     model_config = SettingsConfigDict(
         env_file=".env",

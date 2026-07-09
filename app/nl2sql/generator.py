@@ -53,15 +53,22 @@ def _extract_json_object(content: str) -> dict[str, Any]:
     return {}
 
 
+_llm_client: Optional[AsyncOpenAI] = None
+
+
 def _get_llm_client() -> Optional[AsyncOpenAI]:
-    """获取 LLM 客户端"""
+    """获取 LLM 客户端（模块级懒加载单例，复用 HTTP 连接池）"""
+    global _llm_client
+    if _llm_client is not None:
+        return _llm_client
     settings = get_settings()
     if not settings.llm_api_key:
         return None
-    return AsyncOpenAI(
+    _llm_client = AsyncOpenAI(
         api_key=settings.llm_api_key,
         base_url=settings.llm_base_url,
     )
+    return _llm_client
 
 
 def _is_llm_configured() -> bool:

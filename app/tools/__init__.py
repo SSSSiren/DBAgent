@@ -100,6 +100,7 @@ TOOLS = [
             "【首选】自然语言查询数据库，根据用户问题自动生成 SQL 并执行。"
             "当用户用自然语言描述查询需求时优先使用此工具，不要自己写 SQL 用 execute_sql 试错。"
             "追问时也使用此工具，在 question 参数中包含完整需求。"
+            "涉及多表 JOIN 时，table_name 用逗号分隔传入所有表名（如 \"order_record, account\"），工具会自动获取各表结构。"
         ),
         "handler": query_database,
         "parameters": {
@@ -115,7 +116,7 @@ TOOLS = [
                 },
                 "table_name": {
                     "type": "string",
-                    "description": "目标表名",
+                    "description": "目标表名，涉及多表 JOIN 时用逗号分隔（如 \"order_record, account\"），最多 5 个",
                 },
                 "summary": {
                     "type": "string",

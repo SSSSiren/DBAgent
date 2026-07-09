@@ -113,6 +113,8 @@ def _render_markdown(report: EvaluationReport) -> str:
     lines.append("")
     lines.append(f"**生成时间**: {report.generated_at.strftime('%Y-%m-%d %H:%M:%S')}")
     lines.append(f"**测试数据库**: schemaId={report.schema_id}")
+    lines.append(f"**LLM 模型**: {report.llm_model}")
+    lines.append(f"**LLM Base URL**: {report.llm_base_url}")
     lines.append("")
 
     # 总览

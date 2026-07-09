@@ -43,7 +43,7 @@ async def _execute_agent_once(
     question: str,
     session_state: dict[str, Any],
     timeout: float,
-    trace_name: str = "SDK-DBAgent-Chat",
+    trace_name: str = "DBAgent-Chat",
 ) -> _AgentRunOutput:
     """
     执行 Agent 一次，返回原始指标（不做 Judge）。
@@ -334,6 +334,13 @@ def _disable_langfuse() -> None:
     get_settings.cache_clear()
 
 
+def _set_llm_model(model: str) -> None:
+    """覆盖 LLM 模型（用于评测时切换模型）"""
+    os.environ["LLM_MODEL"] = model
+    from app.config import get_settings
+    get_settings.cache_clear()
+
+
 def _create_llm_client() -> AsyncOpenAI | None:
     """创建 LLM 客户端（用于 Tier 3 和 Quality Judge）"""
     settings = get_settings()
@@ -355,6 +362,7 @@ async def run_evaluation(
     use_llm_judge: bool = True,
     use_quality_judge: bool = True,
     keep_langfuse: bool = False,
+    llm_model: str | None = None,
     progress_callback: Any = None,
 ) -> EvaluationReport:
     """
@@ -369,6 +377,7 @@ async def run_evaluation(
         use_llm_judge: 是否启用 Tier 3 LLM 评判
         use_quality_judge: 是否启用回答质量评判
         keep_langfuse: 是否保留 Langfuse trace
+        llm_model: 覆盖 .env 中的 llm_model（如 deepseek-v4-pro）
         progress_callback: 进度回调，签名 callback(case_id, index, total)
 
     Returns:
@@ -377,8 +386,16 @@ async def run_evaluation(
     if not keep_langfuse:
         _disable_langfuse()
 
+    if llm_model:
+        _set_llm_model(llm_model)
+
     onedba_client = get_onedba_client()
     llm_client = _create_llm_client() if (use_llm_judge or use_quality_judge) else None
+
+    # 读取当前生效的 LLM 配置（用于报告）
+    settings = get_settings()
+    effective_llm_model = settings.llm_model
+    effective_llm_base_url = settings.llm_base_url
 
     if concurrency <= 1:
         # 顺序执行
@@ -482,6 +499,8 @@ async def run_evaluation(
 
     return EvaluationReport(
         schema_id=schema_id,
+        llm_model=effective_llm_model,
+        llm_base_url=effective_llm_base_url,
         total_cases=total,
         passed_cases=passed,
         failed_cases=failed,

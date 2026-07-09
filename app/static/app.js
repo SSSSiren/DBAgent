@@ -187,7 +187,7 @@ function appendMessage(role, content, toolCalls = []) {
   bubble.className = "bubble";
   const meta = document.createElement("div");
   meta.className = "meta";
-  meta.textContent = role === "user" ? "你" : "SDK-DBAgent";
+  meta.textContent = role === "user" ? "你" : "DBAgent";
   const body = document.createElement("div");
   body.className = "content";
   body.innerHTML = role === "assistant" ? renderMarkdown(content) : escapeHtml(content);

@@ -61,6 +61,8 @@ def cmd_run(args: argparse.Namespace) -> None:
         print("（已跳过回答质量评判）")
     if args.keep_langfuse:
         print("（保留 Langfuse trace）")
+    if args.llm_model:
+        print(f"（LLM 模型: {args.llm_model}）")
     print()
 
     async def _run() -> None:
@@ -73,6 +75,7 @@ def cmd_run(args: argparse.Namespace) -> None:
             use_llm_judge=not args.no_llm_judge,
             use_quality_judge=not args.no_quality_judge,
             keep_langfuse=args.keep_langfuse,
+            llm_model=args.llm_model,
         )
 
         # 生成报告
@@ -144,6 +147,10 @@ def main() -> None:
     run_parser.add_argument(
         "--keep-langfuse", action="store_true",
         help="保留 Langfuse trace（默认禁用，避免评测数据污染生产 trace）",
+    )
+    run_parser.add_argument(
+        "--llm-model", type=str, default=None,
+        help="指定评测使用的 LLM 模型（覆盖 .env 中的 llm_model，如 deepseek-v4-pro）",
     )
     run_parser.add_argument(
         "--baseline", type=str, default=None,

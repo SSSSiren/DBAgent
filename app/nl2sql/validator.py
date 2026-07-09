@@ -78,44 +78,108 @@ def ensure_limit(sql: str, limit: int, assumptions: list[str]) -> str:
 
 def _referenced_columns(sql: str, table_name: str) -> set[str]:
     """
-    提取 SQL 中引用的列名（仅 SELECT 和 GROUP BY 中的非关键字标识符）。
+    提取 SQL 中可能是字段引用的标识符（排除已知非字段的 SQL 元素）。
 
-    用于验证列名是否存在于表结构中。
+    策略（混合检测）：
+    1. 从 SELECT/GROUP BY/ORDER BY 中提取所有标识符
+    2. 自动检测函数名（后跟 '(' 的）、CAST 类型关键字（AS xxx 后跟 ')' 或 ','）
+    3. 排除 SQL 保留字、AS 别名、表别名
+    4. 剩余 token 作为候选字段引用，由调用方验证是否存在于表结构中
+
+    函数名和 CAST 类型通过正则自动检测，无需枚举；SQL 保留字是有限固定集合。
     """
     normalized = strip_sql(sql)
-    match = re.search(r"SELECT\s+(.*?)\s+FROM\s+", normalized, re.IGNORECASE)
+
+    # 剥离字符串字面量（单引号和双引号），避免 '...' 和 "..." 内的
+    # 标识符（如 DATE_FORMAT 中的 '%Y-%m'）被误提取为字段名。
+    # 必须在所有 token 提取之前执行。
+    _no_strings = re.sub(r"'[^']*'", "''", normalized)
+    _no_strings = re.sub(r'"[^"]*"', '""', _no_strings)
+
+    match = re.search(r"SELECT\s+(.*?)\s+FROM\s+", _no_strings, re.IGNORECASE)
     if not match:
         return set()
 
     select_expression = match.group(1)
 
-    # 提取别名
+    # 提取 AS 别名
     aliases = set(
         re.findall(r"\bAS\s+([A-Za-z_][A-Za-z0-9_]*)", select_expression, re.IGNORECASE)
+    )
+
+    # 提取 FROM 子句中的表别名
+    from_clause = _no_strings[match.end():]
+    table_aliases = set(
+        re.findall(r"\b(?:JOIN\s+)?[A-Za-z_][A-Za-z0-9_]*\s+(?:AS\s+)?([A-Za-z_][A-Za-z0-9_]*)", from_clause, re.IGNORECASE)
     )
 
     # 去除 COUNT(*) 避免 * 被误提取
     select_part = re.sub(r"\bCOUNT\s*\(\s*\*\s*\)", "", select_expression, flags=re.IGNORECASE)
 
-    tokens = set(re.findall(r"\b[A-Za-z_][A-Za-z0-9_]*\b", select_part))
-    tokens.update(
-        re.findall(r"\bGROUP\s+BY\s+([A-Za-z_][A-Za-z0-9_]*)", normalized, re.IGNORECASE)
+    # 提取候选 token
+    candidates = set(re.findall(r"\b[A-Za-z_][A-Za-z0-9_]*\b", select_part))
+    candidates.update(
+        re.findall(r"\bGROUP\s+BY\s+([A-Za-z_][A-Za-z0-9_]*)", _no_strings, re.IGNORECASE)
     )
-    tokens.update(
-        re.findall(r"\bORDER\s+BY\s+([A-Za-z_][A-Za-z0-9_]*)", normalized, re.IGNORECASE)
+    candidates.update(
+        re.findall(r"\bORDER\s+BY\s+([A-Za-z_][A-Za-z0-9_]*)", _no_strings, re.IGNORECASE)
     )
 
-    ignored = {
+    # 自动检测函数名：后跟 '(' 的标识符，如 CAST/DATE_FORMAT/YEAR/COALESCE/...
+    # 统一转为小写，与后续 token.lower() 匹配。
+    function_names = set(
+        name.lower()
+        for name in re.findall(
+            r"\b([A-Za-z_][A-Za-z0-9_]*)\s*\(",
+            _no_strings,
+            re.IGNORECASE,
+        )
+    )
+
+    # 自动检测 CAST 中的类型关键字：AS xxx 后跟 ')' 或 ','，如 CAST(x AS DATE)
+    cast_types = set(
+        name.lower()
+        for name in re.findall(
+            r"\bAS\s+([A-Za-z_][A-Za-z0-9_]*)\s*[\),]",
+            _no_strings,
+            re.IGNORECASE,
+        )
+    )
+
+    # SQL 保留字/关键字（有限固定集合，不会增长）
+    sql_keywords = {
+        # 子句关键字
         "select", "from", "where", "group", "by", "order", "limit",
-        "as", "count", "sum", "avg", "min", "max", "desc", "asc",
-        table_name.lower(),
+        "having", "offset", "union", "all", "any", "some",
+        # 函数关键字
+        "as", "count", "sum", "avg", "min", "max", "distinct",
+        # 排序
+        "desc", "asc",
+        # 逻辑/比较
+        "and", "or", "not", "in", "is", "like", "between", "exists",
+        "regexp", "rlike",
+        # JOIN 关键字
+        "on", "join", "inner", "left", "right", "outer", "cross", "natural",
+        # CASE WHEN
+        "case", "when", "then", "else", "end",
+        # 窗口函数
+        "over", "partition", "rows", "range", "unbounded",
+        "preceding", "following", "current", "row",
+        # 字面量
+        "null", "true", "false", "unknown",
+        # 间隔
+        "interval",
+        "table_name",
     }
 
     return {
         token
-        for token in tokens
-        if token.lower() not in ignored
-        and token not in aliases
+        for token in candidates
+        if token not in aliases
+        and token.lower() not in table_aliases
+        and token.lower() not in sql_keywords
+        and token.lower() not in function_names
+        and token.lower() not in cast_types
         and not token.isdigit()
     }
 
@@ -162,27 +226,36 @@ def validate_sql(
     if not normalized_sql.upper().startswith(("SELECT", "SHOW", "DESCRIBE")):
         errors.append("NL2SQL 只允许 SELECT/SHOW/DESCRIBE")
 
-    # 4. 表名匹配
-    identifier = r"`?[A-Za-z_][A-Za-z0-9_]*`?"
-    table_pattern = rf"\bFROM\s+(?:{identifier}\.)?`?{re.escape(table_name)}`?\b"
-    if normalized_sql.upper().startswith("SELECT") and not re.search(
-        table_pattern, normalized_sql, re.IGNORECASE
-    ):
-        errors.append(f"SQL 只能查询已解析表 {table_name}")
+    # 4. 表名匹配：支持逗号分隔的多表名（如 "order_record, account"）
+    # 检查 SQL 的 FROM/JOIN 子句中是否引用了所有已解析表
+    table_names = [t.strip() for t in table_name.split(",") if t.strip()]
+    for t_name in table_names:
+        identifier = r"`?[A-Za-z_][A-Za-z0-9_]*`?"
+        table_pattern = rf"\b(?:FROM|JOIN)\s+(?:{identifier}\.)?`?{re.escape(t_name)}`?\b"
+        if normalized_sql.upper().startswith("SELECT") and not re.search(
+            table_pattern, normalized_sql, re.IGNORECASE
+        ):
+            errors.append(f"SQL 未引用已解析表 {t_name}")
 
-    # 5. 字段存在性检查（JOIN 查询跳过，因为 validator 只知道主表字段）
-    if not _has_join(normalized_sql):
-        column_names = {column.name for column in columns}
-        normalized_columns = {
-            normalize_identifier_hint(column.name): column.name
-            for column in columns
-        }
-        for column in _referenced_columns(normalized_sql, table_name):
-            # 跳过常见的聚合别名
-            if column in {"cnt", "total"}:
-                continue
-            if normalize_identifier_hint(column) not in normalized_columns:
-                errors.append(f"字段不存在：{column}")
+    # 5. 字段存在性检查
+    # _referenced_columns 返回候选字段引用（已排除函数名、关键字、别名），
+    # 此处验证候选字段是否存在于表结构中。
+    # 多表 DESCRIBE 后 columns 包含所有表的字段，JOIN 查询也能验证。
+    # 构建字段名查找表：同时注册带前缀和裸字段名。
+    # query_database 会给字段名加表前缀（如 order_record.id），
+    # 但 SQL 中引用的是裸字段名（如 id），两者都需要能匹配。
+    normalized_columns: dict[str, str] = {}
+    for column in columns:
+        full_name = column.name
+        bare_name = full_name.split(".")[-1] if "." in full_name else full_name
+        normalized_columns[normalize_identifier_hint(full_name)] = full_name
+        normalized_columns[normalize_identifier_hint(bare_name)] = full_name
+    for column in _referenced_columns(normalized_sql, table_name):
+        # 跳过常见的聚合别名
+        if column in {"cnt", "total"}:
+            continue
+        if normalize_identifier_hint(column) not in normalized_columns:
+            errors.append(f"字段不存在：{column}")
 
     # 6. 写操作检测
     needs_confirmation = _is_write_operation(normalized_sql)

@@ -134,7 +134,7 @@ class LangfuseObserver:
         trace_name: str = "Chat",
     ):
         settings = get_settings()
-        prefix = settings.langfuse_trace_prefix or "SDK-DBAgent"
+        prefix = settings.langfuse_trace_prefix or "DBAgent"
         self.session_id = session_id
         self.user_input = user_input
         self.user_id = user_id
@@ -178,7 +178,7 @@ class LangfuseObserver:
             )
             # session_id/user_id/tags 在 v4.x 通过 update kwargs 传入
             update_kwargs: dict[str, Any] = {
-                "tags": ["sdk-dbagent", "nl2sql"],
+                "tags": ["dbagent", "nl2sql"],
             }
             if self.session_id:
                 update_kwargs["session_id"] = self.session_id
