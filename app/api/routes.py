@@ -144,7 +144,14 @@ async def _execute_agent_stream(
             from app.knowledge.openviking import OpenVikingClient
             kb = OpenVikingClient(_kb_settings.kb_openviking_url, user_id)
             await kb.start()
-            print(f"[KB] 开始检索记忆: user={user_id} url={_kb_settings.kb_openviking_url}")
+            # 先列根目录确认用户路径存在
+            try:
+                root = await kb._post("/api/v1/fs/ls", {"uri": f"viking://user/{user_id}"})
+                entries = root if isinstance(root, list) else root.get("result", [])
+                names = [e.get("name", "?") for e in entries]
+                print(f"[KB] 用户根目录: viking://user/{user_id} -> {names}")
+            except Exception as re:
+                print(f"[KB] 根目录读取失败: {re}")
             memories = await kb.retrieve_memories()
             memory_count = len(memories)
             await kb.close()
