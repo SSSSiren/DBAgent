@@ -65,6 +65,7 @@ def build_context(session_state: dict[str, Any]) -> str:
         for m in memories[:10]:  # 最多注入 10 条记忆，避免 prompt 过长
             memory_lines.append(f"- {m['abstract']}")
         context_parts.append("\n".join(memory_lines))
+        print(f"[KB] build_context: 注入 {len(memories[:10])} 条长期记忆到提示词")
 
     return "\n\n".join(context_parts) if context_parts else ""
 
