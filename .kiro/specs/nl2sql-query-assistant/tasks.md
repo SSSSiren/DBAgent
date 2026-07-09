@@ -92,7 +92,7 @@
   - _Requirements: 2.5, 6.3_
   - _Depends: 1.2, 1.3_
 
-- [ ] 4.2 更新 Agent Runner 传递 user_id 到观测层
+- [x] 4.2 更新 Agent Runner 传递 user_id 到观测层
   - 在 `run_agent_stream()` 中将 `session_state.get("user_id", "")` 传递给 `LangfuseObserver` 构造函数
   - Langfuse trace 中正确标记 `user_id`，便于按用户筛选追踪数据
   - _Requirements: 1.3_

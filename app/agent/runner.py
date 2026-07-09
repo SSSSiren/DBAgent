@@ -255,7 +255,10 @@ async def run_agent_stream(
 
     # 0. 创建 Langfuse 观测器
     observer = LangfuseObserver(
-        session_id=session_id, user_input=user_input, trace_name=trace_name
+        session_id=session_id,
+        user_input=user_input,
+        user_id=session_state.get("user_id", ""),
+        trace_name=trace_name,
     )
     observer.start_trace()
 
