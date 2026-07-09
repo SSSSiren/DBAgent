@@ -231,6 +231,206 @@ class InMemoryStore:
 
 
 # ============================================================================
+# SqliteStore — SQLite 持久化存储实现
+# ============================================================================
+
+class SqliteStore:
+    """
+    SQLite 持久化会话存储，实现 StorageBackend 协议。
+
+    将会话数据持久化到 SQLite 数据库文件（或 :memory: 用于测试）。
+    使用 WAL 模式支持并发读写，复合主键 (user_id, session_id) 确保用户隔离。
+
+    数据库文件路径通过 Settings.storage_file_path 配置，默认为 data/sessions.db。
+    """
+
+    def __init__(self, db_path: str = "data/sessions.db") -> None:
+        self._db_path = db_path
+        self._conn: Any = None
+
+    # ── StorageBackend 协议方法 ───────────────────────────────
+
+    async def initialize(self) -> None:
+        """
+        初始化存储：连接数据库、启用 WAL 模式、创建表和索引。
+
+        幂等操作 — 多次调用不会重复创建表。
+        """
+        import aiosqlite
+
+        self._conn = await aiosqlite.connect(self._db_path)
+        self._conn.row_factory = aiosqlite.Row
+
+        # 启用 WAL 模式以支持并发读写
+        await self._conn.execute("PRAGMA journal_mode=WAL;")
+
+        # 创建 sessions 表（复合主键 user_id + session_id）
+        await self._conn.execute("""
+            CREATE TABLE IF NOT EXISTS sessions (
+                user_id TEXT NOT NULL,
+                session_id TEXT NOT NULL,
+                state_json TEXT NOT NULL DEFAULT '{}',
+                summary TEXT DEFAULT '',
+                created_at TEXT NOT NULL DEFAULT (datetime('now')),
+                last_active_at TEXT NOT NULL DEFAULT (datetime('now')),
+                PRIMARY KEY (user_id, session_id)
+            );
+        """)
+
+        # 创建索引
+        await self._conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_sessions_user_id ON sessions(user_id);"
+        )
+        await self._conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_sessions_last_active ON sessions(user_id, last_active_at DESC);"
+        )
+
+        await self._conn.commit()
+
+    async def close(self) -> None:
+        """关闭数据库连接"""
+        if self._conn is not None:
+            await self._conn.close()
+            self._conn = None
+
+    async def create_session(self, user_id: str, session_id: str, state: dict[str, Any]) -> None:
+        """
+        创建新会话并写入初始状态。
+
+        如果会话已存在，覆盖写入（幂等操作）。
+        """
+        import json
+
+        now = datetime.datetime.now().isoformat()
+        state_to_save = {
+            **state,
+            "session_id": session_id,
+            "user_id": user_id,
+            "created_at": state.get("created_at", now),
+            "last_active_at": state.get("last_active_at", now),
+        }
+        summary = state.get("summary", "")
+
+        await self._conn.execute(
+            """
+            INSERT OR REPLACE INTO sessions (user_id, session_id, state_json, summary, created_at, last_active_at)
+            VALUES (?, ?, ?, ?, ?, ?);
+            """,
+            (user_id, session_id, json.dumps(state_to_save, ensure_ascii=False), summary,
+             state_to_save["created_at"], state_to_save["last_active_at"]),
+        )
+        await self._conn.commit()
+
+    async def get_session(self, user_id: str, session_id: str) -> Optional[dict[str, Any]]:
+        """
+        获取会话状态。
+
+        Returns:
+            会话状态字典，不存在时返回 None
+        """
+        import json
+
+        cursor = await self._conn.execute(
+            "SELECT state_json FROM sessions WHERE user_id = ? AND session_id = ?;",
+            (user_id, session_id),
+        )
+        row = await cursor.fetchone()
+        if row is None:
+            return None
+        return json.loads(row["state_json"])
+
+    async def save_session(self, user_id: str, session_id: str, state: dict[str, Any]) -> None:
+        """
+        保存或更新会话状态。
+
+        将会话状态序列化为 JSON 存入 state_json 列，
+        同步更新 summary 和 last_active_at。
+        会话不存在时自动创建。
+        """
+        import json
+
+        now = datetime.datetime.now().isoformat()
+
+        # 保留原有的 created_at（如果存在）
+        existing = await self.get_session(user_id, session_id)
+        created_at = existing.get("created_at", now) if existing else state.get("created_at", now)
+
+        state_to_save = {
+            **state,
+            "session_id": session_id,
+            "user_id": user_id,
+            "created_at": created_at,
+            "last_active_at": now,
+        }
+        summary = state.get("summary", "")
+
+        await self._conn.execute(
+            """
+            INSERT OR REPLACE INTO sessions (user_id, session_id, state_json, summary, created_at, last_active_at)
+            VALUES (?, ?, ?, ?, ?, ?);
+            """,
+            (user_id, session_id, json.dumps(state_to_save, ensure_ascii=False), summary,
+             created_at, now),
+        )
+        await self._conn.commit()
+
+    async def delete_session(self, user_id: str, session_id: str) -> bool:
+        """
+        删除会话。
+
+        Returns:
+            True 表示成功删除，False 表示会话不存在
+        """
+        cursor = await self._conn.execute(
+            "DELETE FROM sessions WHERE user_id = ? AND session_id = ?;",
+            (user_id, session_id),
+        )
+        await self._conn.commit()
+        return cursor.rowcount > 0
+
+    async def list_sessions(self, user_id: str) -> list[dict[str, Any]]:
+        """
+        列出属于该用户的所有会话摘要列表。
+
+        按 last_active_at 降序排列。
+
+        Returns:
+            会话摘要列表，每项包含 session_id、user_id、summary、created_at、
+            last_active_at、message_count
+        """
+        import json
+
+        cursor = await self._conn.execute(
+            """
+            SELECT session_id, state_json, summary, created_at, last_active_at
+            FROM sessions
+            WHERE user_id = ?
+            ORDER BY last_active_at DESC;
+            """,
+            (user_id,),
+        )
+        rows = await cursor.fetchall()
+
+        summaries: list[dict[str, Any]] = []
+        for row in rows:
+            try:
+                state = json.loads(row["state_json"])
+            except (json.JSONDecodeError, TypeError):
+                state = {}
+            chat_history = state.get("chat_history", [])
+            summaries.append({
+                "session_id": row["session_id"],
+                "user_id": user_id,
+                "summary": row["summary"] or "",
+                "created_at": row["created_at"] or "",
+                "last_active_at": row["last_active_at"] or "",
+                "message_count": len(chat_history),
+            })
+
+        return summaries
+
+
+# ============================================================================
 # 工厂函数
 # ============================================================================
 
@@ -258,10 +458,10 @@ def get_store() -> StorageBackend:
     if backend == "memory":
         _store = InMemoryStore()
     elif backend == "sqlite":
-        # 延迟导入，避免 aiosqlite 未安装时崩溃
+        # 延迟导入 aiosqlite，避免未安装时崩溃
         try:
-            from app.memory.sqlite_store import SqliteStore  # type: ignore[import-not-found,unused-ignore]
-            _store = SqliteStore(settings.storage_file_path)  # type: ignore[abstract]
+            import aiosqlite  # noqa: F401
+            _store = SqliteStore(settings.storage_file_path)
         except ImportError:
             print(f"[store] aiosqlite 未安装，降级到 InMemoryStore")
             _store = InMemoryStore()

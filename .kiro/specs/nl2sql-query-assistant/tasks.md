@@ -23,7 +23,7 @@
   - _Requirements: 1.2, 1.3_
   - _Boundary: StorageBackend, InMemoryStore_
 
-- [ ] 1.3 实现 SqliteStore 持久化存储
+- [x] 1.3 实现 SqliteStore 持久化存储
   - 实现 `SqliteStore` 类，遵循 `StorageBackend` 协议
   - `initialize()` 方法创建 `sessions` 表（复合主键 `user_id, session_id`，`state_json` TEXT 列，`summary` TEXT 列，`created_at` 和 `last_active_at` 时间戳列）及两个索引
   - 启用 WAL 模式以支持并发读写
