@@ -12,7 +12,7 @@
   - 重启服务后 `Settings.storage_backend` 可读取且默认值为 `"memory"`
   - _Requirements: 2.5_
 
-- [ ] 1.2 实现 StorageBackend 协议和 InMemoryStore
+- [x] 1.2 实现 StorageBackend 协议和 InMemoryStore
   - 定义 `StorageBackend` 协议，包含 `create_session`、`get_session`、`save_session`、`delete_session`、`list_sessions`、`initialize`、`close` 七个异步方法
   - 所有方法接受 `user_id` 作为第一个参数，实现用户级命名空间隔离
   - `create_session(user_id, session_id, state)` 创建新会话并写入初始状态
