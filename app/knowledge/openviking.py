@@ -131,11 +131,15 @@ class OpenVikingClient:
         """
         检索用户的所有长期记忆。
 
-        fs/ls 返回的条目已包含 abstract 字段，直接读取即可。
+        fs/ls 返回的条目 abstract 可能为空，按优先级回退：
+        1. entry["abstract"]（如果非空）
+        2. 文件名（去掉 .md 后缀）
 
         Returns:
             记忆列表，每项包含 category、abstract、name
         """
+        import os
+
         memory_categories = [
             "experiences", "events", "entities",
             "preferences", "tools", "skills", "trajectories",
@@ -152,15 +156,38 @@ class OpenVikingClient:
                     entries = []
 
                 for entry in entries:
+                    if entry.get("isDir", False):
+                        continue
+                    uri = entry.get("uri", "")
+                    name = entry.get("name", "")
+                    # name 通常为空，从 uri 提取文件名
+                    file_name = name or (uri.rstrip("/").split("/")[-1] if uri else "")
                     abstract = (entry.get("abstract") or "").strip()
-                    if abstract and not entry.get("isDir", False):
+
+                    # 回退1: 尝试 fs/read
+                    if not abstract:
+                        abstract = await self._read_file_abstract(uri)
+
+                    # 回退2: 用文件名（去掉 .md 后缀和时间戳后缀）
+                    if not abstract and file_name:
+                        abstract = file_name.replace(".md", "").rsplit("_", 1)[0]
+
+                    if abstract:
                         all_memories.append({
                             "category": category,
                             "abstract": abstract,
-                            "name": entry.get("name", ""),
+                            "name": file_name,
                         })
 
             if all_memories:
                 break
 
         return all_memories
+
+    async def _read_file_abstract(self, uri: str) -> str:
+        """读取单个文件的 abstract，失败返回空字符串"""
+        try:
+            detail = await self._get_raw("/api/v1/fs/read", uri)
+            return (detail.get("abstract") or "").strip() if isinstance(detail, dict) else ""
+        except Exception:
+            return ""
