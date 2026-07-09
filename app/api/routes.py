@@ -123,11 +123,16 @@ async def _record_to_openviking(
 
 async def _execute_agent_stream(
     initial_state: dict[str, Any],
+    user_id: str = "default",
 ) -> AsyncIterator[tuple[str, dict[str, Any]]]:
     """
     运行 Agent 流，逐步产出事件。
 
     包装 run_agent_stream，在 final 事件中保存会话状态。
+
+    Args:
+        initial_state: 会话状态字典
+        user_id: 用户标识（用于存储层的用户命名空间隔离）
     """
     final_payload = None
 
@@ -163,10 +168,11 @@ async def _execute_agent_stream(
         final_response,
     )
 
-    # 保存会话状态
+    # 保存会话状态（传递 user_id 实现用户命名空间隔离）
     save_session(
         initial_state.get("session_id", ""),
         final_payload["updated_state"],
+        user_id=user_id,
     )
 
     yield "final", {
@@ -199,13 +205,16 @@ async def chat(request: ChatRequest) -> StreamingResponse:
     """
 
     async def event_stream() -> AsyncIterator[str]:
-        # 恢复会话状态
-        session_state = get_session(request.session_id)
+        # 解析 user_id（向后兼容：未提供时使用 "default"）
+        user_id = request.user_id if request.user_id else "default"
+
+        # 恢复会话状态（传递 user_id 实现用户命名空间隔离）
+        session_state = get_session(request.session_id, user_id=user_id)
         session_state["user_input"] = request.message
-        session_state["user_id"] = request.user_id
+        session_state["user_id"] = user_id
 
         # 执行 Agent 流，每个事件通过 SSE 格式化后推送
-        async for event_type, data in _execute_agent_stream(session_state):
+        async for event_type, data in _execute_agent_stream(session_state, user_id=user_id):
             yield sse_event(event_type, data)
 
     return StreamingResponse(
@@ -226,13 +235,16 @@ async def chat_sync(request: ChatRequest) -> ChatResponse:
 
     等待 Agent 完整执行后返回结果。
     """
-    session_state = get_session(request.session_id)
+    # 解析 user_id（向后兼容：未提供时使用 "default"）
+    user_id = request.user_id if request.user_id else "default"
+
+    session_state = get_session(request.session_id, user_id=user_id)
     session_state["user_input"] = request.message
-    session_state["user_id"] = request.user_id
+    session_state["user_id"] = user_id
 
     final_payload: dict[str, Any] = {}
 
-    async for event_type, data in _execute_agent_stream(session_state):
+    async for event_type, data in _execute_agent_stream(session_state, user_id=user_id):
         if event_type == "final":
             final_payload = data
 
@@ -252,6 +264,7 @@ async def websocket_chat(websocket: WebSocket, session_id: str, user_id: str = "
 
     客户端发送文本消息，服务端流式返回 Agent 事件。
     支持 user_id 查询参数：ws://host/api/ws/{session_id}?user_id=alice
+    未提供时默认使用 "default" 保持向后兼容。
     """
     await websocket.accept()
 
@@ -260,13 +273,13 @@ async def websocket_chat(websocket: WebSocket, session_id: str, user_id: str = "
             # 接收用户消息
             message = await websocket.receive_text()
 
-            # 恢复会话
-            session_state = get_session(session_id)
+            # 恢复会话（传递 user_id 实现用户命名空间隔离）
+            session_state = get_session(session_id, user_id=user_id)
             session_state["user_input"] = message
             session_state["user_id"] = user_id
 
             # 流式返回事件
-            async for event_type, data in _execute_agent_stream(session_state):
+            async for event_type, data in _execute_agent_stream(session_state, user_id=user_id):
                 await websocket.send_json({"type": event_type, **data})
 
     except WebSocketDisconnect:

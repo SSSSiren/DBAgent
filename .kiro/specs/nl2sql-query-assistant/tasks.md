@@ -55,7 +55,7 @@
   - _Boundary: SessionAPI_
   - _Depends: 1.1, 1.2, 2.1_
 
-- [ ] 2.3 修改现有聊天端点传递 user_id 到存储层
+- [x] 2.3 修改现有聊天端点传递 user_id 到存储层
   - `POST /api/chat`：将 `ChatRequest.user_id` 传递给 `store.get_session(user_id, session_id)` 和 `store.save_session(user_id, session_id, state)`
   - `POST /api/chat/sync`：同上
   - `WS /api/ws/{session_id}`：将 `user_id` 查询参数传递给 `store.get_session(user_id, session_id)`
