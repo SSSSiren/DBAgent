@@ -99,7 +99,7 @@
   - _Depends: 4.1_
 
 - [ ] 5. 测试与验证
-- [ ] 5.1 (P) 存储后端单元测试
+- [x] 5.1 (P) 存储后端单元测试
   - 使用 `:memory:` SQLite 测试 `SqliteStore` 的 `get_session`、`save_session`、`delete_session`、`list_sessions`
   - 验证多用户隔离：用户 A 的 `get_session` 无法获取用户 B 的会话
   - 验证 `list_sessions` 只返回指定用户的会话
