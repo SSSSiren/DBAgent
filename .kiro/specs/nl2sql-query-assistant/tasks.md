@@ -64,7 +64,7 @@
   - _Depends: 1.2_
 
 - [ ] 3. 前端：用户身份与会话管理
-- [ ] 3.1 添加用户身份输入与持久化
+- [x] 3.1 添加用户身份输入与持久化
   - 在侧边栏顶部添加"用户标识"输入框，页面加载时从 `localStorage` 键 `"vkdbagent.userId"` 恢复
   - 用户修改标识后同步写入 `localStorage` 并刷新会话列表
   - `POST /api/chat` 请求体中包含 `user_id` 字段

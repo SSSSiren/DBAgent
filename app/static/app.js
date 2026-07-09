@@ -1,6 +1,8 @@
 const sessionInput = document.querySelector("#sessionId");
 const newSessionBtn = document.querySelector("#newSessionBtn");
 const sessionStatus = document.querySelector("#sessionStatus");
+const userIdInput = document.querySelector("#userId");
+const userIdStatus = document.querySelector("#userIdStatus");
 const messages = document.querySelector("#messages");
 const runSteps = document.querySelector("#runSteps");
 const form = document.querySelector("#chatForm");
@@ -13,9 +15,45 @@ const copySqlBtn = document.querySelector("#copySqlBtn");
 const copySqlStatus = document.querySelector("#copySqlStatus");
 
 const storageKey = "sdkdbagent.sessionId";
+const userIdStorageKey = "vkdbagent.userId";
 
 function makeSessionId() {
   return `session-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
+}
+
+// ── 用户标识管理 ──────────────────────────────────────────────
+
+/**
+ * 获取当前用户标识。
+ * 优先从 localStorage 恢复，否则使用默认值 ""。
+ */
+function getUserId() {
+  return localStorage.getItem(userIdStorageKey) || "";
+}
+
+/**
+ * 初始化用户标识输入框。
+ * 页面加载时从 localStorage 恢复，用户修改后同步写入。
+ */
+function initUserId() {
+  const existing = getUserId();
+  userIdInput.value = existing;
+  if (existing) {
+    userIdStatus.textContent = "已加载";
+  }
+}
+
+/**
+ * 设置用户标识并同步到 localStorage。
+ * 返回 true 表示值发生了变化。
+ */
+function setUserId(value) {
+  const trimmed = String(value || "").trim();
+  const previous = getUserId();
+  localStorage.setItem(userIdStorageKey, trimmed);
+  userIdInput.value = trimmed;
+  userIdStatus.textContent = trimmed ? "已保存" : "未设置";
+  return trimmed !== previous;
 }
 
 // ── 通用复制工具 ──────────────────────────────────────────────
@@ -357,7 +395,12 @@ async function refreshSession() {
   if (!id) return;
   localStorage.setItem(storageKey, id);
   try {
-    const response = await fetch(`/api/sessions/${encodeURIComponent(id)}`);
+    const userId = getUserId();
+    const params = new URLSearchParams();
+    if (userId) params.set("user_id", userId);
+    const qs = params.toString();
+    const url = `/api/sessions/${encodeURIComponent(id)}${qs ? "?" + qs : ""}`;
+    const response = await fetch(url);
     const data = await response.json();
     const db = data.selected_database || {};
     const selected = data.selected_schema_id
@@ -402,7 +445,7 @@ async function sendMessage(message) {
     const response = await fetch("/api/chat", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ session_id: sessionId, message }),
+      body: JSON.stringify({ session_id: sessionId, user_id: getUserId(), message }),
     });
     if (!response.ok || !response.body) throw new Error(`HTTP ${response.status}`);
 
@@ -482,6 +525,14 @@ newSessionBtn.addEventListener("click", () => {
 
 sessionInput.addEventListener("change", refreshSession);
 
+userIdInput.addEventListener("change", () => {
+  const changed = setUserId(userIdInput.value);
+  userIdStatus.textContent = getUserId() ? "已保存" : "未设置";
+  if (changed) {
+    refreshSession();
+  }
+});
+
 document.querySelectorAll("[data-prompt]").forEach((button) => {
   button.addEventListener("click", () => {
     messageInput.value = button.dataset.prompt || "";
@@ -489,4 +540,5 @@ document.querySelectorAll("[data-prompt]").forEach((button) => {
   });
 });
 
+initUserId();
 initSession();
