@@ -320,6 +320,7 @@ async def create_session(request: SessionCreateRequest) -> SessionCreateResponse
     store = get_store()
     initial_state = {
         **DEFAULT_SESSION,
+        "chat_history": [],  # 每个会话独立的 chat_history
         "session_id": session_id,
         "user_id": user_id,
     }
