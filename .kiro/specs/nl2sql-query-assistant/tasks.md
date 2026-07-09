@@ -45,7 +45,7 @@
   - 所有模型可通过 Pydantic 校验且 JSON 序列化正确
   - _Requirements: 2.1, 2.3, 2.4_
 
-- [ ] 2.2 实现会话 CRUD REST 端点
+- [x] 2.2 实现会话 CRUD REST 端点
   - `POST /api/sessions`：接收 `SessionCreateRequest`，使用 `uuid6.uuid7()` 生成会话 ID，调用 `store.create_session()` 创建会话，返回 `SessionCreateResponse`
   - `GET /api/sessions?user_id=xxx`：校验 `user_id` 非空，调用 `store.list_sessions(user_id)`，返回 `SessionListResponse`
   - `GET /api/sessions/{session_id}?user_id=xxx`：调用 `store.get_session(user_id, session_id)`，不存在返回 404，存在返回 `SessionState`

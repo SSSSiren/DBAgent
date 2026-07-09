@@ -19,12 +19,22 @@ API 路由 — HTTP/WebSocket 接口与会话管理
 import json
 from typing import Any, AsyncIterator
 
-from fastapi import APIRouter, WebSocket, WebSocketDisconnect
+import uuid6
+from fastapi import APIRouter, HTTPException, Query, WebSocket, WebSocketDisconnect
 from fastapi.responses import StreamingResponse
 
 from app.agent.runner import run_agent_stream
-from app.api.schemas import ChatRequest, ChatResponse, SessionState
-from app.memory.store import get_session, save_session
+from app.api.schemas import (
+    ChatRequest,
+    ChatResponse,
+    SessionCreateRequest,
+    SessionCreateResponse,
+    SessionDeleteResponse,
+    SessionListResponse,
+    SessionState,
+    SessionSummary,
+)
+from app.memory.store import DEFAULT_SESSION, get_session, get_store, save_session
 
 # 创建路由器
 router = APIRouter()
@@ -275,18 +285,102 @@ async def websocket_chat(websocket: WebSocket, session_id: str, user_id: str = "
 
 # ========== 会话管理接口 ==========
 
+def _validate_user_id(user_id: str | None) -> str:
+    """校验 user_id 非空，否则抛出 400"""
+    if not user_id:
+        raise HTTPException(status_code=400, detail="user_id is required and must not be empty")
+    return user_id
+
+
+@router.post("/sessions", response_model=SessionCreateResponse)
+async def create_session(request: SessionCreateRequest) -> SessionCreateResponse:
+    """
+    创建新会话。
+
+    使用 uuid6.uuid7() 生成会话 ID，调用 store.create_session() 创建会话。
+    """
+    import datetime
+
+    user_id = _validate_user_id(request.user_id)
+    session_id = str(uuid6.uuid7())
+
+    store = get_store()
+    initial_state = {
+        **DEFAULT_SESSION,
+        "session_id": session_id,
+        "user_id": user_id,
+    }
+    await store.create_session(user_id, session_id, initial_state)
+
+    # 从存储中读取以获取 accurate created_at
+    created_session = await store.get_session(user_id, session_id)
+    created_at = created_session.get("created_at", "") if created_session else datetime.datetime.now().isoformat()
+
+    return SessionCreateResponse(
+        session_id=session_id,
+        user_id=user_id,
+        created_at=created_at,
+    )
+
+
+@router.get("/sessions", response_model=SessionListResponse)
+async def list_sessions(user_id: str = Query(...)) -> SessionListResponse:
+    """
+    列出用户的所有会话。
+
+    必须提供 user_id 查询参数。
+    """
+    _validate_user_id(user_id)
+
+    store = get_store()
+    sessions = await store.list_sessions(user_id)
+
+    return SessionListResponse(
+        sessions=[SessionSummary(**s) for s in sessions],
+        total_count=len(sessions),
+    )
+
+
 @router.get("/sessions/{session_id}", response_model=SessionState)
-async def get_session_info(session_id: str) -> SessionState:
+async def get_session_info(session_id: str, user_id: str = Query(...)) -> SessionState:
     """
     获取会话信息。
 
     返回会话的摘要、已选数据库、对话历史等。
+    需要提供 user_id 查询参数用于用户隔离。
     """
-    session = get_session(session_id)
+    _validate_user_id(user_id)
+
+    store = get_store()
+    session = await store.get_session(user_id, session_id)
+    if session is None:
+        raise HTTPException(status_code=404, detail="Session not found")
+
     return SessionState(
         session_id=session_id,
         chat_history=session.get("chat_history", []),
         summary=session.get("summary", ""),
         selected_schema_id=session.get("selected_schema_id"),
         selected_database=session.get("selected_database"),
+    )
+
+
+@router.delete("/sessions/{session_id}", response_model=SessionDeleteResponse)
+async def delete_session_info(session_id: str, user_id: str = Query(...)) -> SessionDeleteResponse:
+    """
+    删除会话。
+
+    需要提供 user_id 查询参数用于用户隔离。
+    会话不存在时返回 404。
+    """
+    _validate_user_id(user_id)
+
+    store = get_store()
+    deleted = await store.delete_session(user_id, session_id)
+    if not deleted:
+        raise HTTPException(status_code=404, detail="Session not found")
+
+    return SessionDeleteResponse(
+        deleted=True,
+        session_id=session_id,
     )
