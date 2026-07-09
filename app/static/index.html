@@ -25,12 +25,11 @@
           <div id="userIdStatus" class="status-line"></div>
         </section>
 
-        <section class="panel">
+        <section class="panel session-panel">
           <div class="panel-title">会话</div>
-          <label for="sessionId">Session ID</label>
-          <div class="session-row">
-            <input id="sessionId" autocomplete="off" />
-            <button id="newSessionBtn" type="button" title="新会话">新建</button>
+          <button id="newSessionBtn" class="secondary" type="button" style="width:100%;margin-bottom:10px">+ 新建会话</button>
+          <div id="sessionList" class="session-list">
+            <div class="session-list-empty">请先设置用户标识</div>
           </div>
           <div id="sessionStatus" class="status-line">未加载</div>
         </section>

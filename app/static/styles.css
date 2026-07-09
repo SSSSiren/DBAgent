@@ -234,6 +234,159 @@ textarea:focus {
   color: #9fb2b3;
 }
 
+/* ── 会话列表 ────────────────────────────────────────────────── */
+
+.session-list {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  max-height: 260px;
+  overflow-y: auto;
+  margin-bottom: 6px;
+}
+
+.session-list-empty {
+  color: var(--muted);
+  font-size: 13px;
+  text-align: center;
+  padding: 12px 0;
+}
+
+.session-item {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 6px;
+  align-items: center;
+  padding: 8px 10px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: var(--panel);
+  cursor: pointer;
+  transition: border-color 0.15s, background 0.15s;
+  font-size: 13px;
+}
+
+.session-item:hover {
+  border-color: var(--accent);
+  background: rgba(15, 118, 110, 0.04);
+}
+
+.session-item.active {
+  border-color: var(--accent);
+  background: rgba(15, 118, 110, 0.08);
+  font-weight: 600;
+}
+
+.session-item-info {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.session-item-id {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--text);
+}
+
+.session-item.active .session-item-id {
+  color: var(--accent-dark);
+}
+
+.session-item-meta {
+  display: flex;
+  gap: 8px;
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.session-item .delete-btn {
+  width: 26px;
+  height: 26px;
+  min-height: 0;
+  padding: 0;
+  border-radius: 4px;
+  background: transparent;
+  color: var(--muted);
+  border: 1px solid transparent;
+  display: grid;
+  place-items: center;
+  opacity: 0;
+  transition: opacity 0.15s, background 0.15s, color 0.15s;
+  flex-shrink: 0;
+}
+
+.session-item:hover .delete-btn,
+.session-item .delete-btn:focus-visible {
+  opacity: 1;
+}
+
+.session-item .delete-btn:hover {
+  background: rgba(180, 35, 24, 0.08);
+  color: var(--danger);
+  border-color: rgba(180, 35, 24, 0.25);
+}
+
+/* ── 确认对话框 ────────────────────────────────────────────────── */
+
+.confirm-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.35);
+  display: grid;
+  place-items: center;
+  z-index: 1000;
+}
+
+.confirm-dialog {
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  padding: 22px;
+  min-width: 320px;
+  max-width: 420px;
+  box-shadow: 0 20px 60px rgba(31, 45, 61, 0.25);
+}
+
+.confirm-dialog h3 {
+  margin: 0 0 10px;
+  font-size: 17px;
+}
+
+.confirm-dialog p {
+  margin: 0 0 18px;
+  color: var(--muted);
+  font-size: 14px;
+  line-height: 1.5;
+}
+
+.confirm-dialog-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
+}
+
+.confirm-dialog-actions .cancel-btn {
+  background: var(--panel-2);
+  color: var(--text);
+  border-color: var(--line);
+}
+
+.confirm-dialog-actions .cancel-btn:hover {
+  background: #e4ebf2;
+}
+
+.confirm-dialog-actions .danger-btn {
+  background: var(--danger);
+  color: #fff;
+}
+
+.confirm-dialog-actions .danger-btn:hover {
+  background: #9a1d14;
+}
+
 .sql-actions {
   display: flex;
   align-items: center;

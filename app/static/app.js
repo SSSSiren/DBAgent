@@ -1,4 +1,6 @@
-const sessionInput = document.querySelector("#sessionId");
+// ── DOM 引用 ──────────────────────────────────────────────────
+
+const sessionList = document.querySelector("#sessionList");
 const newSessionBtn = document.querySelector("#newSessionBtn");
 const sessionStatus = document.querySelector("#sessionStatus");
 const userIdInput = document.querySelector("#userId");
@@ -17,9 +19,8 @@ const copySqlStatus = document.querySelector("#copySqlStatus");
 const storageKey = "sdkdbagent.sessionId";
 const userIdStorageKey = "vkdbagent.userId";
 
-function makeSessionId() {
-  return `session-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
-}
+// 当前活跃会话 ID（内存中）
+let activeSessionId = null;
 
 // ── 用户标识管理 ──────────────────────────────────────────────
 
@@ -113,11 +114,276 @@ function createCopyButton(onCopy) {
   return btn;
 }
 
-function initSession() {
-  const existing = localStorage.getItem(storageKey);
-  sessionInput.value = existing || makeSessionId();
-  localStorage.setItem(storageKey, sessionInput.value);
+// ── 会话管理 ──────────────────────────────────────────────────
+
+/**
+ * 列出当前用户的所有会话，渲染到侧边栏。
+ */
+async function listSessions() {
+  const userId = getUserId();
+  if (!userId) {
+    sessionList.innerHTML = '<div class="session-list-empty">请先设置用户标识</div>';
+    sessionStatus.textContent = "未加载";
+    return;
+  }
+
+  try {
+    const response = await fetch(`/api/sessions?user_id=${encodeURIComponent(userId)}`);
+    if (!response.ok) {
+      throw new Error(`HTTP ${response.status}`);
+    }
+    const data = await response.json();
+    const sessions = data.sessions || [];
+    renderSessionList(sessions);
+  } catch (err) {
+    sessionList.innerHTML = '<div class="session-list-empty">加载失败，请重试</div>';
+    sessionStatus.textContent = "会话列表加载失败";
+  }
+}
+
+/**
+ * 渲染会话列表，高亮当前活跃会话。
+ */
+function renderSessionList(sessions) {
+  if (!sessions.length) {
+    sessionList.innerHTML = '<div class="session-list-empty">暂无会话</div>';
+    sessionStatus.textContent = "0 个会话";
+    return;
+  }
+
+  sessionList.innerHTML = "";
+  const fragment = document.createDocumentFragment();
+
+  sessions.forEach((s) => {
+    const item = document.createElement("div");
+    item.className = `session-item${s.session_id === activeSessionId ? " active" : ""}`;
+
+    const info = document.createElement("div");
+    info.className = "session-item-info";
+
+    const idSpan = document.createElement("span");
+    idSpan.className = "session-item-id";
+    idSpan.textContent = s.summary || s.session_id;
+    idSpan.title = s.session_id;
+
+    const meta = document.createElement("span");
+    meta.className = "session-item-meta";
+    const lastActive = formatRelativeTime(s.last_active_at);
+    const created = s.created_at ? s.created_at.slice(0, 10) : "";
+    meta.textContent = `${lastActive}${s.message_count ? ` · ${s.message_count} 条消息` : ""}${created ? ` · ${created}` : ""}`;
+
+    info.appendChild(idSpan);
+    info.appendChild(meta);
+
+    const delBtn = document.createElement("button");
+    delBtn.className = "delete-btn";
+    delBtn.type = "button";
+    delBtn.title = "删除会话";
+    delBtn.innerHTML = '<svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2"><path d="M2 4h12M5.33 4V2.67a1.33 1.33 0 0 1 1.34-1.34h2.66a1.33 1.33 0 0 1 1.34 1.34V4m2 0v9.33a1.33 1.33 0 0 1-1.34 1.34H4.67a1.33 1.33 0 0 1-1.34-1.34V4h9.34z"/></svg>';
+    delBtn.addEventListener("click", (e) => {
+      e.stopPropagation();
+      deleteSession(s.session_id);
+    });
+
+    item.appendChild(info);
+    item.appendChild(delBtn);
+
+    item.addEventListener("click", () => {
+      switchSession(s.session_id);
+    });
+
+    fragment.appendChild(item);
+  });
+
+  sessionList.appendChild(fragment);
+  sessionStatus.textContent = `${sessions.length} 个会话`;
+}
+
+/**
+ * 创建新会话并通过 POST /api/sessions 注册。
+ */
+async function createSession() {
+  const userId = getUserId();
+  if (!userId) {
+    sessionStatus.textContent = "请先设置用户标识";
+    return;
+  }
+
+  setBadge("创建中", "busy");
+  try {
+    const response = await fetch("/api/sessions", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ user_id: userId }),
+    });
+    if (!response.ok) {
+      const errData = await response.json().catch(() => ({}));
+      throw new Error(errData.detail || `HTTP ${response.status}`);
+    }
+    const data = await response.json();
+    switchSession(data.session_id);
+  } catch (err) {
+    sessionStatus.textContent = `创建失败: ${err.message}`;
+    setBadge("创建失败", "error");
+  }
+}
+
+/**
+ * 切换到指定会话：持久化到 localStorage，清空界面，重新加载上下文。
+ */
+function switchSession(sessionId) {
+  if (!sessionId) return;
+
+  activeSessionId = sessionId;
+  localStorage.setItem(storageKey, sessionId);
+
+  // 清空消息区域（保留欢迎消息）
+  messages.querySelectorAll(".message:not(:first-child)").forEach((node) => node.remove());
+  runSteps.innerHTML = "";
+  latestSql.value = "";
+  copySqlBtn.disabled = true;
+  copySqlStatus.textContent = "";
+  setConfirmationMode(false);
+
   refreshSession();
+  listSessions();
+}
+
+/**
+ * 删除会话：弹出确认对话框，确认后调用 DELETE 并刷新列表。
+ */
+function deleteSession(sessionId) {
+  showConfirmDialog(
+    "删除会话",
+    `确定要删除会话 "${sessionId}" 吗？此操作不可撤销。`,
+    async () => {
+      const userId = getUserId();
+      if (!userId) return;
+
+      try {
+        const response = await fetch(`/api/sessions/${encodeURIComponent(sessionId)}?user_id=${encodeURIComponent(userId)}`, {
+          method: "DELETE",
+        });
+        if (!response.ok) {
+          const errData = await response.json().catch(() => ({}));
+          throw new Error(errData.detail || `HTTP ${response.status}`);
+        }
+
+        // 如果删除的是当前活跃会话，清除活跃状态
+        if (activeSessionId === sessionId) {
+          activeSessionId = null;
+          localStorage.removeItem(storageKey);
+          messages.querySelectorAll(".message:not(:first-child)").forEach((node) => node.remove());
+          runSteps.innerHTML = "";
+          latestSql.value = "";
+          copySqlBtn.disabled = true;
+          copySqlStatus.textContent = "";
+          setConfirmationMode(false);
+          sessionStatus.textContent = "未加载";
+        }
+
+        listSessions();
+      } catch (err) {
+        sessionStatus.textContent = `删除失败: ${err.message}`;
+      }
+    }
+  );
+}
+
+/**
+ * 确认对话框组件。
+ */
+function showConfirmDialog(title, message, onConfirm) {
+  const overlay = document.createElement("div");
+  overlay.className = "confirm-overlay";
+
+  const dialog = document.createElement("div");
+  dialog.className = "confirm-dialog";
+
+  dialog.innerHTML = `
+    <h3>${escapeHtml(title)}</h3>
+    <p>${escapeHtml(message)}</p>
+    <div class="confirm-dialog-actions">
+      <button class="cancel-btn" type="button">取消</button>
+      <button class="danger-btn" type="button">确认删除</button>
+    </div>
+  `;
+
+  overlay.appendChild(dialog);
+  document.body.appendChild(overlay);
+
+  const close = () => {
+    document.body.removeChild(overlay);
+  };
+
+  dialog.querySelector(".cancel-btn").addEventListener("click", close);
+  dialog.querySelector(".danger-btn").addEventListener("click", () => {
+    close();
+    onConfirm();
+  });
+  overlay.addEventListener("click", (e) => {
+    if (e.target === overlay) close();
+  });
+}
+
+/**
+ * 格式化相对时间（简易版）。
+ */
+function formatRelativeTime(isoStr) {
+  if (!isoStr) return "";
+  const now = Date.now();
+  const then = new Date(isoStr).getTime();
+  if (isNaN(then)) return "";
+  const diffMs = now - then;
+  const diffSec = Math.floor(diffMs / 1000);
+  if (diffSec < 60) return "刚刚";
+  const diffMin = Math.floor(diffSec / 60);
+  if (diffMin < 60) return `${diffMin} 分钟前`;
+  const diffHr = Math.floor(diffMin / 60);
+  if (diffHr < 24) return `${diffHr} 小时前`;
+  const diffDay = Math.floor(diffHr / 24);
+  if (diffDay < 30) return `${diffDay} 天前`;
+  return new Date(isoStr).toLocaleDateString("zh-CN");
+}
+
+/**
+ * 刷新当前会话信息（从服务端获取最新状态）。
+ */
+async function refreshSession() {
+  const id = activeSessionId;
+  if (!id) return;
+  try {
+    const userId = getUserId();
+    const params = new URLSearchParams();
+    if (userId) params.set("user_id", userId);
+    const qs = params.toString();
+    const url = `/api/sessions/${encodeURIComponent(id)}${qs ? "?" + qs : ""}`;
+    const response = await fetch(url);
+    const data = await response.json();
+    const db = data.selected_database || {};
+    const selected = data.selected_schema_id
+      ? `${db.schemaName || "schema"} @ ${db.instanceName || data.selected_schema_id}`
+      : "";
+    sessionStatus.textContent = `${selected}${data.needs_confirmation ? "，等待确认" : ""}`;
+    updateLatestSql(data.latest_sql);
+    setConfirmationMode(Boolean(data.needs_confirmation));
+  } catch {
+    sessionStatus.textContent = "会话状态读取失败";
+  }
+}
+
+/**
+ * 初始化会话：从 localStorage 恢复活跃会话，按用户列出会话列表。
+ */
+function initSession() {
+  const saved = localStorage.getItem(storageKey);
+  if (saved) {
+    activeSessionId = saved;
+  }
+  listSessions();
+  if (activeSessionId) {
+    refreshSession();
+  }
 }
 
 function setBadge(text, mode = "") {
@@ -390,30 +656,6 @@ function addStep(step, state) {
   item.className = `step ${status}`;
 }
 
-async function refreshSession() {
-  const id = sessionInput.value.trim();
-  if (!id) return;
-  localStorage.setItem(storageKey, id);
-  try {
-    const userId = getUserId();
-    const params = new URLSearchParams();
-    if (userId) params.set("user_id", userId);
-    const qs = params.toString();
-    const url = `/api/sessions/${encodeURIComponent(id)}${qs ? "?" + qs : ""}`;
-    const response = await fetch(url);
-    const data = await response.json();
-    const db = data.selected_database || {};
-    const selected = data.selected_schema_id
-      ? `${db.schemaName || "schema"} @ ${db.instanceName || data.selected_schema_id}`
-      : "";
-    sessionStatus.textContent = `${selected}${data.needs_confirmation ? "，等待确认" : ""}`;
-    updateLatestSql(data.latest_sql);
-    setConfirmationMode(Boolean(data.needs_confirmation));
-  } catch {
-    sessionStatus.textContent = "会话状态读取失败";
-  }
-}
-
 function parseSseChunk(buffer, onEvent) {
   const parts = buffer.split("\n\n");
   const rest = parts.pop() || "";
@@ -430,7 +672,7 @@ function parseSseChunk(buffer, onEvent) {
 }
 
 async function sendMessage(message) {
-  const sessionId = sessionInput.value.trim();
+  const sessionId = activeSessionId;
   if (!message || !sessionId) return;
 
   appendMessage("user", message);
@@ -511,25 +753,23 @@ confirmBtn.addEventListener("click", () => sendMessage("确认执行"));
 
 copySqlBtn.addEventListener("click", copyLatestSql);
 
-newSessionBtn.addEventListener("click", () => {
-  sessionInput.value = makeSessionId();
-  localStorage.setItem(storageKey, sessionInput.value);
-  messages.querySelectorAll(".message:not(:first-child)").forEach((node) => node.remove());
-  runSteps.innerHTML = "";
-  latestSql.value = "";
-  copySqlBtn.disabled = true;
-  copySqlStatus.textContent = "";
-  setConfirmationMode(false);
-  refreshSession();
-});
-
-sessionInput.addEventListener("change", refreshSession);
+newSessionBtn.addEventListener("click", createSession);
 
 userIdInput.addEventListener("change", () => {
   const changed = setUserId(userIdInput.value);
   userIdStatus.textContent = getUserId() ? "已保存" : "未设置";
   if (changed) {
-    refreshSession();
+    // 切换用户后清空当前会话，刷新列表
+    activeSessionId = null;
+    localStorage.removeItem(storageKey);
+    messages.querySelectorAll(".message:not(:first-child)").forEach((node) => node.remove());
+    runSteps.innerHTML = "";
+    latestSql.value = "";
+    copySqlBtn.disabled = true;
+    copySqlStatus.textContent = "";
+    setConfirmationMode(false);
+    setBadge("就绪", "");
+    listSessions();
   }
 });
 

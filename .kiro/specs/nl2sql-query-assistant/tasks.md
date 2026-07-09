@@ -73,7 +73,7 @@
   - _Requirements: 1.1, 7.4_
   - _Boundary: UserIdentityProvider_
 
-- [ ] 3.2 添加会话管理 UI 组件
+- [x] 3.2 添加会话管理 UI 组件
   - 侧边栏展示当前用户的会话列表（调用 `GET /api/sessions?user_id=xxx`），每项显示会话摘要和最近活动时间
   - "新建会话"按钮调用 `POST /api/sessions` 创建会话并自动切换
   - 点击会话项切换到该会话，重新加载其上下文
