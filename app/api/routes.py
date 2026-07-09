@@ -144,21 +144,10 @@ async def _execute_agent_stream(
             from app.knowledge.openviking import OpenVikingClient
             kb = OpenVikingClient(_kb_settings.kb_openviking_url, user_id)
             await kb.start()
-            # 先列根目录确认用户路径存在
-            try:
-                root = await kb._get_raw("/api/v1/fs/ls", f"viking://user/{user_id}")
-                entries = root if isinstance(root, list) else root.get("result", [])
-                names = [e.get("uri", e.get("name", "?")) for e in entries]
-                print(f"[KB] 用户根目录: viking://user/{user_id} -> {names}")
-            except Exception as re:
-                print(f"[KB] 根目录读取失败: {re}")
             memories = await kb.retrieve_memories()
             memory_count = len(memories)
             await kb.close()
-            print(f"[KB] 记忆检索成功: user={user_id} count={memory_count}")
-            if memories:
-                for m in memories[:3]:
-                    print(f"[KB]   记忆: [{m['category']}] {m['abstract'][:80]}")
+            print(f"[KB] 记忆检索: user={user_id} count={memory_count}")
         except Exception as e:
             print(f"[KB] 记忆检索失败: {type(e).__name__}: {e}")
 
