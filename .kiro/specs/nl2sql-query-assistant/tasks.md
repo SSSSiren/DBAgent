@@ -36,7 +36,7 @@
   - _Depends: 1.1, 1.2_
 
 - [ ] 2. 会话 CRUD API
-- [ ] 2.1 添加会话数据模型
+- [x] 2.1 添加会话数据模型
   - 在 `app/api/schemas.py` 中新增 `SessionCreateRequest`（`user_id: str`，必填非空）
   - 新增 `SessionSummary`（`session_id`、`summary`、`created_at`、`last_active_at`、`message_count` 字段）
   - 新增 `SessionListResponse`（`sessions: list[SessionSummary]`、`total_count: int`）
