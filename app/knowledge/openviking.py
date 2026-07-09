@@ -122,15 +122,16 @@ class OpenVikingClient:
                 uri = f"viking://user/{self._user_id}/memories/{category}"
                 entries = await self._post("/api/v1/fs/ls", {"uri": uri})
                 entries = entries if isinstance(entries, list) else entries.get("result", [])
-            except Exception:
-                continue
+            except Exception as e:
+                log.debug("OpenViking fs/ls %s failed: %s", category, e)
+                entries = []
 
             for entry in entries:
                 if entry.get("isDir", False):
                     continue
-                uri = entry.get("uri", "")
+                file_uri = entry.get("uri", "")
                 try:
-                    detail = await self._post("/api/v1/fs/read", {"uri": uri})
+                    detail = await self._post("/api/v1/fs/read", {"uri": file_uri})
                     abstract = detail.get("abstract", "") if isinstance(detail, dict) else ""
                     if abstract:
                         all_memories.append({
@@ -138,7 +139,8 @@ class OpenVikingClient:
                             "abstract": abstract,
                             "name": entry.get("name", ""),
                         })
-                except Exception:
+                except Exception as e:
+                    log.debug("OpenViking fs/read %s failed: %s", file_uri, e)
                     continue
 
         log.info(

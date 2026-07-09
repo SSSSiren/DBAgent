@@ -144,16 +144,23 @@ async def _execute_agent_stream(
             from app.knowledge.openviking import OpenVikingClient
             kb = OpenVikingClient(_kb_settings.kb_openviking_url, user_id)
             await kb.start()
+            print(f"[KB] 开始检索记忆: user={user_id} url={_kb_settings.kb_openviking_url}")
             memories = await kb.retrieve_memories()
             memory_count = len(memories)
             await kb.close()
+            print(f"[KB] 记忆检索成功: user={user_id} count={memory_count}")
+            if memories:
+                for m in memories[:3]:
+                    print(f"[KB]   记忆: [{m['category']}] {m['abstract'][:80]}")
         except Exception as e:
-            print(f"[KB] 记忆检索失败: {e}")
+            print(f"[KB] 记忆检索失败: {type(e).__name__}: {e}")
 
     if memories:
         # 将记忆注入到会话状态，供 build_context 使用
         initial_state["_memories"] = memories
         initial_state["_memory_count"] = memory_count
+    else:
+        initial_state["_memory_count"] = memory_count  # 0 条记忆也记录
 
     final_payload = None
     latest_sql = ""  # 收集本次对话中最后生成的 SQL
@@ -184,6 +191,9 @@ async def _execute_agent_stream(
     # 将本次 SQL 持久化到会话状态
     if latest_sql:
         final_payload["updated_state"]["latest_sql"] = latest_sql
+
+    # 持久化记忆计数（确保刷新后恢复）
+    final_payload["updated_state"]["_memory_count"] = memory_count
 
     # ── 记录对话到 OpenViking（在 save 之前，确保 kb_session_id 被持久化）──
     user_input = initial_state.get("user_input", "")
