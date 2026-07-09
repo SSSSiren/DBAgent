@@ -207,29 +207,6 @@ textarea:focus {
   color: #e8f4f2;
 }
 
-.sql-display {
-  margin: 8px 0;
-  padding: 12px;
-  background: #f8f9fa;
-  border: 1px solid var(--line);
-  border-radius: 6px;
-}
-
-.sql-display pre {
-  margin: 0;
-  white-space: pre-wrap !important;
-  word-wrap: break-word !important;
-  overflow-wrap: break-word !important;
-  overflow-x: visible !important;
-  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace;
-  font-size: 15px;
-  line-height: 1.45;
-  background: #142326;
-  color: #e8f4f2;
-  border-radius: 6px;
-  padding: 12px;
-}
-
 .sql-box::placeholder {
   color: #9fb2b3;
 }
@@ -610,69 +587,6 @@ textarea:focus {
 
 .content th {
   background: var(--panel-2);
-}
-
-.tool-block {
-  border-top: 1px solid var(--line);
-  margin-top: 12px;
-  padding-top: 10px;
-  color: var(--muted);
-  font-size: 13px;
-}
-
-.tool-title {
-  color: var(--text);
-  font-weight: 700;
-  margin-bottom: 8px;
-}
-
-.nl2sql-steps {
-  display: grid;
-  gap: 6px;
-  margin: 8px 0 10px;
-}
-
-.nl2sql-step {
-  display: grid;
-  grid-template-columns: minmax(120px, 1fr) auto minmax(0, 2fr);
-  gap: 8px;
-  align-items: center;
-  border: 1px solid var(--line);
-  border-radius: 6px;
-  background: #fbfcfe;
-  padding: 7px 9px;
-}
-
-.nl2sql-step span {
-  color: var(--text);
-  font-weight: 650;
-}
-
-.nl2sql-step strong {
-  color: var(--accent-dark);
-  font-weight: 650;
-}
-
-.nl2sql-step em {
-  overflow-wrap: anywhere;
-  color: var(--muted);
-  font-style: normal;
-}
-
-.tool-block details {
-  margin-top: 8px;
-}
-
-.tool-block summary {
-  cursor: pointer;
-  color: var(--text);
-  font-weight: 650;
-}
-
-.tool-block pre {
-  margin: 8px 0 0;
-  max-height: 260px;
-  overflow: auto;
 }
 
 .composer {

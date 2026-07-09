@@ -383,7 +383,7 @@ function renderChatHistory(chatHistory) {
   chatHistory.forEach((entry) => {
     const role = entry.role;
     const content = entry.content || "";
-    appendMessage(role, content, []);
+    appendMessage(role, content);
   });
 }
 
@@ -496,7 +496,7 @@ function renderMarkdown(markdown) {
   return blocks.join("");
 }
 
-function appendMessage(role, content, toolCalls = []) {
+function appendMessage(role, content) {
   const article = document.createElement("article");
   article.className = `message ${role}`;
   const avatar = document.createElement("div");
@@ -511,113 +511,14 @@ function appendMessage(role, content, toolCalls = []) {
   body.className = "content";
   body.innerHTML = role === "assistant" ? renderMarkdown(content) : escapeHtml(content);
   bubble.append(meta, body);
-  if (toolCalls.length) {
-    const tools = document.createElement("div");
-    tools.className = "tool-block";
-    tools.innerHTML = renderToolCalls(toolCalls);
-    bubble.appendChild(tools);
-  }
 
-  // 添加复制按钮（用户消息和 AI 回复各一条消息一个按钮）
-  const copyBtn = createCopyButton(() => {
-    // 提取纯文本内容
-    let text = body.innerText;
-    // 如果有工具调用，也追加工具调用信息
-    if (toolCalls.length) {
-      const toolTexts = toolCalls.map(call => {
-        const sql = call?.nl2sql?.sql || "";
-        return sql ? `\n\nSQL: ${sql}` : "";
-      }).filter(Boolean);
-      text += toolTexts.join("");
-    }
-    return text;
-  });
+  // 复制按钮
+  const copyBtn = createCopyButton(() => body.innerText);
   bubble.appendChild(copyBtn);
 
   article.append(avatar, bubble);
   messages.appendChild(article);
   messages.scrollTop = messages.scrollHeight;
-}
-
-function renderToolCalls(toolCalls) {
-  return toolCalls
-    .map((call) => {
-      const base = `<div class="tool-title">工具调用：${escapeHtml(call.tool)}(${escapeHtml(call.status)})</div>`;
-
-      // 尝试从 result 中提取 SQL
-      let sqlHtml = "";
-      let resultContent = "";
-      let resultWithoutSql = "";
-
-      // 处理 result 可能是对象的情况
-      if (call.result) {
-        if (typeof call.result === 'string') {
-          resultContent = call.result;
-        } else if (typeof call.result === 'object' && call.result.content) {
-          resultContent = call.result.content;
-        }
-      }
-
-      if (resultContent) {
-        // 添加调试日志
-        if (call.tool === 'query_database_tool') {
-          console.log('query_database_tool resultContent:', resultContent);
-        }
-        // 改进的正则表达式，匹配 ```sql 或 ``` 代码块
-        const sqlMatch = resultContent.match(/```sql\s+([\s\S]+?)```/) ||
-                         resultContent.match(/```\s+([\s\S]+?)```/);
-        if (sqlMatch) {
-          let sql = sqlMatch[1].trim();
-          // 清理 SQL：去除字面的 \n 和 \r 字符串，以及真正的换行符
-          sql = sql.replace(/\\n/g, ' ').replace(/\\r/g, '');
-          sql = sql.replace(/^[\r\n]+|[\r\n]+$/g, '').replace(/;\s*$/, '');
-          sql = sql.replace(/\s+/g, ' ');  // 合并多个空白为单个空格
-          // 检查是否包含 SQL 关键字
-          if (sql.match(/\b(SELECT|INSERT|UPDATE|DELETE|CREATE|ALTER|DROP)\b/i)) {
-            // 直接展示 SQL，不使用折叠
-            sqlHtml = `<div class="sql-display"><strong>生成的 SQL：</strong><pre><code>${escapeHtml(sql)}</code></pre></div>`;
-            // 从工具结果中移除 SQL 部分，避免重复显示
-            resultWithoutSql = resultContent.replace(sqlMatch[0], "").trim();
-          }
-        }
-      }
-
-      // 如果有 nl2sql 属性(兼容旧格式)
-      if (call.nl2sql) {
-        const steps = call.nl2sql.steps || [];
-        const stepHtml = steps.length
-          ? `<div class="nl2sql-steps">${steps
-              .map(
-                (step) =>
-                  `<div class="nl2sql-step"><span>${escapeHtml(step.name)}</span><strong>${escapeHtml(
-                    step.status
-                  )}</strong><em>${escapeHtml(step.detail || "")}</em></div>`
-              )
-              .join("")}</div>`
-          : "";
-        if (call.nl2sql.sql) {
-          sqlHtml = `<details open><summary>生成 SQL</summary><pre><code>${escapeHtml(call.nl2sql.sql)}</code></pre></details>`;
-        }
-        const assumptions = call.nl2sql.assumptions || [];
-        const assumptionHtml = assumptions.length
-          ? `<details><summary>假设与限制</summary><ul>${assumptions
-              .map((item) => `<li>${escapeHtml(item)}</li>`)
-              .join("")}</ul></details>`
-          : "";
-        return `${base}${stepHtml}${sqlHtml}${assumptionHtml}`;
-      }
-
-      // 显示工具结果(如果有，且移除了 SQL 部分)
-      let resultHtml = "";
-      if (resultWithoutSql) {
-        // 截取前 500 字符,避免太长
-        const resultPreview = resultWithoutSql.length > 500 ? resultWithoutSql.substring(0, 500) + "..." : resultWithoutSql;
-        resultHtml = `<details><summary>工具结果</summary><pre><code>${escapeHtml(resultPreview)}</code></pre></details>`;
-      }
-
-      return `${base}${sqlHtml}${resultHtml}`;
-    })
-    .join("");
 }
 
 function sqlFromReply(reply) {
@@ -822,7 +723,7 @@ async function sendMessage(message) {
       const tokens = stats.tokens ? stats.tokens + " tokens" : "";
       runSteps.innerHTML = `<div class="step completed"><strong>${toolCount} tools</strong><span>${tokens} | ${durationSec}</span></div>`;
 
-      appendMessage("assistant", finalPayload.reply || "没有返回内容。", finalPayload.tool_calls || []);
+      appendMessage("assistant", finalPayload.reply || "没有返回内容。");
       updateLatestSql(
         finalPayload.latest_sql || latestSqlFromToolCalls(finalPayload.tool_calls) || sqlFromReply(finalPayload.reply)
       );
