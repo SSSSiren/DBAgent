@@ -5,7 +5,7 @@
 ## 任务
 
 - [ ] 1. 基础设施：依赖与存储后端
-- [ ] 1.1 添加依赖包和配置项
+- [x] 1.1 添加依赖包和配置项
   - 在 `requirements.txt` 中添加 `aiosqlite` 和 `uuid6`
   - 在 `Settings` 类中添加 `storage_backend`（默认 `"memory"`）、`redis_url`、`storage_file_path`（默认 `"data/sessions.db"`）配置项
   - 确认 `docker-compose.yml` 中 `./data:/app/data` 卷挂载已存在，无需修改

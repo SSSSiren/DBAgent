@@ -23,3 +23,9 @@ langfuse>=2.0.0
 # 测试
 pytest>=8.0.0
 pytest-asyncio>=0.23.0
+
+# 存储持久化
+aiosqlite>=0.20.0
+
+# ID 生成
+uuid6>=2024.0.0

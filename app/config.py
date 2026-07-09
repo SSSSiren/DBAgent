@@ -46,6 +46,11 @@ class Settings(BaseSettings):
     kb_openviking_url: str = "http://localhost:1933"
     kb_auto_commit_turns: int = 10
 
+    # ========== 存储后端 ==========
+    storage_backend: str = "memory"
+    redis_url: str = ""
+    storage_file_path: str = "data/sessions.db"
+
     model_config = SettingsConfigDict(
         env_file=".env",
         env_file_encoding="utf-8",
