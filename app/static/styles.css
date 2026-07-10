@@ -763,9 +763,11 @@ textarea:focus {
   overflow: hidden;
   text-overflow: ellipsis;
   line-height: 1.65;
-  color: var(--muted);
+  color: var(--text);
   font-size: 0.85rem;
+  font-style: italic;
   margin-bottom: 0.5rem;
+  min-height: 1.4em;
 }
 
 .thinking-text.streaming-cursor::after {

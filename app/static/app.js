@@ -665,6 +665,11 @@ function createTypewriterRenderer() {
         if (targetElement) {
           targetElement.classList.add("streaming-cursor");
         }
+        // 立即显示首个字符，避免用户看到空白光标等待
+        if (fullText.length > 0 && targetElement) {
+          displayedLength = 1;
+          targetElement.textContent = truncatePreview(fullText.substring(0, 1));
+        }
         rafId = requestAnimationFrame(tick);
       }
     } catch (e) {
@@ -1026,9 +1031,10 @@ function finalizeStreamingMessage(cancelled = false) {
   stepRenderer.clearSteps();
 
   if (streamingMessage) {
+    // 移除 streaming class（停止边框脉冲动画），转为普通消息
+    streamingMessage.classList.remove("streaming");
+
     if (cancelled) {
-      // 取消时原地保留内容，移除 streaming class 并追加标记
-      streamingMessage.classList.remove("streaming");
       streamingMessage.classList.add("cancelled");
       const body = streamingMessage.querySelector(".content");
       if (body) {
@@ -1038,12 +1044,9 @@ function finalizeStreamingMessage(cancelled = false) {
         stopMark.style.cssText = "color:#b45309;font-size:13px;margin-top:8px;font-style:italic;";
         body.appendChild(stopMark);
       }
-      // 保留气泡作为普通消息
-      streamingMessage = null;
-    } else {
-      streamingMessage.remove();
-      streamingMessage = null;
     }
+    // 正常完成时也保留气泡（思考文本可见），不删除
+    streamingMessage = null;
     streamingText = "";
     streamingSteps = [];
   }
