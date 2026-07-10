@@ -52,7 +52,7 @@
   - _Requirements: 4.2_
   - _Boundary: AGENT_SYSTEM_PROMPT_
 
-- [ ] 2.3 (P) 偏好数量前端展示
+- [x] 2.3 (P) 偏好数量前端展示
   - 在 `SessionState` schema 中新增 `preference_count: int = Field(default=0)` 字段
   - 该字段通过 API 响应返回给前端，用于记忆指示器展示
   - 任务完成后，`GET /api/sessions/{id}` 响应中包含 `preference_count` 字段

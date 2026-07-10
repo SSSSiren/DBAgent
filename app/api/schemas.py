@@ -32,6 +32,7 @@ class SessionState(BaseModel):
     selected_database: Optional[dict[str, Any]] = Field(default=None, description="已选数据库详情")
     latest_sql: str = Field(default="", description="最近生成的 SQL 语句")
     memory_count: int = Field(default=0, description="长期记忆条数")
+    preference_count: int = Field(default=0, description="操作记忆中的偏好表数量")
 
 
 class HealthResponse(BaseModel):

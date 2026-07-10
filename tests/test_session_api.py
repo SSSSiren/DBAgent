@@ -250,6 +250,50 @@ class TestDeleteSession:
 
 # ── 完整生命周期 ──────────────────────────────────────────────────────
 
+class TestSessionStateSchema:
+    """SessionState schema 单元测试"""
+
+    def test_session_state_has_preference_count_default(self):
+        """验证 SessionState 包含 preference_count 字段，默认值为 0"""
+        from app.api.schemas import SessionState
+
+        state = SessionState(session_id="test-session")
+        assert hasattr(state, "preference_count")
+        assert state.preference_count == 0
+
+    def test_session_state_preference_count_serialized(self):
+        """验证 SessionState 序列化时 preference_count 出现在 JSON 中"""
+        from app.api.schemas import SessionState
+
+        state = SessionState(session_id="test-session", preference_count=5)
+        data = state.model_dump()
+        assert "preference_count" in data
+        assert data["preference_count"] == 5
+
+    def test_session_state_preference_count_in_api_response(self):
+        """验证 GET /api/sessions/{session_id} 响应中包含 preference_count 字段"""
+        # 使用测试客户端创建会话并获取状态
+        from fastapi import FastAPI
+        from fastapi.testclient import TestClient
+        from app.api.routes import router
+
+        app = FastAPI()
+        app.include_router(router, prefix="/api")
+        client = TestClient(app)
+
+        create_resp = client.post("/api/sessions", json={"user_id": "alice"})
+        session_id = create_resp.json()["session_id"]
+
+        response = client.get(
+            f"/api/sessions/{session_id}",
+            params={"user_id": "alice"},
+        )
+        assert response.status_code == 200
+        data = response.json()
+        assert "preference_count" in data
+        assert data["preference_count"] == 0
+
+
 class TestSessionLifecycle:
     """会话完整生命周期测试"""
 
