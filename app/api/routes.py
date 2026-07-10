@@ -242,13 +242,14 @@ async def _execute_agent_stream(
             from app.memory.preferences import get_preference_store
             pref_store = get_preference_store()
             for tc in tool_calls:
-                if tc.get("tool") == "query_database" and tc.get("result") is not None:
+                if tc.get("tool") in ("query_database", "describe_table") and tc.get("result") is not None:
                     args = tc.get("args", {})
                     table_name = args.get("table_name", "")
                     schema_id = args.get("schema_id", 0)
                     # 从 session_state 获取 database_name
                     db_info = initial_state.get("selected_database") or {}
                     database_name = db_info.get("schemaName", "")
+                    print(f"[Pref] record attempt: table={table_name!r} db={database_name!r} schema={schema_id}")
                     if table_name and database_name:
                         # 多表 JOIN 场景：逐表记录
                         for t_name in table_name.split(","):

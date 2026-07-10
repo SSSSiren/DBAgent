@@ -108,6 +108,27 @@ async def _mock_run_agent_stream_with_join(user_input, session_state):
     }
 
 
+async def _mock_run_agent_stream_with_describe_table(user_input, session_state):
+    """包含 describe_table 成功调用的 mock（Agent 常用此工具查表结构）"""
+    yield "final", {
+        "response": "表结构如下...",
+        "updated_state": session_state.copy(),
+        "needs_confirmation": False,
+        "pending_action": None,
+        "tool_calls": [
+            {
+                "tool": "describe_table",
+                "args": {
+                    "table_name": "users",
+                    "schema_id": 2,
+                },
+                "result": "CREATE TABLE users (id INT, name VARCHAR)",
+            }
+        ],
+        "stats": {"duration_ms": 150},
+    }
+
+
 async def _consume_stream(generator):
     """消费整个异步生成器，返回所有产出的 (event_type, data) 元组列表"""
     events = []
@@ -341,6 +362,35 @@ class TestRecordHook:
         assert prefs[0]["table_name"] == "orders"
         assert prefs[0]["database_name"] == "mydb"
         assert prefs[0]["schema_id"] == 1
+        assert prefs[0]["query_count"] == 1
+
+    @pytest.mark.asyncio
+    async def test_describe_table_success_records_preference(self, pref_store, monkeypatch):
+        """describe_table 成功执行后，偏好应被自动记录（Agent 常用此工具）"""
+        from app.api.routes import _execute_agent_stream
+
+        _patch_common(monkeypatch, pref_store, preference_enabled=True)
+        monkeypatch.setattr(
+            "app.api.routes.run_agent_stream",
+            _mock_run_agent_stream_with_describe_table,
+        )
+
+        initial_state = _make_initial_state_with_db()
+
+        events = await _consume_stream(
+            _execute_agent_stream(initial_state, user_id="alice")
+        )
+
+        final_event = events[-1]
+        assert final_event[0] == "final"
+        assert final_event[1]["reply"] != ""
+
+        # 验证偏好已被记录
+        prefs = await pref_store.retrieve_top_preferences("alice", limit=10)
+        assert len(prefs) == 1
+        assert prefs[0]["table_name"] == "users"
+        assert prefs[0]["database_name"] == "mydb"
+        assert prefs[0]["schema_id"] == 2
         assert prefs[0]["query_count"] == 1
 
     @pytest.mark.asyncio
