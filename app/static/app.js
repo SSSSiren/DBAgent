@@ -597,7 +597,7 @@ function addStep(step, state) {
 function createTypewriterRenderer() {
   let fullText = "";
   let displayedLength = 0;
-  let charDelay = 30;
+  let charDelay = 20;
   let isRunning = false;
   let rafId = null;
   let lastTickTime = 0;
@@ -606,7 +606,9 @@ function createTypewriterRenderer() {
   let onCompleteCallback = null;
   let startTime = 0;
   let useTruncation = true;       // 思考模式：截断；回复模式：完整渲染
-  const MAX_PREVIEW = 30;         // 思考预览最多显示前 30 个字符
+  let speedBoostDelay = 2000;     // 2 秒后进入极速模式
+  let boostCharDelay = 2;         // 极速模式字符间隔 (ms)
+  const MAX_PREVIEW = 50;         // 思考预览最多显示前 50 个字符
 
   // 将文本截断为前 MAX_PREVIEW 个字符，超出部分用 "..." 省略
   function truncatePreview(text) {
@@ -621,8 +623,18 @@ function createTypewriterRenderer() {
     const elapsed = timestamp - lastTickTime;
     const queueElapsed = timestamp - startTime;
 
-    // 加速模式：队列超过 3 秒 → 字符间隔降至 5ms
-    const effectiveDelay = queueElapsed > 3000 ? 5 : charDelay;
+    // 两阶段速度策略：
+    //   前 speedBoostDelay 毫秒：charDelay 正常速度
+    //   超过 speedBoostDelay：极速模式 (boostCharDelay)
+    //   超过 3 秒的旧加速模式保留作为兜底
+    let effectiveDelay;
+    if (queueElapsed > 3000) {
+      effectiveDelay = 5;           // 兜底：3 秒积压 → 5ms
+    } else if (queueElapsed > speedBoostDelay) {
+      effectiveDelay = boostCharDelay;  // 极速模式
+    } else {
+      effectiveDelay = charDelay;       // 正常速度
+    }
 
     // 后台标签页恢复：时间差超过 100ms → 批量渲染 5 个字符
     const batchSize = elapsed > 100 ? 5 : 1;
@@ -1151,7 +1163,7 @@ function finalizeReply(replyText) {
 
   typewriter.reset();
   typewriter.setTarget(replyEl);
-  typewriter.setCharDelay(10);
+  typewriter.setCharDelay(2);
   typewriter.setUseTruncation(false);
   typewriter.setOnRender(() => {
     messages.scrollTop = messages.scrollHeight;
