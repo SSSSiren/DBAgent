@@ -242,10 +242,11 @@ async def _execute_agent_stream(
             from app.memory.preferences import get_preference_store
             pref_store = get_preference_store()
             for tc in tool_calls:
-                if tc.get("tool") in ("query_database", "describe_table") and tc.get("result") is not None:
-                    args = tc.get("args", {})
-                    table_name = args.get("table_name", "")
-                    schema_id = args.get("schema_id", 0)
+                args = tc.get("args", {})
+                table_name = args.get("table_name", "")
+                schema_id = args.get("schema_id", 0)
+                # 按参数特征匹配：任何有 table_name + schema_id + 成功结果的工具调用都记录
+                if table_name and tc.get("result") is not None:
                     # 从 updated_state 获取 database_name（Agent 对话中选库后存入 updated_state）
                     # Agent 不会显式设置 selected_database，用 schema_id 作为兜底标识
                     updated = final_payload.get("updated_state") or {}
