@@ -603,12 +603,14 @@ function createTypewriterRenderer() {
   let lastTickTime = 0;
   let targetElement = null;
   let onRenderCallback = null;
+  let onCompleteCallback = null;
   let startTime = 0;
-  const MAX_PREVIEW = 30;  // 思考预览最多显示前 30 个字符
+  let useTruncation = true;       // 思考模式：截断；回复模式：完整渲染
+  const MAX_PREVIEW = 30;         // 思考预览最多显示前 30 个字符
 
   // 将文本截断为前 MAX_PREVIEW 个字符，超出部分用 "..." 省略
   function truncatePreview(text) {
-    if (text.length <= MAX_PREVIEW) return text;
+    if (!useTruncation || text.length <= MAX_PREVIEW) return text;
     return text.substring(0, MAX_PREVIEW) + "...";
   }
 
@@ -632,7 +634,6 @@ function createTypewriterRenderer() {
         charsRendered++;
       }
       if (targetElement) {
-        // 只显示前 30 个字符，超出部分用 "..." 省略
         const preview = fullText.substring(0, displayedLength);
         targetElement.textContent = truncatePreview(preview);
       }
@@ -649,6 +650,12 @@ function createTypewriterRenderer() {
       }
       isRunning = false;
       rafId = null;
+      // 触发完成回调
+      if (onCompleteCallback) {
+        const cb = onCompleteCallback;
+        onCompleteCallback = null;
+        cb();
+      }
     }
   }
 
@@ -724,6 +731,22 @@ function createTypewriterRenderer() {
     onRenderCallback = cb;
   }
 
+  function setOnComplete(cb) {
+    onCompleteCallback = cb;
+  }
+
+  function setCharDelay(delay) {
+    charDelay = delay;
+  }
+
+  function setUseTruncation(truncate) {
+    useTruncation = truncate;
+  }
+
+  function getIsComplete() {
+    return !isRunning && displayedLength >= fullText.length && fullText.length > 0;
+  }
+
   return {
     appendText,
     flush,
@@ -731,6 +754,10 @@ function createTypewriterRenderer() {
     reset,
     setTarget,
     setOnRender,
+    setOnComplete,
+    setCharDelay,
+    setUseTruncation,
+    getIsComplete,
   };
 }
 
@@ -913,8 +940,8 @@ function updatePhaseLabel(step) {
  * 调用点：finalizeStreamingMessage（正常/取消）、switchSession、sendMessage。
  */
 function cleanupAnimations() {
-  // 立即渲染剩余打字机文本并停止
-  typewriter.flush();
+  // 停止打字机（不 flush，保留当前渲染内容）
+  typewriter.stop();
 
   const streamingEl = document.querySelector("article.message.assistant.streaming");
   if (streamingEl) {
@@ -1047,12 +1074,13 @@ function createStreamingBubble() {
 }
 
 function finalizeStreamingMessage(cancelled = false) {
-  // 清理所有动画效果
-  cleanupAnimations();
+  // 清理工具步骤动画
   stepRenderer.clearSteps();
 
   if (streamingMessage) {
     if (cancelled) {
+      // 取消：停止打字机，移除动画类，追加标记
+      typewriter.stop();
       streamingMessage.classList.remove("streaming");
       streamingMessage.classList.add("cancelled");
       const body = streamingMessage.querySelector(".content");
@@ -1063,14 +1091,68 @@ function finalizeStreamingMessage(cancelled = false) {
         stopMark.style.cssText = "color:#b45309;font-size:13px;margin-top:8px;font-style:italic;";
         body.appendChild(stopMark);
       }
-      streamingMessage = null;
-    } else {
-      streamingMessage.remove();
+      // 恢复 .meta
+      const meta = streamingMessage.querySelector(".meta");
+      if (meta) meta.textContent = "DBAgent";
       streamingMessage = null;
     }
-    streamingText = "";
-    streamingSteps = [];
+    // 正常完成：不删除气泡，由 finalizeReply 用打字机渲染最终回答
   }
+  streamingText = "";
+  streamingSteps = [];
+}
+
+/**
+ * 用快速打字机效果渲染最终回答到流式气泡中。
+ * 完成后一次性替换为 Markdown 渲染结果。
+ */
+function finalizeReply(replyText) {
+  if (!streamingMessage || !replyText) {
+    // 无流式气泡或空回复 → 回退到 appendMessage
+    if (replyText) appendMessage("assistant", replyText);
+    return;
+  }
+
+  // 获取 content 容器并清理（移除思考文本和步骤容器）
+  const body = streamingMessage.querySelector(".content");
+  if (!body) {
+    appendMessage("assistant", replyText);
+    return;
+  }
+  body.innerHTML = "";
+
+  // 创建回复渲染目标元素
+  const replyEl = document.createElement("div");
+  replyEl.className = "thinking-text streaming-cursor";
+  body.appendChild(replyEl);
+
+  // 配置打字机：快速模式，完整渲染，不截断
+  typewriter.reset();
+  typewriter.setTarget(replyEl);
+  typewriter.setCharDelay(10);          // 10ms/字符 = 快速但仍有动画感
+  typewriter.setUseTruncation(false);   // 不截断
+  typewriter.setOnRender(() => {
+    messages.scrollTop = messages.scrollHeight;
+  });
+  typewriter.setOnComplete(() => {
+    // 打字机完成 → 替换为 Markdown 渲染
+    body.innerHTML = renderMarkdown(replyText);
+    // 恢复默认设置（思考模式）
+    typewriter.setCharDelay(30);
+    typewriter.setUseTruncation(true);
+    // 转为普通消息
+    streamingMessage.classList.remove("streaming");
+    const meta = streamingMessage.querySelector(".meta");
+    if (meta) meta.textContent = "DBAgent";
+    // 添加复制按钮
+    const copyBtn = createCopyButton(() => body.innerText);
+    streamingMessage.querySelector(".bubble").appendChild(copyBtn);
+    streamingMessage = null;
+    messages.scrollTop = messages.scrollHeight;
+  });
+
+  // 开始打字机渲染
+  typewriter.appendText(replyText);
 }
 
 function parseSseChunk(buffer, onEvent) {
@@ -1165,9 +1247,8 @@ async function sendMessage(message) {
         const tokens = stats.tokens ? stats.tokens + " tokens" : "";
         runSteps.innerHTML = `<div class="step completed"><strong>${toolCount} tools</strong><span>${tokens} | ${durationSec}</span></div>`;
 
-        appendMessage("assistant", finalPayload.reply || "没有返回内容。");
-        // 确保滚动到最新消息（流式气泡被移除后需要重新计算）
-        messages.scrollTop = messages.scrollHeight;
+        // 用打字机效果渲染最终回答（不再 appendMessage 一次性输出）
+        finalizeReply(finalPayload.reply || "没有返回内容。");
         updateLatestSql(
           finalPayload.latest_sql || latestSqlFromToolCalls(finalPayload.tool_calls) || sqlFromReply(finalPayload.reply)
         );
