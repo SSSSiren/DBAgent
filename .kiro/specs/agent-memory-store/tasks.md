@@ -72,7 +72,7 @@
   - _Depends: 1.3, 2.1_
   - _Boundary: _execute_agent_stream_
 
-- [ ] 3.2 偏好记录钩子
+- [x] 3.2 偏好记录钩子
   - 在 `_execute_agent_stream()` 中，Agent 执行完成后、状态保存之前，添加偏好记录逻辑
   - 仅当 `preference_enabled=True` 时执行，使用独立的 try/except 静默降级
   - 遍历 `final_payload["tool_calls"]`，过滤 `tool == "query_database"` 且 `result is not None` 的成功调用

@@ -235,6 +235,31 @@ async def _execute_agent_stream(
     # 持久化偏好计数（确保刷新后恢复）
     final_payload["updated_state"]["_preference_count"] = preference_count
 
+    # ── 记录操作记忆（查询偏好）──
+    if _pref_settings.preference_enabled and final_payload:
+        tool_calls = final_payload.get("tool_calls", [])
+        try:
+            from app.memory.preferences import get_preference_store
+            pref_store = get_preference_store()
+            for tc in tool_calls:
+                if tc.get("tool") == "query_database" and tc.get("result") is not None:
+                    args = tc.get("args", {})
+                    table_name = args.get("table_name", "")
+                    schema_id = args.get("schema_id", 0)
+                    # 从 session_state 获取 database_name
+                    db_info = initial_state.get("selected_database") or {}
+                    database_name = db_info.get("schemaName", "")
+                    if table_name and database_name:
+                        # 多表 JOIN 场景：逐表记录
+                        for t_name in table_name.split(","):
+                            t_name = t_name.strip()
+                            if t_name:
+                                await pref_store.record_query(
+                                    user_id, t_name, database_name, schema_id
+                                )
+        except Exception as e:
+            print(f"[Pref] 偏好记录失败: {type(e).__name__}: {e}")
+
     # ── 记录对话到 OpenViking（在 save 之前，确保 kb_session_id 被持久化）──
     user_input = initial_state.get("user_input", "")
     final_response = final_payload["response"]
