@@ -236,6 +236,11 @@ async function createSession() {
 function switchSession(sessionId) {
   if (!sessionId) return;
 
+  // 清理当前流式消息的所有动画并重置渲染器状态
+  cleanupAnimations();
+  typewriter.reset();
+  stepRenderer.clearSteps();
+
   activeSessionId = sessionId;
   localStorage.setItem(storageKey, sessionId);
 
@@ -863,6 +868,61 @@ function createStepRenderer() {
 // 全局单例
 const stepRenderer = createStepRenderer();
 
+// ── PhaseLabel & AnimationCleanup ────────────────────────────────
+// 阶段标签更新与动画清理（集成任务 2.3）
+
+/**
+ * 根据当前 step 更新流式气泡 `.meta` 元素文本。
+ * - thinking: "DBAgent · 思考中..."
+ * - tool:*: "DBAgent · 正在查询数据库..."
+ * - 其他: "DBAgent"
+ */
+function updatePhaseLabel(step) {
+  const streamingEl = document.querySelector("article.message.assistant.streaming");
+  if (!streamingEl) return;
+  const meta = streamingEl.querySelector(".meta");
+  if (!meta) return;
+
+  if (step === "thinking") {
+    meta.textContent = "DBAgent · 思考中...";
+  } else if (step && step.startsWith("tool:")) {
+    meta.textContent = "DBAgent · 正在查询数据库...";
+  } else {
+    meta.textContent = "DBAgent";
+  }
+}
+
+/**
+ * 清理所有动画效果：停止 TypewriterRenderer、清除步骤动画类名和 will-change 属性、
+ * 恢复 .meta 标签为 "DBAgent"。
+ * 调用点：finalizeStreamingMessage（正常/取消）、switchSession、sendMessage。
+ */
+function cleanupAnimations() {
+  // 停止打字机动画
+  typewriter.stop();
+
+  const streamingEl = document.querySelector("article.message.assistant.streaming");
+  if (streamingEl) {
+    // 清除所有步骤动画类名
+    const steps = streamingEl.querySelectorAll(".streaming-step");
+    steps.forEach((step) => {
+      step.classList.remove("running");
+      step.style.willChange = "";
+    });
+
+    // 移除所有 will-change 属性
+    streamingEl.querySelectorAll("[style*=\"will-change\"]").forEach((el) => {
+      el.style.willChange = "";
+    });
+
+    // 恢复 .meta 标签
+    const meta = streamingEl.querySelector(".meta");
+    if (meta) {
+      meta.textContent = "DBAgent";
+    }
+  }
+}
+
 // ── 流式消息渲染 ──────────────────────────────────────────────
 
 let streamingMessage = null;   // 当前流式消息的 DOM 元素
@@ -939,6 +999,9 @@ function createStreamingBubble() {
 }
 
 function finalizeStreamingMessage(cancelled = false) {
+  // 清理所有动画效果
+  cleanupAnimations();
+
   if (streamingMessage) {
     if (cancelled) {
       // 取消时原地保留内容，移除 streaming class 并追加标记
@@ -981,6 +1044,11 @@ function parseSseChunk(buffer, onEvent) {
 async function sendMessage(message) {
   const sessionId = activeSessionId;
   if (!message || !sessionId) return;
+
+  // 清理上一轮流式消息的动画并重置渲染器状态
+  cleanupAnimations();
+  typewriter.reset();
+  stepRenderer.clearSteps();
 
   appendMessage("user", message);
   messageInput.value = "";
