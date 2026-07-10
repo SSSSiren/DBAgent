@@ -104,7 +104,7 @@
   - _Requirements: 1.1, 1.2, 2.1, 2.2, 2.3, 2.4_
   - _Boundary: QueryPreferenceStore_
 
-- [ ] 4.2 (P) 偏好上下文注入单元测试
+- [x] 4.2 (P) 偏好上下文注入单元测试 — 已于 Task 2.1 中完成（14 tests in test_context.py）
   - 测试 `build_context()` 在 `session_state["_preferences"]` 非空时生成正确的 `[操作记忆 — 查询偏好]` 段落
   - 验证段落格式 `- {database}.{table}（查询 N 次）`
   - 验证偏好段落位于长期记忆段落之后
@@ -114,7 +114,7 @@
   - _Requirements: 3.1, 3.2, 3.3_
   - _Boundary: build_context_
 
-- [ ] 4.3 偏好钩子集成测试
+- [x] 4.3 偏好钩子集成测试
   - 检索钩子：用户输入包含已记录表名关键词 → `_preferences` 被注入；无匹配关键词 → 回退到 top 偏好；`preference_enabled=False` → 跳过检索
   - 记录钩子：模拟 `query_database` 成功的 `tool_calls_info` → 偏好被写入；多表 JOIN（逗号分隔 table_name）→ 每表各一条记录；记录异常 → 对话响应正常返回
   - 用户隔离：用户 A 的偏好检索不含用户 B 的数据；用户 A 的记录不影响用户 B 的检索结果
