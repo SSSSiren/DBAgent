@@ -33,6 +33,7 @@ async def lifespan(app: FastAPI):
     print(f"[DBAgent] OneDBA: {settings.onedba_base_url}")
     print(f"[DBAgent] KB: {'enabled' if settings.kb_enabled else 'disabled'} (provider=openviking, url={settings.kb_openviking_url}, auto_commit={settings.kb_auto_commit_turns}turns)")
     print(f"[DBAgent] Storage backend: {settings.storage_backend}")
+    print(f"[DBAgent] Preference: {'enabled' if settings.preference_enabled else 'disabled'}")
 
     # 初始化存储（创建数据库表和索引）
     store = get_store()

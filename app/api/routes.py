@@ -5,7 +5,7 @@ API 路由 — HTTP/WebSocket 接口与会话管理
 
 职责：
 1. 定义 HTTP/WebSocket 接口
-2. 管理会话状态（从 SESSION_STORE 恢复/保存）
+2. 管理会话状态（从存储后端恢复/保存）
 3. 协调 Agent 执行流程
 4. 格式化 SSE 响应
 
@@ -34,7 +34,7 @@ from app.api.schemas import (
     SessionState,
     SessionSummary,
 )
-from app.memory.store import DEFAULT_SESSION, get_session, get_store, save_session
+from app.memory.store import DEFAULT_SESSION, get_store
 
 # 创建路由器
 router = APIRouter()
@@ -61,6 +61,25 @@ def sse_event(event_type: str, data: dict[str, Any]) -> str:
 
 
 # ========== Agent 流包装 ==========
+
+async def _get_or_create_session(user_id: str, session_id: str) -> dict[str, Any]:
+    """获取会话状态，不存在时自动创建"""
+    store = get_store()
+    state = await store.get_session(user_id, session_id)
+    if state is not None:
+        return state
+    now_iso = __import__("datetime").datetime.now().isoformat()
+    new_state = {
+        **DEFAULT_SESSION,
+        "chat_history": [],
+        "session_id": session_id,
+        "user_id": user_id,
+        "created_at": now_iso,
+        "last_active_at": now_iso,
+    }
+    await store.create_session(user_id, session_id, new_state)
+    return new_state
+
 
 async def _record_to_openviking(
     initial_state: dict[str, Any],
@@ -202,10 +221,10 @@ async def _execute_agent_stream(
     )
 
     # 保存会话状态（传递 user_id 实现用户命名空间隔离）
-    save_session(
+    await get_store().save_session(
+        user_id,
         initial_state.get("session_id", ""),
         final_payload["updated_state"],
-        user_id=user_id,
     )
 
     yield "final", {
@@ -228,7 +247,7 @@ async def chat(request: ChatRequest) -> StreamingResponse:
 
     数据流：
     1. 接收 POST /api/chat 请求（包含 session_id + message）
-    2. 从 SESSION_STORE 恢复会话状态
+    2. 从存储后端恢复会话状态
     3. 调用 Agent 执行流
     4. 通过 SSE 实时推送事件给前端
     5. 保存会话状态
@@ -244,7 +263,7 @@ async def chat(request: ChatRequest) -> StreamingResponse:
         user_id = request.user_id if request.user_id else "default"
 
         # 恢复会话状态（传递 user_id 实现用户命名空间隔离）
-        session_state = get_session(request.session_id, user_id=user_id)
+        session_state = await _get_or_create_session(user_id, request.session_id)
         session_state["user_input"] = request.message
         session_state["user_id"] = user_id
 
@@ -273,7 +292,7 @@ async def chat_sync(request: ChatRequest) -> ChatResponse:
     # 解析 user_id（向后兼容：未提供时使用 "default"）
     user_id = request.user_id if request.user_id else "default"
 
-    session_state = get_session(request.session_id, user_id=user_id)
+    session_state = await _get_or_create_session(user_id, request.session_id)
     session_state["user_input"] = request.message
     session_state["user_id"] = user_id
 
@@ -309,7 +328,7 @@ async def websocket_chat(websocket: WebSocket, session_id: str, user_id: str = "
             message = await websocket.receive_text()
 
             # 恢复会话（传递 user_id 实现用户命名空间隔离）
-            session_state = get_session(session_id, user_id=user_id)
+            session_state = await _get_or_create_session(user_id, session_id)
             session_state["user_input"] = message
             session_state["user_id"] = user_id
 

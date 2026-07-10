@@ -1,27 +1,25 @@
 from app.memory.store import (
     DEFAULT_SESSION,
     InMemoryStore,
-    SESSION_STORE,
+    SqliteStore,
     StorageBackend,
-    get_session,
     get_store,
     reset_store,
-    save_session,
-    delete_session,
-    list_sessions,
-    session_count,
+)
+from app.memory.preferences import (
+    QueryPreferenceStore,
+    get_preference_store,
+    reset_preference_store,
 )
 
 __all__ = [
     "DEFAULT_SESSION",
     "InMemoryStore",
-    "SESSION_STORE",
+    "SqliteStore",
     "StorageBackend",
-    "get_session",
     "get_store",
     "reset_store",
-    "save_session",
-    "delete_session",
-    "list_sessions",
-    "session_count",
+    "QueryPreferenceStore",
+    "get_preference_store",
+    "reset_preference_store",
 ]

@@ -51,6 +51,9 @@ class Settings(BaseSettings):
     redis_url: str = ""
     storage_file_path: str = "data/sessions.db"
 
+    # ========== 操作记忆（查询偏好）==========
+    preference_enabled: bool = True
+
     model_config = SettingsConfigDict(
         env_file=".env",
         env_file_encoding="utf-8",
