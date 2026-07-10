@@ -604,6 +604,13 @@ function createTypewriterRenderer() {
   let targetElement = null;
   let onRenderCallback = null;
   let startTime = 0;
+  const MAX_PREVIEW = 30;  // 思考预览最多显示前 30 个字符
+
+  // 将文本截断为前 MAX_PREVIEW 个字符，超出部分用 "..." 省略
+  function truncatePreview(text) {
+    if (text.length <= MAX_PREVIEW) return text;
+    return text.substring(0, MAX_PREVIEW) + "...";
+  }
 
   function tick(timestamp) {
     if (!isRunning) return;
@@ -625,7 +632,9 @@ function createTypewriterRenderer() {
         charsRendered++;
       }
       if (targetElement) {
-        targetElement.textContent = fullText.substring(0, displayedLength);
+        // 只显示前 30 个字符，超出部分用 "..." 省略
+        const preview = fullText.substring(0, displayedLength);
+        targetElement.textContent = truncatePreview(preview);
       }
       if (onRenderCallback) onRenderCallback();
       lastTickTime = timestamp;
