@@ -1,0 +1,461 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <title>StepRenderer Unit Tests</title>
+  <style>
+    body { font-family: monospace; padding: 20px; }
+    .pass { color: green; }
+    .fail { color: red; }
+    .result { margin: 10px 0; padding: 10px; border: 1px solid #ccc; }
+    /* Minimal CSS for pulse-dot to work in tests */
+    .pulse-dot {
+      display: inline-block;
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+      background: var(--accent, #0f766e);
+      animation: pulse-dot-anim 1.2s ease-in-out infinite;
+      vertical-align: middle;
+      margin-right: 4px;
+    }
+    @keyframes pulse-dot-anim {
+      0%, 100% { opacity: 0.3; transform: scale(0.85); }
+      50% { opacity: 1; transform: scale(1); }
+    }
+    .streaming-step {
+      transition: color 0.3s ease, opacity 0.3s ease;
+      display: flex;
+      align-items: center;
+      gap: 0.4rem;
+      padding: 0.2rem 0;
+    }
+    .streaming-step.running { color: var(--accent, #0f766e); }
+    .streaming-step.completed { color: var(--ok, #0f766e); }
+    .streaming-step.error { color: var(--err, #b42318); }
+    .streaming-step .step-icon {
+      transition: opacity 0.2s ease, transform 0.2s ease;
+    }
+    .streaming-step .step-text {
+      transition: color 0.3s ease;
+    }
+  </style>
+</head>
+<body>
+  <h1>StepRenderer Tests</h1>
+  <div id="testContainer"></div>
+  <div id="results"></div>
+
+  <script>
+  const results = document.getElementById("results");
+  let passed = 0, failed = 0;
+
+  function assert(condition, name) {
+    const div = document.createElement("div");
+    div.className = "result";
+    if (condition) {
+      div.className += " pass";
+      div.textContent = "PASS: " + name;
+      passed++;
+    } else {
+      div.className += " fail";
+      div.textContent = "FAIL: " + name;
+      failed++;
+    }
+    results.appendChild(div);
+  }
+
+  // ── StepRenderer implementation ──
+  // (To be filled in by implementation; tests will fail until then)
+
+  function createStepRenderer() {
+    const steps = new Map();           // stepId → StepEntry
+    let container = null;
+
+    function _createIcon(status) {
+      if (status === "running") {
+        const dot = document.createElement("span");
+        dot.className = "pulse-dot";
+        return dot;
+      }
+      if (status === "completed") {
+        return document.createTextNode("✅");
+      }
+      if (status === "error") {
+        return document.createTextNode("❌");
+      }
+      return document.createTextNode("");
+    }
+
+    function createStep(stepId, label) {
+      if (!container) return null;
+
+      // Remove existing step if present
+      if (steps.has(stepId)) {
+        const old = steps.get(stepId);
+        if (old.element && old.element.parentNode) {
+          old.element.parentNode.removeChild(old.element);
+        }
+        steps.delete(stepId);
+      }
+
+      const element = document.createElement("div");
+      element.className = "streaming-step running";
+
+      const iconSpan = document.createElement("span");
+      iconSpan.className = "step-icon";
+      iconSpan.appendChild(_createIcon("running"));
+
+      const textSpan = document.createElement("span");
+      textSpan.className = "step-text";
+      textSpan.textContent = label;
+
+      element.appendChild(iconSpan);
+      element.appendChild(textSpan);
+      container.appendChild(element);
+
+      const entry = { stepId, status: "running", label, element };
+      steps.set(stepId, entry);
+      return entry;
+    }
+
+    function updateStep(stepId, status) {
+      const entry = steps.get(stepId);
+      if (!entry || !entry.element) return;
+
+      const element = entry.element;
+      const iconSpan = element.querySelector(".step-icon");
+      if (!iconSpan) return;
+
+      const oldStatus = entry.status;
+      if (oldStatus === status) return;
+
+      // Only proceed if status is valid
+      if (!["running", "completed", "error"].includes(status)) return;
+
+      // Remove old status class
+      element.classList.remove(oldStatus);
+
+      // Use rAF delay to trigger CSS transition for the new state
+      requestAnimationFrame(() => {
+        // Add new status class
+        element.classList.add(status);
+
+        // Update icon
+        iconSpan.innerHTML = "";
+        iconSpan.appendChild(_createIcon(status));
+      });
+
+      entry.status = status;
+    }
+
+    function clearSteps() {
+      for (const [stepId, entry] of steps) {
+        if (entry.element && entry.element.parentNode) {
+          entry.element.parentNode.removeChild(entry.element);
+        }
+      }
+      steps.clear();
+    }
+
+    function setContainer(el) {
+      container = el;
+    }
+
+    function getContainer() {
+      return container;
+    }
+
+    function getStep(stepId) {
+      return steps.get(stepId) || null;
+    }
+
+    function getStepCount() {
+      return steps.size;
+    }
+
+    function hasStep(stepId) {
+      return steps.has(stepId);
+    }
+
+    return {
+      createStep,
+      updateStep,
+      clearSteps,
+      setContainer,
+      getContainer,
+      getStep,
+      getStepCount,
+      hasStep,
+    };
+  }
+
+  // ── Run Tests ──
+
+  const container = document.getElementById("testContainer");
+
+  // Test 1: createStep creates correct DOM structure
+  {
+    const sr = createStepRenderer();
+    sr.setContainer(container);
+    container.innerHTML = "";
+
+    const entry = sr.createStep("tool:query_database", "查询数据库");
+
+    assert(entry !== null, "1a. createStep returns an entry");
+    assert(entry.stepId === "tool:query_database", "1b. entry has correct stepId");
+    assert(entry.status === "running", "1c. entry status is running");
+    assert(entry.label === "查询数据库", "1d. entry has correct label");
+    assert(entry.element instanceof HTMLElement, "1e. entry.element is an HTMLElement");
+    assert(entry.element.classList.contains("streaming-step"), "1f. element has streaming-step class");
+    assert(entry.element.classList.contains("running"), "1g. element has running class");
+
+    const iconSpan = entry.element.querySelector(".step-icon");
+    assert(iconSpan !== null, "1h. step-icon span exists");
+    const pulseDot = iconSpan.querySelector(".pulse-dot");
+    assert(pulseDot !== null, "1i. pulse-dot element exists inside step-icon");
+
+    const textSpan = entry.element.querySelector(".step-text");
+    assert(textSpan !== null, "1j. step-text span exists");
+    assert(textSpan.textContent === "查询数据库", "1k. step-text has correct label text");
+
+    assert(sr.getStepCount() === 1, "1l. step count is 1");
+    assert(sr.hasStep("tool:query_database"), "1m. hasStep returns true for existing step");
+
+    sr.clearSteps();
+  }
+
+  // Test 2: createStep appends to container
+  {
+    const sr = createStepRenderer();
+    sr.setContainer(container);
+    container.innerHTML = "";
+
+    sr.createStep("tool:a", "Step A");
+    assert(container.children.length === 1, "2a. container has 1 child after createStep");
+    assert(container.children[0].classList.contains("streaming-step"), "2b. child is a streaming-step");
+
+    sr.createStep("tool:b", "Step B");
+    assert(container.children.length === 2, "2c. container has 2 children after second createStep");
+
+    sr.clearSteps();
+    assert(container.children.length === 0, "2d. container is empty after clearSteps");
+    assert(sr.getStepCount() === 0, "2e. step count is 0 after clearSteps");
+  }
+
+  // Test 3: createStep replaces existing step
+  {
+    const sr = createStepRenderer();
+    sr.setContainer(container);
+    container.innerHTML = "";
+
+    sr.createStep("tool:test", "Original");
+    sr.createStep("tool:test", "Replaced");
+    assert(sr.getStepCount() === 1, "3a. step count stays 1 after re-creating same stepId");
+    assert(container.children.length === 1, "3b. container has 1 child");
+    const entry = sr.getStep("tool:test");
+    assert(entry.label === "Replaced", "3c. step label is updated");
+
+    sr.clearSteps();
+  }
+
+  // Test 4: updateStep changes class and icon (running → completed)
+  {
+    const sr = createStepRenderer();
+    sr.setContainer(container);
+    container.innerHTML = "";
+
+    sr.createStep("tool:test", "Test Step");
+    sr.updateStep("tool:test", "completed");
+
+    const entry = sr.getStep("tool:test");
+    assert(entry.status === "completed", "4a. entry status is completed after updateStep");
+    assert(entry.element.classList.contains("completed"), "4b. element has completed class (after rAF)");
+    assert(!entry.element.classList.contains("running"), "4c. element no longer has running class (after rAF)");
+
+    // Check icon after rAF completes
+    requestAnimationFrame(() => {
+      requestAnimationFrame(() => {
+        const iconSpan = entry.element.querySelector(".step-icon");
+        const pulseDot = iconSpan.querySelector(".pulse-dot");
+        assert(pulseDot === null, "4d. pulse-dot is removed from completed step");
+        assert(iconSpan.textContent.includes("✅"), "4e. completed step shows ✅ icon");
+      });
+    });
+
+    sr.clearSteps();
+  }
+
+  // Test 5: updateStep changes class and icon (running → error)
+  {
+    const sr = createStepRenderer();
+    sr.setContainer(container);
+    container.innerHTML = "";
+
+    sr.createStep("tool:test", "Test Step");
+    sr.updateStep("tool:test", "error");
+
+    const entry = sr.getStep("tool:test");
+    assert(entry.status === "error", "5a. entry status is error after updateStep");
+    assert(entry.element.classList.contains("error"), "5b. element has error class (after rAF)");
+    assert(!entry.element.classList.contains("running"), "5c. element no longer has running class (after rAF)");
+
+    requestAnimationFrame(() => {
+      requestAnimationFrame(() => {
+        const iconSpan = entry.element.querySelector(".step-icon");
+        const pulseDot = iconSpan.querySelector(".pulse-dot");
+        assert(pulseDot === null, "5d. pulse-dot is removed from error step");
+        assert(iconSpan.textContent.includes("❌"), "5e. error step shows ❌ icon");
+      });
+    });
+
+    sr.clearSteps();
+  }
+
+  // Test 6: updateStep is a no-op for same status
+  {
+    const sr = createStepRenderer();
+    sr.setContainer(container);
+    container.innerHTML = "";
+
+    sr.createStep("tool:test", "Test Step");
+    const entry = sr.getStep("tool:test");
+    assert(entry.status === "running", "6a. initial status is running");
+
+    // Update to same status - should be no-op
+    sr.updateStep("tool:test", "running");
+    assert(entry.status === "running", "6b. status unchanged after same-status update");
+    assert(entry.element.classList.contains("running"), "6c. element still has running class");
+
+    sr.clearSteps();
+  }
+
+  // Test 7: updateStep is a no-op for non-existent step
+  {
+    const sr = createStepRenderer();
+    sr.setContainer(container);
+    container.innerHTML = "";
+
+    // Should not throw
+    let threw = false;
+    try {
+      sr.updateStep("nonexistent", "completed");
+    } catch (e) {
+      threw = true;
+    }
+    assert(!threw, "7. updateStep on non-existent step does not throw");
+
+    sr.clearSteps();
+  }
+
+  // Test 8: updateStep ignores invalid status values
+  {
+    const sr = createStepRenderer();
+    sr.setContainer(container);
+    container.innerHTML = "";
+
+    sr.createStep("tool:test", "Test Step");
+    const entry = sr.getStep("tool:test");
+    sr.updateStep("tool:test", "invalid_status");
+    assert(entry.status === "running", "8a. status unchanged for invalid status value");
+    sr.updateStep("tool:test", "");
+    assert(entry.status === "running", "8b. status unchanged for empty status");
+    sr.updateStep("tool:test", null);
+    assert(entry.status === "running", "8c. status unchanged for null status");
+
+    sr.clearSteps();
+  }
+
+  // Test 9: multiple steps only animate running ones
+  {
+    const sr = createStepRenderer();
+    sr.setContainer(container);
+    container.innerHTML = "";
+
+    sr.createStep("tool:a", "Step A");
+    sr.createStep("tool:b", "Step B");
+    sr.createStep("tool:c", "Step C");
+
+    sr.updateStep("tool:a", "completed");
+    sr.updateStep("tool:c", "error");
+
+    // Step B should still be running
+    const entryB = sr.getStep("tool:b");
+    assert(entryB.status === "running", "9a. step B is still running");
+
+    // After rAF, check class states
+    requestAnimationFrame(() => {
+      requestAnimationFrame(() => {
+        const entryA = sr.getStep("tool:a");
+        const entryC = sr.getStep("tool:c");
+        assert(entryA.element.classList.contains("completed"), "9b. step A has completed class");
+        assert(!entryA.element.classList.contains("running"), "9c. step A does not have running class");
+        assert(entryB.element.classList.contains("running"), "9d. step B still has running class (only running step animated)");
+        assert(entryC.element.classList.contains("error"), "9e. step C has error class");
+        assert(!entryC.element.classList.contains("running"), "9f. step C does not have running class");
+      });
+    });
+
+    sr.clearSteps();
+  }
+
+  // Test 10: clearSteps removes all DOM elements
+  {
+    const sr = createStepRenderer();
+    sr.setContainer(container);
+    container.innerHTML = "";
+
+    sr.createStep("tool:a", "Step A");
+    sr.createStep("tool:b", "Step B");
+    sr.createStep("tool:c", "Step C");
+    assert(container.children.length === 3, "10a. container has 3 children");
+
+    sr.clearSteps();
+    assert(container.children.length === 0, "10b. container is empty after clearSteps");
+    assert(sr.getStepCount() === 0, "10c. step count is 0");
+    assert(!sr.hasStep("tool:a"), "10d. hasStep returns false for cleared step");
+    assert(!sr.hasStep("tool:b"), "10e. hasStep returns false for cleared step");
+    assert(!sr.hasStep("tool:c"), "10f. hasStep returns false for cleared step");
+  }
+
+  // Test 11: createStep without container returns null
+  {
+    const sr = createStepRenderer();
+    const entry = sr.createStep("tool:test", "Test");
+    assert(entry === null, "11. createStep without container returns null");
+  }
+
+  // Test 12: setContainer and getContainer
+  {
+    const sr = createStepRenderer();
+    const div = document.createElement("div");
+    sr.setContainer(div);
+    assert(sr.getContainer() === div, "12. setContainer/getContainer works correctly");
+  }
+
+  // Print summary
+  function printSummary() {
+    const total = passed + failed;
+    const summary = document.createElement("h2");
+    summary.textContent = `${passed}/${total} passed`;
+    summary.style.color = failed === 0 ? "green" : "red";
+    results.appendChild(summary);
+
+    if (failed === 0) {
+      document.body.setAttribute("data-test-result", "pass");
+    } else {
+      document.body.setAttribute("data-test-result", "fail");
+    }
+  }
+
+  // Wait for rAF-based assertions to complete, then print summary
+  requestAnimationFrame(() => {
+    requestAnimationFrame(() => {
+      requestAnimationFrame(() => {
+        printSummary();
+      });
+    });
+  });
+  </script>
+</body>
+</html>

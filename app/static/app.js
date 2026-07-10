@@ -717,6 +717,152 @@ function createTypewriterRenderer() {
 // 全局单例
 const typewriter = createTypewriterRenderer();
 
+// ── StepRenderer ─────────────────────────────────────────────────
+// 工具步骤增量 DOM 渲染：维护 stepId → StepEntry 的 Map 映射，
+// 仅更新变更步骤的类名和图标，不重建整个容器。
+
+function createStepRenderer() {
+  const steps = new Map();           // stepId → { stepId, status, label, element }
+  let container = null;
+
+  /**
+   * 根据状态创建对应的图标元素。
+   * running：CSS pulse-dot 动画指示器
+   * completed：✅ 静态图标
+   * error：❌ 静态图标
+   */
+  function _createIcon(status) {
+    if (status === "running") {
+      const dot = document.createElement("span");
+      dot.className = "pulse-dot";
+      return dot;
+    }
+    if (status === "completed") {
+      return document.createTextNode("✅");
+    }
+    if (status === "error") {
+      return document.createTextNode("❌");
+    }
+    return document.createTextNode("");
+  }
+
+  /**
+   * 创建新的工具步骤 DOM 元素并追加到容器。
+   * 若 stepId 已存在，先移除旧元素再创建新元素。
+   */
+  function createStep(stepId, label) {
+    if (!container) return null;
+
+    // 移除已存在的同名步骤
+    if (steps.has(stepId)) {
+      const old = steps.get(stepId);
+      if (old.element && old.element.parentNode) {
+        old.element.parentNode.removeChild(old.element);
+      }
+      steps.delete(stepId);
+    }
+
+    const element = document.createElement("div");
+    element.className = "streaming-step running";
+
+    const iconSpan = document.createElement("span");
+    iconSpan.className = "step-icon";
+    iconSpan.appendChild(_createIcon("running"));
+
+    const textSpan = document.createElement("span");
+    textSpan.className = "step-text";
+    textSpan.textContent = label;
+
+    element.appendChild(iconSpan);
+    element.appendChild(textSpan);
+    container.appendChild(element);
+
+    const entry = { stepId, status: "running", label, element };
+    steps.set(stepId, entry);
+    return entry;
+  }
+
+  /**
+   * 更新步骤状态。
+   * 状态过渡：先移除旧类名 → rAF 延迟一帧 → 添加新类名，触发 CSS transition。
+   * 仅对 running 状态的步骤保留动画类名。
+   */
+  function updateStep(stepId, status) {
+    const entry = steps.get(stepId);
+    if (!entry || !entry.element) return;
+
+    const validStatuses = ["running", "completed", "error"];
+    if (!validStatuses.includes(status)) return;
+
+    const oldStatus = entry.status;
+    if (oldStatus === status) return;
+
+    const element = entry.element;
+    const iconSpan = element.querySelector(".step-icon");
+    if (!iconSpan) return;
+
+    // 先移除旧状态类名
+    element.classList.remove(oldStatus);
+
+    // 延迟一帧后添加新状态类名，触发 CSS transition
+    requestAnimationFrame(() => {
+      element.classList.add(status);
+
+      // 更新图标
+      iconSpan.innerHTML = "";
+      iconSpan.appendChild(_createIcon(status));
+    });
+
+    entry.status = status;
+  }
+
+  /**
+   * 清除所有步骤 DOM 元素和内部状态。
+   */
+  function clearSteps() {
+    for (const [, entry] of steps) {
+      if (entry.element && entry.element.parentNode) {
+        entry.element.parentNode.removeChild(entry.element);
+      }
+    }
+    steps.clear();
+  }
+
+  function setContainer(el) {
+    container = el;
+  }
+
+  function getContainer() {
+    return container;
+  }
+
+  function getStep(stepId) {
+    return steps.get(stepId) || null;
+  }
+
+  function getStepCount() {
+    return steps.size;
+  }
+
+  function hasStep(stepId) {
+    return steps.has(stepId);
+  }
+
+  return {
+    createStep,
+    updateStep,
+    clearSteps,
+    setContainer,
+    getContainer,
+    getStep,
+    getStepCount,
+    hasStep,
+  };
+}
+
+// 全局单例
+const stepRenderer = createStepRenderer();
+
 // ── 流式消息渲染 ──────────────────────────────────────────────
 
 let streamingMessage = null;   // 当前流式消息的 DOM 元素
