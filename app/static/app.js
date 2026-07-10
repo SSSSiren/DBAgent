@@ -10,6 +10,7 @@ const runSteps = document.querySelector("#runSteps");
 const form = document.querySelector("#chatForm");
 const messageInput = document.querySelector("#messageInput");
 const sendBtn = document.querySelector("#sendBtn");
+const stopBtn = document.querySelector("#stopBtn");
 const confirmBtn = document.querySelector("#confirmBtn");
 const connectionBadge = document.querySelector("#connectionBadge");
 const memoryBadge = document.querySelector("#memoryBadge");
@@ -585,11 +586,144 @@ function addStep(step, state) {
   updateStreamingMessage(step, state);
 }
 
+// ── TypewriterRenderer ──────────────────────────────────────────
+// 打字机状态机：管理思考文本的逐字渲染
+
+function createTypewriterRenderer() {
+  let fullText = "";
+  let displayedLength = 0;
+  let charDelay = 30;
+  let isRunning = false;
+  let rafId = null;
+  let lastTickTime = 0;
+  let targetElement = null;
+  let onRenderCallback = null;
+  let startTime = 0;
+
+  function tick(timestamp) {
+    if (!isRunning) return;
+    if (!lastTickTime) lastTickTime = timestamp;
+
+    const elapsed = timestamp - lastTickTime;
+    const queueElapsed = timestamp - startTime;
+
+    // 加速模式：队列超过 3 秒 → 字符间隔降至 5ms
+    const effectiveDelay = queueElapsed > 3000 ? 5 : charDelay;
+
+    // 后台标签页恢复：时间差超过 100ms → 批量渲染 5 个字符
+    const batchSize = elapsed > 100 ? 5 : 1;
+
+    if (elapsed >= effectiveDelay) {
+      let charsRendered = 0;
+      while (charsRendered < batchSize && displayedLength < fullText.length) {
+        displayedLength++;
+        charsRendered++;
+      }
+      if (targetElement) {
+        targetElement.textContent = fullText.substring(0, displayedLength);
+      }
+      if (onRenderCallback) onRenderCallback();
+      lastTickTime = timestamp;
+    }
+
+    if (displayedLength < fullText.length) {
+      rafId = requestAnimationFrame(tick);
+    } else {
+      // 全部渲染完成 → 移除光标
+      if (targetElement) {
+        targetElement.classList.remove("streaming-cursor");
+      }
+      isRunning = false;
+      rafId = null;
+    }
+  }
+
+  function appendText(text) {
+    try {
+      if (typeof text !== "string") {
+        text = String(text ?? "");
+      }
+      fullText += text;
+      if (!isRunning) {
+        startTime = performance.now();
+        isRunning = true;
+        lastTickTime = 0;
+        if (targetElement) {
+          targetElement.classList.add("streaming-cursor");
+        }
+        rafId = requestAnimationFrame(tick);
+      }
+    } catch (e) {
+      // 异常降级：立即显示全部缓冲文本
+      flush();
+    }
+  }
+
+  function flush() {
+    if (rafId !== null) {
+      cancelAnimationFrame(rafId);
+      rafId = null;
+    }
+    try {
+      displayedLength = fullText.length;
+      if (targetElement) {
+        targetElement.textContent = fullText;
+        targetElement.classList.remove("streaming-cursor");
+      }
+    } catch (e) {
+      // DOM 操作失败，静默降级
+    }
+    isRunning = false;
+  }
+
+  function stop() {
+    if (rafId !== null) {
+      cancelAnimationFrame(rafId);
+      rafId = null;
+    }
+    isRunning = false;
+    if (targetElement) {
+      targetElement.classList.remove("streaming-cursor");
+    }
+  }
+
+  function reset() {
+    stop();
+    fullText = "";
+    displayedLength = 0;
+    charDelay = 30;
+    lastTickTime = 0;
+    startTime = 0;
+  }
+
+  function setTarget(el) {
+    targetElement = el;
+  }
+
+  function setOnRender(cb) {
+    onRenderCallback = cb;
+  }
+
+  return {
+    appendText,
+    flush,
+    stop,
+    reset,
+    setTarget,
+    setOnRender,
+  };
+}
+
+// 全局单例
+const typewriter = createTypewriterRenderer();
+
 // ── 流式消息渲染 ──────────────────────────────────────────────
 
 let streamingMessage = null;   // 当前流式消息的 DOM 元素
 let streamingText = "";        // 累积的思考文本
 let streamingSteps = [];       // 累积的步骤信息
+let abortController = null;    // 当前请求的 AbortController
+let finalHandled = false;      // 防止双重 final 事件
 
 function updateStreamingMessage(step, state) {
   const status = state?.status || "running";
@@ -658,10 +792,26 @@ function createStreamingBubble() {
   return article;
 }
 
-function finalizeStreamingMessage() {
+function finalizeStreamingMessage(cancelled = false) {
   if (streamingMessage) {
-    streamingMessage.remove();
-    streamingMessage = null;
+    if (cancelled) {
+      // 取消时原地保留内容，移除 streaming class 并追加标记
+      streamingMessage.classList.remove("streaming");
+      streamingMessage.classList.add("cancelled");
+      const body = streamingMessage.querySelector(".content");
+      if (body) {
+        const stopMark = document.createElement("div");
+        stopMark.className = "cancelled-mark";
+        stopMark.textContent = "[已停止生成]";
+        stopMark.style.cssText = "color:#b45309;font-size:13px;margin-top:8px;font-style:italic;";
+        body.appendChild(stopMark);
+      }
+      // 保留气泡作为普通消息
+      streamingMessage = null;
+    } else {
+      streamingMessage.remove();
+      streamingMessage = null;
+    }
     streamingText = "";
     streamingSteps = [];
   }
@@ -689,9 +839,15 @@ async function sendMessage(message) {
   appendMessage("user", message);
   messageInput.value = "";
   runSteps.innerHTML = "";
-  sendBtn.disabled = true;
+  sendBtn.hidden = true;
+  stopBtn.hidden = false;
+  stopBtn.disabled = false;
   confirmBtn.disabled = true;
   setBadge("运行中", "busy");
+
+  // 重置取消相关状态
+  abortController = new AbortController();
+  finalHandled = false;
 
   let finalPayload = null;
   try {
@@ -699,6 +855,7 @@ async function sendMessage(message) {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ session_id: sessionId, user_id: getUserId(), message }),
+      signal: abortController.signal,
     });
     if (!response.ok || !response.body) throw new Error(`HTTP ${response.status}`);
 
@@ -717,40 +874,112 @@ async function sendMessage(message) {
           console.log('[SQL Event]', event.sql);
           updateLatestSql(event.sql);
         }
-        if (event.type === "final") finalPayload = event;
+        if (event.type === "final") {
+          // 双重 final 事件防抖
+          if (finalHandled) return;
+          finalPayload = event;
+        }
       });
     }
     if (finalPayload) {
-      // 清除流式消息
-      finalizeStreamingMessage();
+      const cancelled = finalPayload.cancelled === true;
 
-      // 渲染执行摘要
-      const stats = finalPayload.stats || {};
-      const toolCount = (finalPayload.tool_calls || []).length;
-      const durationMs = stats.duration_ms || 0;
-      const durationSec = durationMs ? (durationMs / 1000).toFixed(1) + "s" : "N/A";
-      const tokens = stats.tokens ? stats.tokens + " tokens" : "";
-      runSteps.innerHTML = `<div class="step completed"><strong>${toolCount} tools</strong><span>${tokens} | ${durationSec}</span></div>`;
+      if (cancelled) {
+        // 取消场景：原地保留流式气泡，追加标记
+        finalHandled = true;
+        finalizeStreamingMessage(true);
 
-      appendMessage("assistant", finalPayload.reply || "没有返回内容。");
-      updateLatestSql(
-        finalPayload.latest_sql || latestSqlFromToolCalls(finalPayload.tool_calls) || sqlFromReply(finalPayload.reply)
-      );
-      setBadge(finalPayload.needs_confirmation ? "等待确认" : "就绪", finalPayload.needs_confirmation ? "busy" : "");
-      updateMemoryBadge(finalPayload.memory_count || 0);
-      setConfirmationMode(Boolean(finalPayload.needs_confirmation));
+        runSteps.innerHTML = `<div class="step completed"><strong>已取消</strong><span>已停止生成</span></div>`;
+        setBadge("已取消", "cancelled");
+        setConfirmationMode(false);
+      } else {
+        // 正常完成
+        finalHandled = true;
+        finalizeStreamingMessage(false);
+
+        const stats = finalPayload.stats || {};
+        const toolCount = (finalPayload.tool_calls || []).length;
+        const durationMs = stats.duration_ms || 0;
+        const durationSec = durationMs ? (durationMs / 1000).toFixed(1) + "s" : "N/A";
+        const tokens = stats.tokens ? stats.tokens + " tokens" : "";
+        runSteps.innerHTML = `<div class="step completed"><strong>${toolCount} tools</strong><span>${tokens} | ${durationSec}</span></div>`;
+
+        appendMessage("assistant", finalPayload.reply || "没有返回内容。");
+        updateLatestSql(
+          finalPayload.latest_sql || latestSqlFromToolCalls(finalPayload.tool_calls) || sqlFromReply(finalPayload.reply)
+        );
+        setBadge(finalPayload.needs_confirmation ? "等待确认" : "就绪", finalPayload.needs_confirmation ? "busy" : "");
+        updateMemoryBadge(finalPayload.memory_count || 0);
+        setConfirmationMode(Boolean(finalPayload.needs_confirmation));
+      }
     } else {
       throw new Error("没有收到 final 事件");
     }
   } catch (error) {
-    runSteps.innerHTML = `<div class="step error"><strong>请求失败</strong><span>${escapeHtml(error.message)}</span></div>`;
-    appendMessage("assistant", `请求失败：${error.message}`);
-    setBadge("请求失败", "error");
-    setConfirmationMode(false);
+    if (error.name === "AbortError") {
+      // 用户取消导致的 AbortError，静默处理
+      if (!finalHandled) {
+        finalizeStreamingMessage(true);
+        runSteps.innerHTML = `<div class="step completed"><strong>已取消</strong><span>连接已断开</span></div>`;
+        setBadge("已取消", "cancelled");
+        setConfirmationMode(false);
+      }
+    } else {
+      runSteps.innerHTML = `<div class="step error"><strong>请求失败</strong><span>${escapeHtml(error.message)}</span></div>`;
+      appendMessage("assistant", `请求失败：${error.message}`);
+      setBadge("请求失败", "error");
+      setConfirmationMode(false);
+    }
   } finally {
+    // 恢复 UI 状态
+    sendBtn.hidden = false;
+    stopBtn.hidden = true;
+    abortController = null;
     refreshSession();
   }
 }
+
+async function stopGeneration() {
+  if (!abortController) return;
+
+  const sessionId = activeSessionId;
+  if (!sessionId) return;
+
+  stopBtn.disabled = true;
+  setBadge("取消中", "busy");
+
+  try {
+    // 先发送优雅取消请求
+    const cancelResponse = await fetch(`/api/chat/${encodeURIComponent(sessionId)}/cancel`, {
+      method: "POST",
+    });
+    const cancelData = await cancelResponse.json();
+
+    if (cancelData.cancelled) {
+      // 取消信号已发送，等待 SSE 返回 cancelled 事件
+      // 给 500ms 窗口，若超时则强制 abort
+      setTimeout(() => {
+        if (!finalHandled && abortController) {
+          abortController.abort();
+        }
+      }, 500);
+    } else {
+      // 没有活跃的 Agent，直接强制断开
+      abortController.abort();
+    }
+  } catch {
+    // 取消请求失败，直接强制断开
+    if (abortController) {
+      abortController.abort();
+    }
+  }
+}
+
+// 停止按钮事件
+stopBtn.addEventListener("click", (event) => {
+  event.preventDefault();
+  stopGeneration();
+});
 
 form.addEventListener("submit", (event) => {
   event.preventDefault();
