@@ -871,8 +871,8 @@ class TestEdgeCases:
         assert table_names == {"orders", "customers"}
 
     @pytest.mark.asyncio
-    async def test_missing_database_name_no_record(self, pref_store, monkeypatch):
-        """initial_state 中缺少 selected_database 时不应记录偏好"""
+    async def test_missing_database_name_falls_back_to_schema_id(self, pref_store, monkeypatch):
+        """initial_state 中缺少 selected_database 时，用 schema_id 作为 database_name 兜底"""
         from app.api.routes import _execute_agent_stream
 
         _patch_common(monkeypatch, pref_store, preference_enabled=True)
@@ -891,9 +891,11 @@ class TestEdgeCases:
         final_event = events[-1]
         assert final_event[0] == "final"
 
-        # 无 database_name，不应记录
+        # schema_id=1 > 0，应回退用 "1" 作为 database_name 记录
         prefs = await pref_store.retrieve_top_preferences("alice", limit=10)
-        assert len(prefs) == 0
+        assert len(prefs) == 1
+        assert prefs[0]["table_name"] == "orders"
+        assert prefs[0]["database_name"] == "1"  # schema_id 兜底
 
     @pytest.mark.asyncio
     async def test_preference_count_in_final_yield(self, pref_store, monkeypatch):
