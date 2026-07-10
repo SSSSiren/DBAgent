@@ -84,7 +84,7 @@
   - _Depends: 1.3_
   - _Boundary: _execute_agent_stream_
 
-- [ ] 3.3 应用生命周期集成偏好存储
+- [x] 3.3 应用生命周期集成偏好存储
   - 在 `app/main.py` 的 `lifespan` 启动阶段调用 `get_preference_store().initialize()` 初始化偏好表
   - 在 `lifespan` 关闭阶段调用 `get_preference_store().close()` 释放数据库连接
   - 启动日志中打印偏好存储初始化状态

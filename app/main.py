@@ -39,10 +39,20 @@ async def lifespan(app: FastAPI):
     store = get_store()
     await store.initialize()
 
+    # 初始化偏好存储（创建 query_preferences 表）
+    if settings.preference_enabled:
+        from app.memory.preferences import get_preference_store
+        pref_store = get_preference_store()
+        await pref_store.initialize()
+        print("[DBAgent] Preference store initialized")
+
     yield
 
     # 关闭时
     print("[DBAgent] Shutting down")
+    if settings.preference_enabled:
+        from app.memory.preferences import get_preference_store
+        await get_preference_store().close()
     await store.close()
     from app.client.onedba import get_onedba_client
     await get_onedba_client().close()
