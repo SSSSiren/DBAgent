@@ -658,18 +658,19 @@ function createTypewriterRenderer() {
         text = String(text ?? "");
       }
       fullText += text;
+      // 同步渲染截断预览：立即更新 DOM，不等待 rAF
+      // rAF 不会在繁忙的 SSE 事件处理循环中调用
+      if (targetElement) {
+        if (!isRunning) {
+          targetElement.classList.add("streaming-cursor");
+        }
+        targetElement.textContent = truncatePreview(fullText);
+        if (onRenderCallback) onRenderCallback();
+      }
       if (!isRunning) {
         startTime = performance.now();
         isRunning = true;
         lastTickTime = 0;
-        if (targetElement) {
-          targetElement.classList.add("streaming-cursor");
-        }
-        // 立即显示首个字符，避免用户看到空白光标等待
-        if (fullText.length > 0 && targetElement) {
-          displayedLength = 1;
-          targetElement.textContent = truncatePreview(fullText.substring(0, 1));
-        }
         rafId = requestAnimationFrame(tick);
       }
     } catch (e) {
@@ -1031,10 +1032,8 @@ function finalizeStreamingMessage(cancelled = false) {
   stepRenderer.clearSteps();
 
   if (streamingMessage) {
-    // 移除 streaming class（停止边框脉冲动画），转为普通消息
-    streamingMessage.classList.remove("streaming");
-
     if (cancelled) {
+      streamingMessage.classList.remove("streaming");
       streamingMessage.classList.add("cancelled");
       const body = streamingMessage.querySelector(".content");
       if (body) {
@@ -1044,9 +1043,11 @@ function finalizeStreamingMessage(cancelled = false) {
         stopMark.style.cssText = "color:#b45309;font-size:13px;margin-top:8px;font-style:italic;";
         body.appendChild(stopMark);
       }
+      streamingMessage = null;
+    } else {
+      streamingMessage.remove();
+      streamingMessage = null;
     }
-    // 正常完成时也保留气泡（思考文本可见），不删除
-    streamingMessage = null;
     streamingText = "";
     streamingSteps = [];
   }
@@ -1145,6 +1146,8 @@ async function sendMessage(message) {
         runSteps.innerHTML = `<div class="step completed"><strong>${toolCount} tools</strong><span>${tokens} | ${durationSec}</span></div>`;
 
         appendMessage("assistant", finalPayload.reply || "没有返回内容。");
+        // 确保滚动到最新消息（流式气泡被移除后需要重新计算）
+        messages.scrollTop = messages.scrollHeight;
         updateLatestSql(
           finalPayload.latest_sql || latestSqlFromToolCalls(finalPayload.tool_calls) || sqlFromReply(finalPayload.reply)
         );
