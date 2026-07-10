@@ -93,7 +93,7 @@
   - _Boundary: app.main.lifespan_
 
 - [ ] 4. 测试验证
-- [ ] 4.1 (P) 偏好存储单元测试
+- [x] 4.1 (P) 偏好存储单元测试
   - 使用 `QueryPreferenceStore(":memory:")` 创建测试实例
   - `record_query`：新记录创建后 `query_count=1`、重复记录 `query_count` 递增、不同 user_id 隔离、空参数校验
   - `record_query` LRU 淘汰：写入第 51 条不同表时最不常用记录被淘汰、命中已有行不触发淘汰
