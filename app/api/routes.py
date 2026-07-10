@@ -246,8 +246,9 @@ async def _execute_agent_stream(
                     args = tc.get("args", {})
                     table_name = args.get("table_name", "")
                     schema_id = args.get("schema_id", 0)
-                    # 从 session_state 获取 database_name
-                    db_info = initial_state.get("selected_database") or {}
+                    # 从 updated_state 获取 database_name（Agent 对话中选库后存入 updated_state）
+                    updated = final_payload.get("updated_state") or {}
+                    db_info = updated.get("selected_database") or initial_state.get("selected_database") or {}
                     database_name = db_info.get("schemaName", "")
                     print(f"[Pref] record attempt: table={table_name!r} db={database_name!r} schema={schema_id}")
                     if table_name and database_name:
