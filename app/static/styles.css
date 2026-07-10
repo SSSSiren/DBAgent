@@ -758,6 +758,23 @@ textarea:focus {
   50% { border-color: var(--line); }
 }
 
+.thinking-text {
+  white-space: pre-wrap;
+  word-wrap: break-word;
+  line-height: 1.65;
+}
+
+.thinking-text.streaming-cursor::after {
+  content: "";
+  display: inline-block;
+  width: 2px;
+  height: 1em;
+  margin-left: 2px;
+  background: var(--accent);
+  vertical-align: text-bottom;
+  animation: blink-cursor 0.8s step-end infinite;
+}
+
 .streaming-steps {
   margin-top: 0.5rem;
   font-size: 0.82rem;

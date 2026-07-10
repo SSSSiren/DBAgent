@@ -935,43 +935,37 @@ function updateStreamingMessage(step, state) {
   const status = state?.status || "running";
   const text = state?.text || "";
 
-  // 累积思考文本
-  if (step === "thinking" && text) {
-    streamingText += text;
-  }
-
-  // 记录工具步骤
-  const existing = streamingSteps.find((s) => s.step === step);
-  if (existing) {
-    existing.status = status;
-  } else {
-    streamingSteps.push({ step, status, text });
-  }
-
-  // 创建或更新流式消息气泡
+  // Create streaming bubble if not yet created
   if (!streamingMessage) {
     streamingMessage = createStreamingBubble();
   }
 
-  // 渲染当前累积内容
-  let html = "";
-  if (streamingText) {
-    html += renderMarkdown(streamingText);
-  }
-  if (streamingSteps.length) {
-    html += "<div class=\"streaming-steps\">";
-    streamingSteps.forEach((s) => {
-      const icon = s.status === "running" ? "⏳" : s.status === "completed" ? "✅" : "❌";
-      const label = s.step === "thinking" ? "思考中" : s.step.replace("tool:", "");
-      html += `<div class="streaming-step ${s.status}"><span>${icon} ${escapeHtml(label)}</span></div>`;
-    });
-    html += "</div>";
+  // Phase label: update .meta to reflect current stage
+  updatePhaseLabel(step);
+
+  if (step === "thinking") {
+    // Thinking text → TypewriterRenderer (incremental, char-by-char)
+    if (text) {
+      typewriter.appendText(text);
+    }
+  } else {
+    // Non-thinking step → flush typewriter (complete remaining chars immediately)
+    typewriter.flush();
   }
 
-  const body = streamingMessage.querySelector(".content");
-  if (body) body.innerHTML = html;
+  // Tool steps → StepRenderer (incremental DOM, no innerHTML rebuild)
+  if (step && step.startsWith("tool:")) {
+    // Determine display label: strip "tool:" prefix
+    const label = step.replace(/^tool:/, "");
 
-  messages.scrollTop = messages.scrollHeight;
+    if (stepRenderer.hasStep(step)) {
+      // Existing step: update status if changed
+      stepRenderer.updateStep(step, status);
+    } else {
+      // New step: create DOM element
+      stepRenderer.createStep(step, label);
+    }
+  }
 }
 
 function createStreamingBubble() {
@@ -992,6 +986,25 @@ function createStreamingBubble() {
   const body = document.createElement("div");
   body.className = "content";
 
+  // Persistent DOM elements for incremental rendering
+  // thinkingEl: TypewriterRenderer target, operates on textContent
+  const thinkingEl = document.createElement("div");
+  thinkingEl.className = "thinking-text streaming-cursor";
+
+  // stepsContainer: StepRenderer manages child elements here
+  const stepsContainer = document.createElement("div");
+  stepsContainer.className = "streaming-steps";
+
+  body.appendChild(thinkingEl);
+  body.appendChild(stepsContainer);
+
+  // Wire renderers to persistent DOM elements
+  typewriter.setTarget(thinkingEl);
+  typewriter.setOnRender(() => {
+    messages.scrollTop = messages.scrollHeight;
+  });
+  stepRenderer.setContainer(stepsContainer);
+
   bubble.append(meta, body);
   article.append(avatar, bubble);
   messages.appendChild(article);
@@ -1001,6 +1014,7 @@ function createStreamingBubble() {
 function finalizeStreamingMessage(cancelled = false) {
   // 清理所有动画效果
   cleanupAnimations();
+  stepRenderer.clearSteps();
 
   if (streamingMessage) {
     if (cancelled) {
