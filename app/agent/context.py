@@ -67,6 +67,16 @@ def build_context(session_state: dict[str, Any]) -> str:
         context_parts.append("\n".join(memory_lines))
         print(f"[KB] build_context: 注入 {len(memories[:10])} 条长期记忆到提示词")
 
+    # 5. 操作记忆（查询偏好）
+    preferences = session_state.get("_preferences", [])
+    if preferences:
+        pref_lines = ["[操作记忆 — 查询偏好]"]
+        for p in preferences:
+            pref_lines.append(
+                f"- {p['database_name']}.{p['table_name']}（查询 {p['query_count']} 次）"
+            )
+        context_parts.append("\n".join(pref_lines))
+
     return "\n\n".join(context_parts) if context_parts else ""
 
 

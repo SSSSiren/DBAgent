@@ -35,7 +35,7 @@
   - _Boundary: QueryPreferenceStore_
 
 - [ ] 2. Agent 上下文增强
-- [ ] 2.1 (P) 偏好信息注入 Agent 上下文
+- [x] 2.1 (P) 偏好信息注入 Agent 上下文
   - 在 `build_context()` 中新增第 5 段：读取 `session_state["_preferences"]`
   - 非空时构建 `[操作记忆 — 查询偏好]` 段落，格式为 `- {database_name}.{table_name}（查询 {query_count} 次）`
   - 偏好段落位于 `[长期记忆 — 来自之前的对话]` 之后，两类信息并列展示
