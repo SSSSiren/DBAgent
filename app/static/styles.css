@@ -9,6 +9,8 @@
   --accent: #0f766e;
   --accent-dark: #115e59;
   --danger: #b42318;
+  --ok: #0f766e;
+  --err: #b42318;
   --code: #eef6f5;
   --shadow: 0 18px 45px rgba(31, 45, 61, 0.12);
 }
@@ -435,16 +437,33 @@ textarea:focus {
   white-space: nowrap;
 }
 
-.badge.busy {
-  color: var(--accent-dark);
-  border-color: rgba(15, 118, 110, 0.35);
-  background: rgba(15, 118, 110, 0.08);
+.badge.cancelled {
+  color: #b45309;
+  border-color: rgba(180, 83, 9, 0.35);
+  background: rgba(180, 83, 9, 0.08);
 }
 
-.badge.error {
-  color: var(--danger);
-  border-color: rgba(180, 35, 24, 0.35);
-  background: rgba(180, 35, 24, 0.08);
+/* ── 停止按钮 ─────────────────────────────────────────────────── */
+
+#stopBtn {
+  background: #b42318;
+  color: #fff;
+  border-color: transparent;
+}
+
+#stopBtn:hover {
+  background: #9a1d14;
+}
+
+#stopBtn:disabled {
+  cursor: not-allowed;
+  opacity: 0.55;
+}
+
+/* ── 取消消息 ─────────────────────────────────────────────────── */
+
+.message.cancelled .bubble {
+  border-left: 3px solid #b45309;
 }
 
 .messages {
@@ -639,9 +658,104 @@ textarea:focus {
   animation: pulse-border 1.5s ease-in-out infinite;
 }
 
+/* ── 新动画关键帧 ─────────────────────────────────────────── */
+
+@keyframes blink-cursor {
+  0%, 100% { opacity: 0; }
+  50% { opacity: 1; }
+}
+
+@keyframes pulse-dot {
+  0%, 100% { opacity: 0.3; transform: scale(0.85); }
+  50% { opacity: 1; transform: scale(1); }
+}
+
+@keyframes text-pulse {
+  0%, 100% { opacity: 0.5; }
+  50% { opacity: 1; }
+}
+
+/* ── 打字机光标 ───────────────────────────────────────────── */
+
+.streaming-cursor::after {
+  content: "";
+  display: inline-block;
+  width: 2px;
+  height: 1em;
+  margin-left: 2px;
+  background: var(--accent);
+  vertical-align: text-bottom;
+  animation: blink-cursor 0.8s step-end infinite;
+}
+
+/* ── 工具步骤脉冲指示器 ──────────────────────────────────── */
+
+.pulse-dot {
+  display: inline-block;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--accent);
+  animation: pulse-dot 1.2s ease-in-out infinite;
+  vertical-align: middle;
+  margin-right: 4px;
+}
+
+/* ── 步骤过渡规则 ─────────────────────────────────────────── */
+
+.streaming-step {
+  transition: color 0.3s ease, opacity 0.3s ease;
+}
+
+.streaming-step .step-icon {
+  transition: opacity 0.2s ease, transform 0.2s ease;
+}
+
+.streaming-step .step-text {
+  transition: color 0.3s ease;
+}
+
+/* ── 阶段标签 ─────────────────────────────────────────────── */
+
+.phase-label {
+  color: var(--muted);
+  font-size: 0.82rem;
+  font-weight: 400;
+}
+
+/* ── 无障碍降级 ──────────────────────────────────────────── */
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+
+  .pulse-dot {
+    animation: none;
+    opacity: 0.6;
+  }
+
+  .streaming-cursor::after {
+    animation: none;
+    opacity: 0;
+  }
+
+  .streaming-step {
+    transition: none;
+  }
+
+  .streaming-step .step-icon {
+    transition: none;
+  }
+}
+
 @keyframes pulse-border {
   0%, 100% { border-color: var(--accent); }
-  50% { border-color: #93c5fd; }
+  50% { border-color: var(--line); }
 }
 
 .streaming-steps {
