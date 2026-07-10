@@ -945,6 +945,7 @@ let streamingText = "";        // 累积的思考文本
 let streamingSteps = [];       // 累积的步骤信息
 let abortController = null;    // 当前请求的 AbortController
 let finalHandled = false;      // 防止双重 final 事件
+let lastPhase = null;          // 上一阶段类型（thinking/tool），用于跨轮次状态管理
 
 function updateStreamingMessage(step, state) {
   const status = state?.status || "running";
@@ -959,10 +960,22 @@ function updateStreamingMessage(step, state) {
   updatePhaseLabel(step);
 
   if (step === "thinking") {
-    // Thinking text → TypewriterRenderer (incremental, char-by-char)
+    // 如果上一阶段是工具调用，说明进入了新一轮思考，重置打字机状态
+    if (lastPhase === "tool" && text) {
+      typewriter.reset();
+      // 重新设置 target（reset 不清除 target，但确保光标恢复）
+      const thinkingEl = streamingMessage?.querySelector(".thinking-text");
+      if (thinkingEl) {
+        typewriter.setTarget(thinkingEl);
+        thinkingEl.classList.add("streaming-cursor");
+      }
+    }
     if (text) {
       typewriter.appendText(text);
     }
+    lastPhase = "thinking";
+  } else if (step && step.startsWith("tool:")) {
+    lastPhase = "tool";
   }
   // 注意：不在这里调用 typewriter.flush()，让打字机在后台持续运行
   // 即使工具步骤同时到达，思考文本也会逐字渲染
@@ -970,17 +983,24 @@ function updateStreamingMessage(step, state) {
 
   // Tool steps → StepRenderer (incremental DOM, no innerHTML rebuild)
   if (step && step.startsWith("tool:")) {
-    // Determine display label: strip "tool:" prefix
+    // 进入工具阶段时清除思考文本预览，避免与工具步骤视觉混淆
+    const thinkingEl = streamingMessage?.querySelector(".thinking-text");
+    if (thinkingEl) {
+      thinkingEl.textContent = "";
+      thinkingEl.classList.remove("streaming-cursor");
+    }
+
     const label = step.replace(/^tool:/, "");
 
     if (stepRenderer.hasStep(step)) {
-      // Existing step: update status if changed
       stepRenderer.updateStep(step, status);
     } else {
-      // New step: create DOM element
       stepRenderer.createStep(step, label);
     }
   }
+
+  // 每次 SSE 事件后滚动到最新位置
+  messages.scrollTop = messages.scrollHeight;
 }
 
 function createStreamingBubble() {
