@@ -898,8 +898,8 @@ function updatePhaseLabel(step) {
  * 调用点：finalizeStreamingMessage（正常/取消）、switchSession、sendMessage。
  */
 function cleanupAnimations() {
-  // 停止打字机动画
-  typewriter.stop();
+  // 立即渲染剩余打字机文本并停止
+  typewriter.flush();
 
   const streamingEl = document.querySelector("article.message.assistant.streaming");
   if (streamingEl) {
@@ -948,10 +948,10 @@ function updateStreamingMessage(step, state) {
     if (text) {
       typewriter.appendText(text);
     }
-  } else {
-    // Non-thinking step → flush typewriter (complete remaining chars immediately)
-    typewriter.flush();
   }
+  // 注意：不在这里调用 typewriter.flush()，让打字机在后台持续运行
+  // 即使工具步骤同时到达，思考文本也会逐字渲染
+  // flush 仅在 final 事件时通过 finalizeStreamingMessage 触发
 
   // Tool steps → StepRenderer (incremental DOM, no innerHTML rebuild)
   if (step && step.startsWith("tool:")) {

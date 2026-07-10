@@ -217,8 +217,8 @@
   }
 
   function cleanupAnimations() {
-    // Stop TypewriterRenderer
-    typewriter.stop();
+    // Flush remaining typewriter text and stop
+    typewriter.flush();
 
     // Clear step animation classes and will-change
     const streamingEl = document.querySelector('article.message.assistant.streaming');

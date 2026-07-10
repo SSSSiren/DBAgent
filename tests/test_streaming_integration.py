@@ -247,16 +247,14 @@ class TestPipelineRouting:
         phase_labels = []
 
         def route_event(step, text):
-            # Simulate the routing logic
+            # Simulate the routing logic (flush removed from non-thinking branches)
             if step == "thinking":
                 if text:
                     typewriter_calls.append(("appendText", text))
                 phase_labels.append("thinking")
             elif step and step.startswith("tool:"):
-                typewriter_calls.append(("flush",))
                 phase_labels.append("tool")
             else:
-                typewriter_calls.append(("flush",))
                 phase_labels.append("other")
 
         route_event("thinking", "Hello")
@@ -266,8 +264,8 @@ class TestPipelineRouting:
         route_event("thinking", " World")
         assert typewriter_calls == [("appendText", "Hello"), ("appendText", " World")]
 
-    def test_tool_step_flushes_then_creates(self):
-        """When step is 'tool:*', typewriter should flush, then step should be created."""
+    def test_tool_step_creates_without_flush(self):
+        """When step is 'tool:*', typewriter should NOT flush — it keeps running."""
         typewriter_calls = []
         step_ops = []
         existing_steps = {}
@@ -277,7 +275,7 @@ class TestPipelineRouting:
                 if text:
                     typewriter_calls.append(("appendText", text))
             elif step and step.startswith("tool:"):
-                typewriter_calls.append(("flush",))
+                # No flush here — typewriter keeps running independently
                 if step in existing_steps:
                     existing_steps[step] = status
                     step_ops.append(("updateStep", step, status))
@@ -288,7 +286,8 @@ class TestPipelineRouting:
         route_event("thinking", "Let me query...", "running")
         route_event("tool:query_database", "", "running")
 
-        assert ("flush",) in typewriter_calls
+        # flush should NOT be called — typewriter keeps running in background
+        assert ("flush",) not in typewriter_calls
         assert ("createStep", "tool:query_database") in step_ops
 
     def test_tool_step_status_update(self):
