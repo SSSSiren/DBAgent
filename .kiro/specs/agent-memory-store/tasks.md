@@ -60,7 +60,7 @@
   - _Boundary: SessionState_
 
 - [ ] 3. 请求流集成
-- [ ] 3.1 偏好检索钩子及计数持久化
+- [x] 3.1 偏好检索钩子及计数持久化
   - 在 `_execute_agent_stream()` 中，OpenViking 记忆检索之后、Agent 执行之前，添加偏好检索逻辑
   - 仅当 `preference_enabled=True` 时执行，使用独立的 try/except 静默降级
   - 通过 `get_preference_store()` 获取持久连接，调用 `retrieve_preferences(user_id, user_input)` 检索，无匹配时回退到 `retrieve_top_preferences(user_id)`

@@ -177,6 +177,28 @@ async def _execute_agent_stream(
     else:
         initial_state["_memory_count"] = memory_count  # 0 条记忆也记录
 
+    # ── 检索操作记忆（查询偏好）──
+    from app.config import get_settings as _get_pref_settings
+    _pref_settings = _get_pref_settings()
+    preferences: list[dict[str, Any]] = []
+    preference_count = 0
+    if _pref_settings.preference_enabled:
+        try:
+            from app.memory.preferences import get_preference_store
+            pref_store = get_preference_store()
+            user_input = initial_state.get("user_input", "")
+            preferences = await pref_store.retrieve_preferences(user_id, user_input)
+            if not preferences:
+                preferences = await pref_store.retrieve_top_preferences(user_id)
+            preference_count = len(preferences)
+            print(f"[Pref] 偏好检索: user={user_id} count={preference_count}")
+        except Exception as e:
+            print(f"[Pref] 偏好检索失败: {type(e).__name__}: {e}")
+
+    if preferences:
+        initial_state["_preferences"] = preferences
+    initial_state["_preference_count"] = preference_count
+
     final_payload = None
     latest_sql = ""  # 收集本次对话中最后生成的 SQL
 
@@ -210,6 +232,9 @@ async def _execute_agent_stream(
     # 持久化记忆计数（确保刷新后恢复）
     final_payload["updated_state"]["_memory_count"] = memory_count
 
+    # 持久化偏好计数（确保刷新后恢复）
+    final_payload["updated_state"]["_preference_count"] = preference_count
+
     # ── 记录对话到 OpenViking（在 save 之前，确保 kb_session_id 被持久化）──
     user_input = initial_state.get("user_input", "")
     final_response = final_payload["response"]
@@ -235,6 +260,7 @@ async def _execute_agent_stream(
         "stats": final_payload.get("stats", {}),
         "latest_sql": latest_sql,
         "memory_count": memory_count,
+        "preference_count": preference_count,
     }
 
 
