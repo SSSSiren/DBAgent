@@ -1103,17 +1103,37 @@ function finalizeStreamingMessage(cancelled = false) {
 }
 
 /**
+ * 剥离 Markdown 格式符号，返回纯文本用于打字机渲染预览。
+ * 保留表格结构、代码块标记、标题和列表的视觉线索。
+ */
+function stripMarkdownForTypewriter(text) {
+  return String(text ?? "")
+    // 标题符号 → 保留文字
+    .replace(/^#{1,3}\s+/gm, "")
+    // 粗体/斜体
+    .replace(/\*\*([^*]+)\*\*/g, "$1")
+    .replace(/\*([^*]+)\*/g, "$1")
+    // 行内代码
+    .replace(/`([^`]+)`/g, "$1")
+    // 列表标记 → 保留文字
+    .replace(/^\s*[-*]\s+/gm, "")
+    // 代码块标记 → 用空白行分隔
+    .replace(/```[\s\S]*?```/g, "[代码块]")
+    .replace(/```\w*/g, "")
+    // 链接
+    .replace(/\[([^\]]+)\]\([^)]+\)/g, "$1");
+}
+
+/**
  * 用快速打字机效果渲染最终回答到流式气泡中。
- * 完成后一次性替换为 Markdown 渲染结果。
+ * 打字机期间显示剥离 Markdown 的纯文本，完成后一次性替换为完整 Markdown 渲染。
  */
 function finalizeReply(replyText) {
   if (!streamingMessage || !replyText) {
-    // 无流式气泡或空回复 → 回退到 appendMessage
     if (replyText) appendMessage("assistant", replyText);
     return;
   }
 
-  // 获取 content 容器并清理（移除思考文本和步骤容器）
   const body = streamingMessage.querySelector(".content");
   if (!body) {
     appendMessage("assistant", replyText);
@@ -1121,38 +1141,37 @@ function finalizeReply(replyText) {
   }
   body.innerHTML = "";
 
-  // 创建回复渲染目标元素
+  // 创建回复渲染目标元素（使用独立类，允许多行换行）
   const replyEl = document.createElement("div");
-  replyEl.className = "thinking-text streaming-cursor";
+  replyEl.className = "reply-text streaming-cursor";
   body.appendChild(replyEl);
 
-  // 配置打字机：快速模式，完整渲染，不截断
+  // 剥离 Markdown 的纯文本版本（打字机渲染用）
+  const plainText = stripMarkdownForTypewriter(replyText);
+
   typewriter.reset();
   typewriter.setTarget(replyEl);
-  typewriter.setCharDelay(10);          // 10ms/字符 = 快速但仍有动画感
-  typewriter.setUseTruncation(false);   // 不截断
+  typewriter.setCharDelay(10);
+  typewriter.setUseTruncation(false);
   typewriter.setOnRender(() => {
     messages.scrollTop = messages.scrollHeight;
   });
   typewriter.setOnComplete(() => {
-    // 打字机完成 → 替换为 Markdown 渲染
+    // 打字机完成 → 替换为完整 Markdown 渲染
     body.innerHTML = renderMarkdown(replyText);
-    // 恢复默认设置（思考模式）
     typewriter.setCharDelay(30);
     typewriter.setUseTruncation(true);
-    // 转为普通消息
     streamingMessage.classList.remove("streaming");
     const meta = streamingMessage.querySelector(".meta");
     if (meta) meta.textContent = "DBAgent";
-    // 添加复制按钮
     const copyBtn = createCopyButton(() => body.innerText);
     streamingMessage.querySelector(".bubble").appendChild(copyBtn);
     streamingMessage = null;
     messages.scrollTop = messages.scrollHeight;
   });
 
-  // 开始打字机渲染
-  typewriter.appendText(replyText);
+  // 渲染剥离 Markdown 后的纯文本
+  typewriter.appendText(plainText);
 }
 
 function parseSseChunk(buffer, onEvent) {

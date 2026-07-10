@@ -770,6 +770,14 @@ textarea:focus {
   min-height: 1.4em;
 }
 
+/* 回复打字机：允许多行换行 */
+.reply-text {
+  white-space: pre-wrap;
+  word-wrap: break-word;
+  line-height: 1.65;
+}
+
+.reply-text.streaming-cursor::after,
 .thinking-text.streaming-cursor::after {
   content: "";
   display: inline-block;
