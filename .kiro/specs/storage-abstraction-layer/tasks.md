@@ -60,7 +60,7 @@
   - _Boundary: manager.py_
 
 - [ ] 3. 集成
-- [ ] 3.1 更新 __init__.py 公共 API 导出和向后兼容包装
+- [x] 3.1 更新 __init__.py 公共 API 导出和向后兼容包装
   - 新增导出：`StorageManager`、`PreferenceBackend`、`InMemoryPreferenceStore`、`SqlitePreferenceStore`、`get_storage`、`reset_storage`
   - 保留所有现有导出（`get_store`、`get_preference_store`、`StorageBackend`、`InMemoryStore`、`SqliteStore` 等）
   - 添加 `QueryPreferenceStore` 别名指向 `SqlitePreferenceStore`
