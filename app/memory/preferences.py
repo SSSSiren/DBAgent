@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import datetime
 import re
+import threading
 from typing import Any, Optional, Protocol, runtime_checkable
 
 from app.config import get_settings
@@ -62,6 +63,170 @@ class PreferenceBackend(Protocol):
     async def close(self) -> None:
         """关闭存储连接。"""
         ...
+
+
+# ============================================================================
+# InMemoryPreferenceStore — 内存偏好存储实现
+# ============================================================================
+
+class InMemoryPreferenceStore:
+    """
+    进程内存偏好存储，实现 PreferenceBackend 协议。
+
+    使用 (user_id, table_name, database_name) 复合键实现用户隔离。
+    偏好数据在进程重启后丢失（生产环境建议使用 SqlitePreferenceStore）。
+    threading.Lock 为防御性并发保护。
+
+    与 QueryPreferenceStore（SQLite）保持相同的返回数据结构和排序语义。
+    """
+
+    def __init__(self, max_per_user: int | None = None) -> None:
+        self._store: dict[tuple[str, str, str], dict[str, Any]] = {}
+        self._lock = threading.Lock()
+        if max_per_user is None:
+            from app.config import get_settings
+            max_per_user = getattr(get_settings(), "preference_max_per_user", DEFAULT_MAX_PER_USER)
+        self._max_per_user = max_per_user
+
+    # ── 辅助方法 ──────────────────────────────────────────────
+
+    def _get_user_records(self, user_id: str) -> list[dict[str, Any]]:
+        """获取指定用户的所有记录，返回列表（带复合键信息的拷贝）。"""
+        records: list[dict[str, Any]] = []
+        with self._lock:
+            for (uid, table, db), rec in self._store.items():
+                if uid == user_id:
+                    records.append({
+                        "table_name": table,
+                        "database_name": db,
+                        "schema_id": rec["schema_id"],
+                        "query_count": rec["query_count"],
+                        "last_query_at": rec["last_query_at"],
+                    })
+        return records
+
+    # ── PreferenceBackend 协议方法 ───────────────────────────────
+
+    async def record_query(
+        self,
+        user_id: str,
+        table_name: str,
+        database_name: str,
+        schema_id: int,
+    ) -> None:
+        """
+        记录一次查询偏好（UPSERT 语义，含 LRU 淘汰）。
+
+        如果 (user_id, table_name, database_name) 已存在，则 query_count+1
+        并更新 last_query_at 和 schema_id；否则创建新记录。
+        每用户上限控制：写入前检查记录数，若已达上限且新记录不命中已有行，
+        则淘汰 query_count 最小的记录。
+        """
+        if not user_id or not table_name or not database_name:
+            return
+
+        now = datetime.datetime.now().isoformat()
+        key = (user_id, table_name, database_name)
+
+        with self._lock:
+            if key in self._store:
+                # 已存在：递增 query_count，更新 schema_id 和 last_query_at
+                self._store[key]["query_count"] += 1
+                self._store[key]["last_query_at"] = now
+                self._store[key]["schema_id"] = schema_id
+                return
+
+            # 新记录：检查是否达到上限，需要则淘汰
+            user_count = sum(1 for (uid, _, _) in self._store if uid == user_id)
+            if user_count >= self._max_per_user:
+                # 内联淘汰逻辑（避免嵌套锁死锁）
+                user_records = [
+                    (k, v) for k, v in self._store.items()
+                    if k[0] == user_id
+                ]
+                if user_records:
+                    user_records.sort(key=lambda item: (
+                        item[1]["query_count"],
+                        item[1]["last_query_at"],
+                    ))
+                    del self._store[user_records[0][0]]
+
+            # 插入新记录
+            self._store[key] = {
+                "schema_id": schema_id,
+                "query_count": 1,
+                "last_query_at": now,
+            }
+
+    async def retrieve_preferences(
+        self,
+        user_id: str,
+        keywords: str,
+        limit: int = 5,
+    ) -> list[dict[str, Any]]:
+        """
+        根据关键词检索匹配的偏好表。
+
+        从 keywords 中提取可能的关键词（按空格/标点分词），
+        对 table_name 和 database_name 执行子串匹配（case-insensitive LIKE）。
+        结果按 query_count 降序排列。
+
+        Args:
+            user_id: 用户标识
+            keywords: 用户输入文本，从中提取关键词
+            limit: 最大返回条数
+
+        Returns:
+            偏好记录列表，每项包含 table_name、database_name、schema_id、
+            query_count、last_query_at。无匹配时返回空列表。
+        """
+        tokens = [t for t in re.split(r'[\s,，。！？、]+', keywords) if t]
+        if not tokens:
+            return await self.retrieve_top_preferences(user_id, limit)
+
+        records = self._get_user_records(user_id)
+
+        # 匹配：任一 token 在 table_name 或 database_name 中（case-insensitive）
+        matched: list[dict[str, Any]] = []
+        for rec in records:
+            tbl_lower = rec["table_name"].lower()
+            db_lower = rec["database_name"].lower()
+            for token in tokens:
+                token_lower = token.lower()
+                if token_lower in tbl_lower or token_lower in db_lower:
+                    matched.append(rec)
+                    break  # 避免重复添加
+
+        # 按 query_count 降序排列
+        matched.sort(key=lambda r: r["query_count"], reverse=True)
+        return matched[:limit]
+
+    async def retrieve_top_preferences(
+        self,
+        user_id: str,
+        limit: int = 5,
+    ) -> list[dict[str, Any]]:
+        """
+        返回用户最常用的偏好表（无关键词匹配时的回退策略）。
+
+        Args:
+            user_id: 用户标识
+            limit: 最大返回条数
+
+        Returns:
+            按 query_count 降序排列的偏好记录列表。无记录时返回空列表。
+        """
+        records = self._get_user_records(user_id)
+        records.sort(key=lambda r: r["query_count"], reverse=True)
+        return records[:limit]
+
+    async def initialize(self) -> None:
+        """初始化存储（内存存储无需操作）。"""
+        pass
+
+    async def close(self) -> None:
+        """关闭存储连接（内存存储无需操作）。"""
+        pass
 
 
 class QueryPreferenceStore:

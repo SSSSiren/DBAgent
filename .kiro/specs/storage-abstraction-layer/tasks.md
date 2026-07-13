@@ -20,7 +20,7 @@
   - _Requirements: 2.1, 2.2_
 
 - [ ] 2. 核心实现
-- [ ] 2.1 实现 InMemoryPreferenceStore
+- [x] 2.1 实现 InMemoryPreferenceStore
   - 实现 `PreferenceBackend` Protocol，使用进程内存 dict 存储偏好数据
   - 数据按 `(user_id, table_name, database_name)` 复合键索引，与 SQLite 表结构对应
   - `record_query`：UPSERT 语义，已有记录则 query_count+1；新记录检查每用户上限（默认 50），超限淘汰 query_count 最小的记录
