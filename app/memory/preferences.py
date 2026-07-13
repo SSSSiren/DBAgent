@@ -12,12 +12,56 @@ from __future__ import annotations
 
 import datetime
 import re
-from typing import Any, Optional
+from typing import Any, Optional, Protocol, runtime_checkable
 
 from app.config import get_settings
 
 # 每用户最大偏好记录数
 DEFAULT_MAX_PER_USER = 50
+
+
+@runtime_checkable
+class PreferenceBackend(Protocol):
+    """偏好存储抽象协议。
+
+    定义偏好存储的最小契约接口，所有偏好存储实现必须满足此协议。
+    支持通过 isinstance(store, PreferenceBackend) 进行运行时检查。
+    """
+
+    async def record_query(
+        self,
+        user_id: str,
+        table_name: str,
+        database_name: str,
+        schema_id: int,
+    ) -> None:
+        """记录一次查询偏好（UPSERT 语义，含 LRU 淘汰）。"""
+        ...
+
+    async def retrieve_preferences(
+        self,
+        user_id: str,
+        keywords: str,
+        limit: int = 5,
+    ) -> list[dict[str, Any]]:
+        """根据关键词检索匹配的偏好表。"""
+        ...
+
+    async def retrieve_top_preferences(
+        self,
+        user_id: str,
+        limit: int = 5,
+    ) -> list[dict[str, Any]]:
+        """返回用户最常用的偏好表（无关键词时的回退）。"""
+        ...
+
+    async def initialize(self) -> None:
+        """初始化存储（创建表等）。"""
+        ...
+
+    async def close(self) -> None:
+        """关闭存储连接。"""
+        ...
 
 
 class QueryPreferenceStore:
