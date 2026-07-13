@@ -31,7 +31,7 @@
   - _Requirements: 2.1, 2.2, 5.2_
   - _Boundary: InMemoryPreferenceStore_
 
-- [ ] 2.2 重构 QueryPreferenceStore 为 SqlitePreferenceStore
+- [x] 2.2 重构 QueryPreferenceStore 为 SqlitePreferenceStore
   - 将类名从 `QueryPreferenceStore` 改为 `SqlitePreferenceStore`，声明实现 `PreferenceBackend` Protocol
   - 内部逻辑完全不变：相同的 SQL、相同的 LRU 淘汰、相同的 `query_preferences` 表结构
   - 保留 `QueryPreferenceStore` 为模块级别名指向 `SqlitePreferenceStore`，保证向后兼容

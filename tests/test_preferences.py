@@ -1,7 +1,7 @@
 """
-QueryPreferenceStore 单元测试
+SqlitePreferenceStore 单元测试
 
-测试 QueryPreferenceStore 的完整 CRUD 行为，使用 :memory: SQLite 数据库。
+测试 SqlitePreferenceStore 的完整 CRUD 行为，使用 :memory: SQLite 数据库。
 覆盖记录查询、LRU 淘汰、偏好检索、用户隔离、工厂单例等。
 """
 
@@ -10,6 +10,7 @@ import pytest_asyncio
 from unittest.mock import patch
 
 from app.memory.preferences import (
+    SqlitePreferenceStore,
     QueryPreferenceStore,
     InMemoryPreferenceStore,
     get_preference_store,
@@ -22,8 +23,8 @@ from app.config import Settings
 
 @pytest_asyncio.fixture
 async def store():
-    """创建 QueryPreferenceStore 实例并初始化（使用 :memory: 数据库）"""
-    s = QueryPreferenceStore(":memory:")
+    """创建 SqlitePreferenceStore 实例并初始化（使用 :memory: 数据库）"""
+    s = SqlitePreferenceStore(":memory:")
     await s.initialize()
     yield s
     await s.close()
@@ -443,7 +444,7 @@ class TestInitialization:
     @pytest.mark.asyncio
     async def test_close_disables_operations(self):
         """close 后 _conn 置为 None，后续操作应抛出异常"""
-        s = QueryPreferenceStore(":memory:")
+        s = SqlitePreferenceStore(":memory:")
         await s.initialize()
         await s.close()
 
@@ -453,7 +454,7 @@ class TestInitialization:
     @pytest.mark.asyncio
     async def test_close_idempotent(self):
         """重复 close 不应报错"""
-        s = QueryPreferenceStore(":memory:")
+        s = SqlitePreferenceStore(":memory:")
         await s.initialize()
         await s.close()
         await s.close()  # 第二次 close 应是安全的

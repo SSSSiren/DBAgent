@@ -23,7 +23,7 @@ from unittest.mock import AsyncMock, MagicMock
 
 from app.api.routes import router
 from app.memory.preferences import (
-    QueryPreferenceStore,
+    SqlitePreferenceStore,
     reset_preference_store,
 )
 from app.config import Settings
@@ -72,7 +72,7 @@ def _make_initial_state_with_db(**kwargs):
 # Mock Agent 流生成器
 # ==========================================================================
 
-async def _mock_run_agent_stream_simple(user_input, session_state):
+async def _mock_run_agent_stream_simple(user_input, session_state, cancel_event=None):
     """Mock: 无工具调用的简单回答"""
     yield "final", {
         "response": "这是一个简单的回答。",
@@ -84,7 +84,7 @@ async def _mock_run_agent_stream_simple(user_input, session_state):
     }
 
 
-async def _mock_run_agent_stream_with_query(user_input, session_state):
+async def _mock_run_agent_stream_with_query(user_input, session_state, cancel_event=None):
     """Mock: 包含一次成功 query_database 调用的回答"""
     yield "final", {
         "response": "根据 orders 表查询，结果如下...",
@@ -106,7 +106,7 @@ async def _mock_run_agent_stream_with_query(user_input, session_state):
     }
 
 
-async def _mock_run_agent_stream_with_join(user_input, session_state):
+async def _mock_run_agent_stream_with_join(user_input, session_state, cancel_event=None):
     """Mock: 包含多表 JOIN query_database 调用的回答"""
     yield "final", {
         "response": "JOIN 查询完成",
@@ -143,7 +143,7 @@ def client():
 @pytest.fixture
 def pref_store():
     """创建 :memory: 偏好存储并重置全局单例"""
-    store = QueryPreferenceStore(":memory:")
+    store = SqlitePreferenceStore(":memory:")
     # 同步创建 asyncio 事件循环来初始化
     import asyncio
     loop = asyncio.new_event_loop()

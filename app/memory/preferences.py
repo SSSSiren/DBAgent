@@ -2,8 +2,9 @@
 查询偏好存储 — 操作层记忆的持久化管理
 
 设计：
-- QueryPreferenceStore 管理 query_preferences 表的完整生命周期
-- 工厂函数 get_preference_store() 返回进程级单例（持久连接）
+- SqlitePreferenceStore 管理 query_preferences 表的完整生命周期
+- InMemoryPreferenceStore 提供进程内存偏好存储
+- 工厂函数 get_preference_store() 根据 storage_backend 配置返回对应实现
 - 与 SqliteStore 共享同一 SQLite 数据库文件，使用独立连接
 - 所有方法通过 user_id 确保用户隔离
 """
@@ -69,7 +70,7 @@ class PreferenceBackend(Protocol):
 # InMemoryPreferenceStore — 内存偏好存储实现
 # ============================================================================
 
-class InMemoryPreferenceStore:
+class InMemoryPreferenceStore(PreferenceBackend):
     """
     进程内存偏好存储，实现 PreferenceBackend 协议。
 
@@ -77,7 +78,7 @@ class InMemoryPreferenceStore:
     偏好数据在进程重启后丢失（生产环境建议使用 SqlitePreferenceStore）。
     threading.Lock 为防御性并发保护。
 
-    与 QueryPreferenceStore（SQLite）保持相同的返回数据结构和排序语义。
+    与 SqlitePreferenceStore（SQLite）保持相同的返回数据结构和排序语义。
     """
 
     def __init__(self, max_per_user: int | None = None) -> None:
@@ -229,8 +230,8 @@ class InMemoryPreferenceStore:
         pass
 
 
-class QueryPreferenceStore:
-    """查询偏好存储，管理 query_preferences 表的 CRUD 和检索。"""
+class SqlitePreferenceStore(PreferenceBackend):
+    """查询偏好存储（SQLite 实现），管理 query_preferences 表的 CRUD 和检索。"""
 
     def __init__(self, db_path: str) -> None:
         """
@@ -438,28 +439,43 @@ class QueryPreferenceStore:
 
 
 # ============================================================================
+# 向后兼容别名
+# ============================================================================
+
+QueryPreferenceStore = SqlitePreferenceStore
+
+
+# ============================================================================
 # 工厂函数
 # ============================================================================
 
-_preference_store: Optional[QueryPreferenceStore] = None
+_preference_store: Optional[PreferenceBackend] = None
 
 
-def get_preference_store() -> QueryPreferenceStore:
+def get_preference_store() -> PreferenceBackend:
     """
     获取偏好存储实例（进程级单例，持久连接）。
 
-    与 get_store() 模式一致，在 lifespan 中初始化、关闭时释放。
-    首次调用时自动从 Settings 读取数据库路径创建实例。
+    根据 storage_backend 配置选择后端实现：
+    - "memory" → InMemoryPreferenceStore（进程内内存，重启丢失）
+    - "sqlite"  → SqlitePreferenceStore（文件持久化，与 SqliteStore 共享数据库）
+
+    首次调用时自动从 Settings 读取配置创建实例。
 
     Returns:
-        QueryPreferenceStore 实例（单例）
+        PreferenceBackend 实例（单例）
     """
     global _preference_store
     if _preference_store is not None:
         return _preference_store
 
     settings = get_settings()
-    _preference_store = QueryPreferenceStore(settings.storage_file_path)
+    backend = getattr(settings, "storage_backend", "sqlite")
+
+    if backend == "memory":
+        _preference_store = InMemoryPreferenceStore()
+    else:
+        _preference_store = SqlitePreferenceStore(settings.storage_file_path)
     return _preference_store
 
 

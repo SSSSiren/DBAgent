@@ -7,7 +7,10 @@ from app.memory.store import (
     reset_store,
 )
 from app.memory.preferences import (
+    InMemoryPreferenceStore,
+    PreferenceBackend,
     QueryPreferenceStore,
+    SqlitePreferenceStore,
     get_preference_store,
     reset_preference_store,
 )
@@ -19,7 +22,10 @@ __all__ = [
     "StorageBackend",
     "get_store",
     "reset_store",
+    "InMemoryPreferenceStore",
+    "PreferenceBackend",
     "QueryPreferenceStore",
+    "SqlitePreferenceStore",
     "get_preference_store",
     "reset_preference_store",
 ]

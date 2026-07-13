@@ -2,7 +2,7 @@
 偏好检索和记录钩子集成测试
 
 测试 _execute_agent_stream() 中的偏好检索、偏好记录和用户隔离逻辑。
-使用 QueryPreferenceStore(":memory:") 实现测试隔离，
+使用 SqlitePreferenceStore(":memory:") 实现测试隔离，
 通过 monkeypatch mock run_agent_stream、get_settings、get_store 等依赖。
 
 运行：
@@ -14,7 +14,7 @@ import pytest_asyncio
 from unittest.mock import AsyncMock, MagicMock
 
 from app.memory.preferences import (
-    QueryPreferenceStore,
+    SqlitePreferenceStore,
     reset_preference_store,
 )
 from app.config import Settings
@@ -52,7 +52,7 @@ def _patch_common(monkeypatch, pref_store, *, preference_enabled=True):
     monkeypatch.setattr("app.api.routes._record_to_openviking", AsyncMock())
 
 
-async def _mock_run_agent_stream_simple(user_input, session_state):
+async def _mock_run_agent_stream_simple(user_input, session_state, cancel_event=None):
     """简单的 mock：仅 yield 一个 final 事件，无工具调用"""
     yield "final", {
         "response": "这是一个简单的回答。",
@@ -64,7 +64,7 @@ async def _mock_run_agent_stream_simple(user_input, session_state):
     }
 
 
-async def _mock_run_agent_stream_with_query(user_input, session_state):
+async def _mock_run_agent_stream_with_query(user_input, session_state, cancel_event=None):
     """包含 query_database 成功调用的 mock"""
     yield "final", {
         "response": "根据 orders 表查询，结果如下...",
@@ -86,7 +86,7 @@ async def _mock_run_agent_stream_with_query(user_input, session_state):
     }
 
 
-async def _mock_run_agent_stream_with_join(user_input, session_state):
+async def _mock_run_agent_stream_with_join(user_input, session_state, cancel_event=None):
     """包含多表 JOIN 查询的 mock（table_name 用逗号分隔）"""
     yield "final", {
         "response": "JOIN 查询完成",
@@ -108,7 +108,7 @@ async def _mock_run_agent_stream_with_join(user_input, session_state):
     }
 
 
-async def _mock_run_agent_stream_with_describe_table(user_input, session_state):
+async def _mock_run_agent_stream_with_describe_table(user_input, session_state, cancel_event=None):
     """包含 describe_table 成功调用的 mock（Agent 常用此工具查表结构）"""
     yield "final", {
         "response": "表结构如下...",
@@ -167,7 +167,7 @@ def _make_initial_state_with_db(**kwargs):
 @pytest_asyncio.fixture
 async def pref_store():
     """创建独立的 :memory: 偏好存储实例"""
-    store = QueryPreferenceStore(":memory:")
+    store = SqlitePreferenceStore(":memory:")
     await store.initialize()
     yield store
     await store.close()
@@ -481,7 +481,7 @@ class TestRecordHook:
 
         _patch_common(monkeypatch, pref_store, preference_enabled=True)
 
-        async def _mock_failed_query(user_input, session_state):
+        async def _mock_failed_query(user_input, session_state, cancel_event=None):
             yield "final", {
                 "response": "查询失败",
                 "updated_state": session_state.copy(),
@@ -769,7 +769,7 @@ class TestEdgeCases:
 
         _patch_common(monkeypatch, pref_store, preference_enabled=True)
 
-        async def _mock_mixed_tools(user_input, session_state):
+        async def _mock_mixed_tools(user_input, session_state, cancel_event=None):
             yield "final", {
                 "response": "完成",
                 "updated_state": session_state.copy(),
@@ -830,7 +830,7 @@ class TestEdgeCases:
 
         _patch_common(monkeypatch, pref_store, preference_enabled=True)
 
-        async def _mock_trailing_comma(user_input, session_state):
+        async def _mock_trailing_comma(user_input, session_state, cancel_event=None):
             yield "final", {
                 "response": "完成",
                 "updated_state": session_state.copy(),
