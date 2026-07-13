@@ -70,7 +70,7 @@
   - 完成状态：`from app.memory import get_storage, StorageManager, PreferenceBackend` 可正常导入；旧 API 调用方行为不变
   - _Requirements: 1.2_
 
-- [ ] 3.2 (P) 更新 main.py lifespan 使用 get_storage()
+- [x] 3.2 (P) 更新 main.py lifespan 使用 get_storage()
   - 将 `from app.memory.store import get_store` 替换为 `from app.memory import get_storage`
   - 将两套独立的 `get_store()` + `get_preference_store()` 调用替换为单一的 `storage = get_storage()`
   - 将 `await store.initialize()` + `await pref_store.initialize()` 替换为 `await storage.initialize()`
@@ -80,7 +80,7 @@
   - _Requirements: 1.1, 4.1, 4.2_
   - _Boundary: main.py_
 
-- [ ] 3.3 (P) 更新 routes.py 存储访问方式
+- [x] 3.3 (P) 更新 routes.py 存储访问方式
   - 将 `from app.memory.store import DEFAULT_SESSION, get_store` 替换为 `from app.memory import get_storage` 和 `from app.memory.store import DEFAULT_SESSION`
   - `_get_or_create_session` 中 `get_store()` 替换为 `get_storage().session_store`
   - `_execute_agent_stream` 中偏好检索（行 195-201）：`get_preference_store()` 替换为 `get_storage().preference_store`，并增加 None 检查
