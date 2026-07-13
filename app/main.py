@@ -20,7 +20,7 @@ from fastapi.staticfiles import StaticFiles
 from app.api.routes import router
 from app.api.schemas import HealthResponse
 from app.config import get_settings
-from app.memory.store import get_store
+from app.memory import get_storage
 
 
 @asynccontextmanager
@@ -35,25 +35,15 @@ async def lifespan(app: FastAPI):
     print(f"[DBAgent] Storage backend: {settings.storage_backend}")
     print(f"[DBAgent] Preference: {'enabled' if settings.preference_enabled else 'disabled'}")
 
-    # 初始化存储（创建数据库表和索引）
-    store = get_store()
-    await store.initialize()
-
-    # 初始化偏好存储（创建 query_preferences 表）
-    if settings.preference_enabled:
-        from app.memory.preferences import get_preference_store
-        pref_store = get_preference_store()
-        await pref_store.initialize()
-        print("[DBAgent] Preference store initialized")
+    # 初始化存储（会话 + 偏好，创建数据库表和索引）
+    storage = get_storage()
+    await storage.initialize()
 
     yield
 
     # 关闭时
     print("[DBAgent] Shutting down")
-    if settings.preference_enabled:
-        from app.memory.preferences import get_preference_store
-        await get_preference_store().close()
-    await store.close()
+    await storage.close()
     from app.client.onedba import get_onedba_client
     await get_onedba_client().close()
 
