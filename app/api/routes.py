@@ -16,6 +16,7 @@ API 路由 — HTTP/WebSocket 接口与会话管理
 - GET /api/sessions/{id} — 获取会话状态
 """
 
+import asyncio
 import json
 from typing import Any, AsyncIterator
 
