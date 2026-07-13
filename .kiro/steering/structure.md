@@ -1,0 +1,116 @@
+# Project Structure
+
+## Organization Philosophy
+
+**领域模块化**（Domain-Modular）架构。每个 `app/` 下的顶层包代表一个独立的领域关注点，模块间松耦合，通过 `__init__.py` 显式导出的符号通信，而非共享的"核心"层。
+
+## Directory Patterns
+
+### Agent 核心 (`app/agent/`)
+**Purpose**: ReAct Agent 循环、LLM 交互、上下文构建、取消控制  
+**Key modules**: `runner.py`（ReAct 循环）、`context.py`（上下文组装）、`prompts.py`（系统提示词）、`cancel.py`（取消基础设施）  
+**Pattern**: 编排层，不涉及 HTTP 或 API 知识
+
+### API 层 (`app/api/`)
+**Purpose**: FastAPI 路由（HTTP + WebSocket）、Pydantic schema、会话 CRUD  
+**Key modules**: `routes.py`（SSE/WS/chat 端点）、`schemas.py`（请求/响应模型）  
+**Pattern**: 纯 HTTP/WebSocket 关注点，无业务逻辑，通过 `app.` 导入调用下层服务
+
+### NL2SQL 流水线 (`app/nl2sql/`)
+**Purpose**: SQL 生成、验证、修复的独立流水线  
+**Key modules**: `generator.py`、`validator.py`、`repair.py`、`schema.py`、`semantics.py`  
+**Pattern**: 独立领域服务，与 Agent 循环解耦，含语义规则注入
+
+### 工具注册 (`app/tools/`)
+**Purpose**: LLM 可调用的工具函数定义和执行  
+**Key modules**: `__init__.py`（工具注册表 + `TOOLS` 列表 + `TOOL_HANDLERS` 字典）+ 独立工具模块  
+**Pattern**: 中心化注册表是工具定义的唯一真相源，各工具模块为独立 async 函数
+
+### 存储抽象 (`app/storage/`)
+**Purpose**: 会话持久化抽象  
+**Key modules**: `store.py`（`StorageBackend` Protocol + `InMemoryStore` + `SqliteStore` + `get_store()` 工厂）  
+**Pattern**: Protocol 驱动的可插拔后端，通过配置切换
+
+### 记忆系统 (`app/memory/`)
+**Purpose**: 长期记忆和知识集成  
+**Key modules**: `viking.py`（OpenViking 客户端）、`preferences.py`（查询偏好存储）  
+**Pattern**: 可选子系统，失败不阻断主流程
+
+### 观测 (`app/observation/`)
+**Purpose**: Langfuse 可观测性（trace、metrics）  
+**Pattern**: 可选子系统，try/except 包裹
+
+### 知识 (`app/knowledge/`)
+**Purpose**: OpenViking 长期记忆集成  
+**Pattern**: 可选子系统
+
+### 客户端 (`app/client/`)
+**Purpose**: OneDBA 平台 HTTP 客户端  
+**Pattern**: 外部服务访问层
+
+### 前端 (`app/static/`)
+**Purpose**: Web UI 单页应用  
+**Contents**: `index.html`、`app.js`、`style.css`、`favicon.svg`  
+**Pattern**: 原生 HTML/CSS/JS，无构建步骤、无打包器、无框架，通过 FastAPI `StaticFiles` 挂载
+
+### 配置 (`app/config.py`)
+**Purpose**: Pydantic `BaseSettings` 集中配置，`.env` 自动加载  
+**Pattern**: `@lru_cache` 装饰的 `get_settings()` 提供进程级单例，所有模块通过 `from app.config import get_settings` 读取
+
+### 入口 (`app/main.py`)
+**Purpose**: FastAPI 应用工厂、lifespan、静态文件挂载、路由注册  
+**Pattern**: 组合根，将所有组件装配在一起
+
+## Naming Conventions
+
+- **Files**: `snake_case`（`runner.py`、`find_table.py`、`sql_utils.py`）
+- **Classes**: `PascalCase`（`OneDBAClient`、`CancelEventRegistry`、`StorageBackend`）
+- **Functions**: `snake_case`（`run_agent_stream`、`build_context`、`get_store`）
+- **Private functions**: `_leading_underscore`（`_execute_tool`、`_security_check`）
+- **Factory/getter functions**: `get_` 前缀（`get_store()`、`get_settings()`、`get_cancel_registry()`）
+- **Stream generators**: `_stream` 后缀（`run_agent_stream`、`event_stream`）
+- **Constants**: `UPPER_SNAKE_CASE`（`AGENT_SYSTEM_PROMPT`、`TOOLS`、`TOOL_HANDLERS`）
+- **Test files**: `test_{module}.py`（匹配源模块名），集成测试 `_integration` 后缀，E2E `_e2e` 后缀
+
+## Import Organization
+
+所有导入使用绝对路径，以 `app.` 为包根：
+
+```python
+# 标准库
+import asyncio
+from typing import Any
+
+# 第三方
+from fastapi import APIRouter
+from pydantic import BaseModel
+
+# 内部模块（始终 app. 前缀）
+from app.config import get_settings
+from app.agent.runner import run_agent_stream
+from app.api.schemas import ChatRequest
+from app.tools import TOOLS, TOOL_HANDLERS
+```
+
+**无相对导入**（无 `from . import ...`），无路径别名。项目根在 `PYTHONPATH` 中，`app.` 全局可解析。可选依赖使用函数内延迟导入。
+
+## Code Organization Principles
+
+1. **`__init__.py` 作为门面**：每个包的 `__init__.py` 通过 `__all__` 列表显式重新导出公共 API，消费者不应直接从子模块导入 `__all__` 中的符号。
+
+2. **工具注册表模式**：`app/tools/__init__.py` 维护中心化的 `TOOLS` 列表和 `TOOL_HANDLERS` 字典，各工具模块为独立 async 函数，无交叉引用。
+
+3. **Protocol 抽象**：`StorageBackend` 使用 `typing.Protocol`（`@runtime_checkable`），`InMemoryStore` 和 `SqliteStore` 为具体实现，`get_store()` 工厂根据配置选择后端。
+
+4. **模块级延迟初始化单例**：重量级资源（LLM 客户端、OneDBA 客户端、取消注册表、偏好存储）通过模块级 `_global: T | None = None` 变量 + `get_xxx()` 函数延迟初始化。
+
+5. **关注点分离**：Agent 流程各环节独立——`runner.py`（ReAct 引擎）、`context.py`（上下文组装）、`prompts.py`（系统提示词）、`cancel.py`（取消基础设施）、`routes.py`（装配编排）。
+
+6. **错误隔离**：可选子系统（OpenViking、偏好追踪、Langfuse）包裹在 try/except 中，单点失败不影响主 Agent 流程。
+
+7. **测试镜像源结构**：`tests/test_{module}.py` 匹配源模块，`conftest.py` 提供共享 fixtures，`evaluation/` 子包为独立评估框架。
+
+8. **中文文档**：模块级和函数级 docstring 使用中文，代码注释中英混合。
+
+---
+_updated_at: 2026-07-13_

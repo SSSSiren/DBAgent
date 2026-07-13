@@ -76,9 +76,24 @@ get_session_state() {
     curl -s --max-time 10 "$BASE/sessions/$session_id"
 }
 
-get_ov_peers() {
+get_ov_memories() {
     local user_id="$1"
-    curl -s --max-time 10 "$OV_URL/api/v1/fs/ls?uri=viking%3A%2F%2Fuser%2F${user_id}%2Fpeers"
+    # 递归查看 memories 子目录（experiences/events/entities/...）
+    curl -s --max-time 10 "$OV_URL/api/v1/fs/ls?uri=viking%3A%2F%2Fuser%2F${user_id}%2Fmemories%2Fexperiences"
+}
+
+# 递归统计 memories 目录中所有非目录文件
+count_ov_memory_files() {
+    local user_id="$1"
+    local total=0
+    local dirs="experiences events entities preferences tools skills trajectories"
+    for subdir in $dirs; do
+        local count
+        count=$(curl -s --max-time 10 "$OV_URL/api/v1/fs/ls?uri=viking%3A%2F%2Fuser%2F${user_id}%2Fmemories%2F${subdir}" 2>/dev/null \
+            | python3 -c "import sys,json; d=json.load(sys.stdin); results=d.get('result',[]); files=[r for r in results if not r.get('isDir',False)]; print(len(files))" 2>/dev/null || echo "0")
+        total=$((total + count))
+    done
+    echo "$total"
 }
 
 assert_contains() {
@@ -149,23 +164,23 @@ run_scene_1() {
     session_state=$(get_session_state "$session")
     log_info "  会话状态: $(echo "$session_state" | python3 -c "import sys,json; d=json.load(sys.stdin); print(json.dumps({k:v for k,v in d.items() if k in ('session_id','chat_history')}, ensure_ascii=False))" 2>/dev/null || echo "$session_state")"
 
-    # 验证 2: peers 目录
+    # 验证 2: memories 目录
     log_info "验证 OpenViking 长期记忆..."
-    sleep 2  # 等待 commit 异步完成
-    local peers
-    peers=$(get_ov_peers "$user")
-    local peer_count
-    peer_count=$(echo "$peers" | python3 -c "import sys,json; d=json.load(sys.stdin); print(len(d.get('result',[])))" 2>/dev/null || echo "0")
+    sleep 5  # 等待 commit 异步完成（bge-m3 向量化需要时间）
+    local memories
+    memories=$(get_ov_memories "$user")
+    local memory_count
+    memory_count=$(count_ov_memory_files "$user")
 
-    if [ "$peer_count" -gt 0 ]; then
-        log_pass "peers 目录有 $peer_count 条长期记忆"
-        echo "$peers" | python3 -c "
+    if [ "$memory_count" -gt 0 ]; then
+        log_pass "memories 目录有 $memory_count 条长期记忆"
+        echo "$memories" | python3 -c "
 import sys, json
 for r in json.load(sys.stdin).get('result', []):
     print(f'    - {r.get(\"uri\",\"?\").split(\"/\")[-1]}: {r.get(\"abstract\",\"\")[:100]}')
 " 2>/dev/null
     else
-        log_fail "peers 目录为空（可能 commit 尚未完成或未触发）"
+        log_fail "memories 目录为空（可能 commit 尚未完成或未触发）"
         log_info "  提示: 检查 kb_auto_commit_turns 配置是否为 10"
     fi
 }
@@ -184,16 +199,14 @@ run_scene_2() {
         sleep 0.3
     done
 
-    sleep 2
-    local peers
-    peers=$(get_ov_peers "$user")
-    local peer_count
-    peer_count=$(echo "$peers" | python3 -c "import sys,json; d=json.load(sys.stdin); print(len(d.get('result',[])))" 2>/dev/null || echo "0")
+    sleep 5
+    local memory_count
+    memory_count=$(count_ov_memory_files "$user")
 
-    if [ "$peer_count" -eq 0 ]; then
-        log_pass "peers 目录为空（5 轮不触发 commit）"
+    if [ "$memory_count" -eq 0 ]; then
+        log_pass "memories 目录为空（5 轮不触发 commit）"
     else
-        log_fail "peers 目录有 $peer_count 条记忆（预期为空，5 轮不应触发 commit）"
+        log_fail "memories 目录有 $memory_count 条记忆（预期为空，5 轮不应触发 commit）"
     fi
 }
 
@@ -216,21 +229,21 @@ run_scene_3() {
     done
     log_info "  bob 完成"
 
-    sleep 3  # 等待 commit
+    sleep 5  # 等待 commit
 
-    local peers_alice peers_bob
-    peers_alice=$(get_ov_peers "alice_iso")
-    peers_bob=$(get_ov_peers "bob_iso")
+    local memories_alice memories_bob
+    memories_alice=$(get_ov_memories "alice_iso")
+    memories_bob=$(get_ov_memories "bob_iso")
 
-    log_info "alice 的 peers:"
-    echo "$peers_alice" | python3 -c "
+    log_info "alice 的 memories:"
+    echo "$memories_alice" | python3 -c "
 import sys, json
 for r in json.load(sys.stdin).get('result', []):
     print(f'    - {r.get(\"abstract\",\"\")[:120]}')
 " 2>/dev/null || echo "    (空)"
 
-    log_info "bob 的 peers:"
-    echo "$peers_bob" | python3 -c "
+    log_info "bob 的 memories:"
+    echo "$memories_bob" | python3 -c "
 import sys, json
 for r in json.load(sys.stdin).get('result', []):
     print(f'    - {r.get(\"abstract\",\"\")[:120]}')
@@ -238,9 +251,9 @@ for r in json.load(sys.stdin).get('result', []):
 
     # 验证 alice 的记忆不包含 bob 的内容
     local alice_text
-    alice_text=$(echo "$peers_alice" | python3 -c "import sys,json; print(json.dumps(sys.stdin.read()))" 2>/dev/null || echo "$peers_alice")
+    alice_text=$(echo "$memories_alice" | python3 -c "import sys,json; print(json.dumps(sys.stdin.read()))" 2>/dev/null || echo "$memories_alice")
     local bob_text
-    bob_text=$(echo "$peers_bob" | python3 -c "import sys,json; print(json.dumps(sys.stdin.read()))" 2>/dev/null || echo "$peers_bob")
+    bob_text=$(echo "$memories_bob" | python3 -c "import sys,json; print(json.dumps(sys.stdin.read()))" 2>/dev/null || echo "$memories_bob")
 
     assert_not_contains "$alice_text" "users" "alice 的记忆不含 'users'（bob 的话题）"
     assert_not_contains "$bob_text" "orders" "bob 的记忆不含 'orders'（alice 的话题）"
@@ -264,24 +277,24 @@ run_scene_4() {
         sleep 0.5
     done
 
-    sleep 3  # 等待两次 commit
+    sleep 5  # 等待两次 commit
 
-    local peers
-    peers=$(get_ov_peers "$user")
-    local peer_count
-    peer_count=$(echo "$peers" | python3 -c "import sys,json; d=json.load(sys.stdin); print(len(d.get('result',[])))" 2>/dev/null || echo "0")
+    local memories
+    memories=$(get_ov_memories "$user")
+    local memory_count
+    memory_count=$(count_ov_memory_files "$user")
 
-    log_info "charlie 的 peers 总数: $peer_count"
-    echo "$peers" | python3 -c "
+    log_info "charlie 的 memories 总数: $memory_count"
+    echo "$memories" | python3 -c "
 import sys, json
 for r in json.load(sys.stdin).get('result', []):
     print(f'    - {r.get(\"abstract\",\"\")[:120]}')
 " 2>/dev/null
 
-    if [ "$peer_count" -ge 2 ]; then
+    if [ "$memory_count" -ge 2 ]; then
         log_pass "跨会话记忆累积: >= 2 条"
     else
-        log_fail "跨会话记忆累积: 仅 $peer_count 条（预期 >= 2）"
+        log_fail "跨会话记忆累积: 仅 $memory_count 条（预期 >= 2）"
     fi
 }
 

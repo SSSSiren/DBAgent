@@ -73,6 +73,7 @@ async def _execute_tool(name: str, input_data: dict[str, Any]) -> str:
 async def _run_agent(
     prompt: str,
     tool_schemas: list[dict[str, Any]],
+    cancel_event: asyncio.Event | None = None,
 ) -> AsyncIterator[dict[str, Any]]:
     """
     ReAct 循环：LLM 决策 → 工具执行 → 观察结果 → 继续决策。
@@ -82,6 +83,11 @@ async def _run_agent(
         "type": "text" | "tool_start" | "tool_end" | "final",
         ...
     }
+
+    Args:
+        prompt: 用户问题（含上下文）
+        tool_schemas: 工具定义列表
+        cancel_event: 取消信号事件，为 None 时行为不变（向后兼容）
     """
     settings = get_settings()
     client = _get_llm_client()
@@ -108,15 +114,58 @@ async def _run_agent(
     start_time = time.monotonic()
     total_input_tokens = 0
     total_output_tokens = 0
+    cancelled = False
 
     for iteration in range(max_iterations):
-        # 调用 LLM
-        response = await client.chat.completions.create(
-            model=settings.llm_model,
-            messages=messages,
-            tools=openai_tools,
-            temperature=0.1,
-        )
+        # ── 取消检查：迭代边界 ──
+        if cancel_event is not None and cancel_event.is_set():
+            cancelled = True
+            break
+
+        # ── LLM 调用（竞速取消信号）──
+        if cancel_event is not None:
+            # 使用 asyncio.wait 竞速 LLM 调用和取消信号
+            async def _llm_call():
+                return await client.chat.completions.create(
+                    model=settings.llm_model,
+                    messages=messages,
+                    tools=openai_tools,
+                    temperature=0.1,
+                )
+
+            async def _wait_cancel():
+                await cancel_event.wait()
+
+            llm_task = asyncio.create_task(_llm_call())
+            cancel_wait_task = asyncio.create_task(_wait_cancel())
+
+            done, pending = await asyncio.wait(
+                [llm_task, cancel_wait_task],
+                return_when=asyncio.FIRST_COMPLETED,
+            )
+
+            # 取消未完成的任务
+            for task in pending:
+                task.cancel()
+
+            if llm_task in done:
+                response = llm_task.result()
+            else:
+                # 取消信号先触发：取消 LLM task 并等待清理
+                try:
+                    await llm_task
+                except asyncio.CancelledError:
+                    pass  # 正常取消流程
+                print(f"[Cancel] LLM task 已取消")
+                cancelled = True
+                break
+        else:
+            response = await client.chat.completions.create(
+                model=settings.llm_model,
+                messages=messages,
+                tools=openai_tools,
+                temperature=0.1,
+            )
 
         # 累计 token 用量
         if response.usage:
@@ -160,7 +209,19 @@ async def _run_agent(
                     "input": tool_input,
                 }
 
-                result = await _execute_tool(tool_name, tool_input)
+                # ── 工具执行（取消时加超时保护）──
+                is_cancelled = cancel_event is not None and cancel_event.is_set()
+                if is_cancelled:
+                    try:
+                        result = await asyncio.wait_for(
+                            _execute_tool(tool_name, tool_input),
+                            timeout=30,
+                        )
+                    except asyncio.TimeoutError:
+                        print(f"[Cancel] 工具超时(30s): tool={tool_name}")
+                        result = f"工具执行超时: {tool_name}"
+                else:
+                    result = await _execute_tool(tool_name, tool_input)
 
                 yield {
                     "type": "tool_end",
@@ -173,6 +234,11 @@ async def _run_agent(
                     "tool_call_id": tc.id,
                     "content": result,
                 })
+
+            # 工具执行后再次检查取消
+            if cancel_event is not None and cancel_event.is_set():
+                cancelled = True
+                break
         else:
             # 最终响应
             final_content = message.content or ""
@@ -193,18 +259,30 @@ async def _run_agent(
             }
             return
 
-    # 达到最大迭代次数
+    # 被取消 / 达到最大迭代次数
     duration_ms = int((time.monotonic() - start_time) * 1000)
-    yield {
-        "type": "final",
-        "subtype": "max_iterations",
-        "content": "抱歉，查询过程中步骤过多，已自动停止。请尝试简化您的问题。",
-        "stats": {
-            "duration_ms": duration_ms,
-            "num_turns": max_iterations,
-            "tokens": total_input_tokens + total_output_tokens,
-        },
-    }
+    if cancelled:
+        yield {
+            "type": "final",
+            "subtype": "cancelled",
+            "content": "",
+            "stats": {
+                "duration_ms": duration_ms,
+                "num_turns": iteration + 1,
+                "tokens": total_input_tokens + total_output_tokens,
+            },
+        }
+    else:
+        yield {
+            "type": "final",
+            "subtype": "max_iterations",
+            "content": "抱歉，查询过程中步骤过多，已自动停止。请尝试简化您的问题。",
+            "stats": {
+                "duration_ms": duration_ms,
+                "num_turns": max_iterations,
+                "tokens": total_input_tokens + total_output_tokens,
+            },
+        }
 
 
 # ========== 事件流处理 ==========
@@ -231,6 +309,7 @@ async def run_agent_stream(
     user_input: str,
     session_state: dict[str, Any],
     trace_name: str = "DBAgent-Chat",
+    cancel_event: asyncio.Event | None = None,
 ) -> AsyncIterator[tuple[str, dict[str, Any]]]:
     """
     流式运行 Agent，产出 SSE 事件。
@@ -247,6 +326,7 @@ async def run_agent_stream(
         user_input: 用户当前输入的消息
         session_state: 会话状态字典
         trace_name: Langfuse trace 名称
+        cancel_event: 取消信号事件，为 None 时行为不变（向后兼容）
 
     Yields:
         (event_type, data) 元组
@@ -278,7 +358,7 @@ async def run_agent_stream(
     all_texts: list[str] = []
 
     # 4. 启动 Agent 引擎
-    event_stream = _run_agent(full_prompt, tool_schemas)
+    event_stream = _run_agent(full_prompt, tool_schemas, cancel_event)
 
     final_response = ""
     final_stats: dict[str, Any] = {}

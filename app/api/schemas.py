@@ -75,3 +75,10 @@ class SessionDeleteResponse(BaseModel):
     """会话删除响应"""
     deleted: bool = Field(..., description="是否删除成功")
     session_id: str = Field(..., description="被删除的会话 ID")
+
+
+class CancelResponse(BaseModel):
+    """取消 Agent 执行响应"""
+    cancelled: bool = Field(..., description="是否成功触发取消；false 表示该会话没有活跃的 Agent 执行")
+    session_id: str = Field(..., description="会话 ID")
+    message: str = Field(default="", description="状态描述")

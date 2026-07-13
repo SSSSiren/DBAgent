@@ -725,7 +725,7 @@ class TestReducedMotionAccessibility:
         )
 
     def test_streaming_cursor_disabled_in_reduced_motion(self, css_content):
-        """streaming-cursor 动画在 reduced-motion 中应被禁用"""
+        """waterfall-progress 动画在 reduced-motion 中应被禁用"""
         mq_start = css_content.find("@media (prefers-reduced-motion: reduce)")
         mq_content = css_content[mq_start:]
         brace_count = 0
@@ -740,8 +740,8 @@ class TestReducedMotionAccessibility:
                     break
         mq_block = css_content[mq_start:mq_end]
 
-        assert ".streaming-cursor" in mq_block, (
-            "reduced-motion 媒体查询中缺少 .streaming-cursor 降级规则"
+        assert ".waterfall-progress" in mq_block, (
+            "reduced-motion 媒体查询中缺少 .waterfall-progress 降级规则"
         )
 
     def test_streaming_step_transition_disabled_in_reduced_motion(self, css_content):
@@ -767,7 +767,7 @@ class TestReducedMotionAccessibility:
     def test_keyframe_animations_exist(self, css_content):
         """验证所有必需的 CSS 动画关键帧定义存在"""
         required_keyframes = [
-            "@keyframes blink-cursor",
+            "@keyframes waterfall-pulse",
             "@keyframes pulse-dot",
             "@keyframes text-pulse",
         ]
@@ -783,10 +783,10 @@ class TestReducedMotionAccessibility:
         for var in required_vars:
             assert var in css_content, f"styles.css 缺少 CSS 变量: {var}"
 
-    def test_streaming_cursor_style_exists(self, css_content):
-        """验证 .streaming-cursor::after 样式定义存在"""
-        assert ".streaming-cursor::after" in css_content, (
-            "styles.css 缺少 .streaming-cursor::after 样式"
+    def test_waterfall_progress_style_exists(self, css_content):
+        """验证 .waterfall-progress 样式定义存在"""
+        assert ".waterfall-progress" in css_content, (
+            "styles.css 缺少 .waterfall-progress 样式"
         )
 
     def test_pulse_dot_style_exists(self, css_content):
@@ -1125,7 +1125,7 @@ class TestFrontendRenderingPipelineIntegration:
         验证 createStreamingBubble 创建的 DOM 结构约定：
         - article.message.assistant.streaming
         - .bubble > .meta + .content
-        - .content > .thinking-text.streaming-cursor + .streaming-steps
+        - .content > .thinking-text + .streaming-steps
         """
         # 这是一个结构约定测试，验证前端的 DOM 结构要求
         required_selectors = [
@@ -1133,7 +1133,7 @@ class TestFrontendRenderingPipelineIntegration:
             ".bubble",
             ".meta",
             ".content",
-            ".thinking-text.streaming-cursor",
+            ".thinking-text",
             ".streaming-steps",
         ]
 
@@ -1146,7 +1146,7 @@ class TestFrontendRenderingPipelineIntegration:
             css_content = f.read()
 
         # 验证关键 CSS 类存在
-        assert ".streaming-cursor" in css_content
+        assert ".thinking-text" in css_content
         assert ".streaming-steps" in css_content
         assert ".streaming-step" in css_content
         assert ".thinking-text" in css_content

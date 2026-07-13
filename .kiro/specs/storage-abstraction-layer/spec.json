@@ -1,0 +1,22 @@
+{
+  "feature_name": "storage-abstraction-layer",
+  "created_at": "2026-07-13T02:30:10Z",
+  "updated_at": "2026-07-13T03:50:00Z",
+  "language": "zh",
+  "phase": "tasks-generated",
+  "approvals": {
+    "requirements": {
+      "generated": true,
+      "approved": true
+    },
+    "design": {
+      "generated": true,
+      "approved": true
+    },
+    "tasks": {
+      "generated": true,
+      "approved": true
+    }
+  },
+  "ready_for_implementation": true
+}

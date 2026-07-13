@@ -238,7 +238,7 @@ function switchSession(sessionId) {
 
   // 清理当前流式消息的所有动画并重置渲染器状态
   cleanupAnimations();
-  typewriter.reset();
+  waterfall.reset();
   stepRenderer.clearSteps();
 
   activeSessionId = sessionId;
@@ -591,109 +591,107 @@ function addStep(step, state) {
   updateStreamingMessage(step, state);
 }
 
-// ── TypewriterRenderer ──────────────────────────────────────────
-// 打字机状态机：管理思考文本的逐字渲染
+// ── WaterfallRenderer ───────────────────────────────────────────
+// 瀑布式渲染引擎：以内容块为单位批量渲染，替代逐字符打字机
+// 渲染延迟（毫秒）：开发者可在此调整，0 = 即时渲染
+const WATERFALL_RENDER_DELAY = 0;
 
-function createTypewriterRenderer() {
-  let fullText = "";
-  let displayedLength = 0;
-  let charDelay = 20;
+function createWaterfallRenderer() {
+  let buffer = "";
   let isRunning = false;
   let rafId = null;
-  let lastTickTime = 0;
+  let lastRenderTime = 0;
   let targetElement = null;
   let onRenderCallback = null;
   let onCompleteCallback = null;
-  let startTime = 0;
-  let useTruncation = true;       // 思考模式：截断；回复模式：完整渲染
-  let speedBoostDelay = 2000;     // 2 秒后进入极速模式
-  let boostCharDelay = 2;         // 极速模式字符间隔 (ms)
-  const MAX_PREVIEW = 50;         // 思考预览最多显示前 50 个字符
+  const MAX_CHUNK = 200;  // 单帧最大渲染字符数
 
-  // 将文本截断为前 MAX_PREVIEW 个字符，超出部分用 "..." 省略
-  function truncatePreview(text) {
-    if (!useTruncation || text.length <= MAX_PREVIEW) return text;
-    return text.substring(0, MAX_PREVIEW) + "...";
+  function _removeProgress() {
+    if (targetElement) {
+      targetElement.classList.remove("waterfall-progress");
+    }
+  }
+
+  function _addProgress() {
+    if (targetElement) {
+      targetElement.classList.add("waterfall-progress");
+    }
   }
 
   function tick(timestamp) {
     if (!isRunning) return;
-    if (!lastTickTime) lastTickTime = timestamp;
+    if (!lastRenderTime) lastRenderTime = timestamp;
 
-    const elapsed = timestamp - lastTickTime;
-    const queueElapsed = timestamp - startTime;
+    const elapsed = timestamp - lastRenderTime;
+    const delay = WATERFALL_RENDER_DELAY;
 
-    // 两阶段速度策略：
-    //   前 speedBoostDelay 毫秒：charDelay 正常速度
-    //   超过 speedBoostDelay：极速模式 (boostCharDelay)
-    //   超过 3 秒的旧加速模式保留作为兜底
-    let effectiveDelay;
-    if (queueElapsed > 3000) {
-      effectiveDelay = 5;           // 兜底：3 秒积压 → 5ms
-    } else if (queueElapsed > speedBoostDelay) {
-      effectiveDelay = boostCharDelay;  // 极速模式
-    } else {
-      effectiveDelay = charDelay;       // 正常速度
+    // 后台标签页恢复：时间差超过 200ms → 批量渲染全部 buffer
+    if (elapsed > 200) {
+      _renderAll();
+      lastRenderTime = timestamp;
+      if (buffer.length === 0) {
+        _finish();
+      } else {
+        rafId = requestAnimationFrame(tick);
+      }
+      return;
     }
 
-    // 后台标签页恢复：时间差超过 100ms → 批量渲染 5 个字符
-    const batchSize = elapsed > 100 ? 5 : 1;
-
-    if (elapsed >= effectiveDelay) {
-      let charsRendered = 0;
-      while (charsRendered < batchSize && displayedLength < fullText.length) {
-        displayedLength++;
-        charsRendered++;
-      }
-      if (targetElement) {
-        const preview = fullText.substring(0, displayedLength);
-        targetElement.textContent = truncatePreview(preview);
-      }
-      if (onRenderCallback) onRenderCallback();
-      lastTickTime = timestamp;
+    // 按配置延迟间隔消费 buffer
+    if (elapsed >= delay && buffer.length > 0) {
+      _renderChunk();
+      lastRenderTime = timestamp;
     }
 
-    if (displayedLength < fullText.length) {
+    if (buffer.length > 0) {
       rafId = requestAnimationFrame(tick);
     } else {
-      // 全部渲染完成 → 移除光标
-      if (targetElement) {
-        targetElement.classList.remove("streaming-cursor");
-      }
-      isRunning = false;
-      rafId = null;
-      // 触发完成回调
-      if (onCompleteCallback) {
-        const cb = onCompleteCallback;
-        onCompleteCallback = null;
-        cb();
-      }
+      _finish();
     }
   }
 
-  function appendText(text) {
+  function _renderChunk() {
+    if (!targetElement || buffer.length === 0) return;
+    const chunk = buffer.length > MAX_CHUNK ? buffer.substring(0, MAX_CHUNK) : buffer;
+    buffer = buffer.substring(chunk.length);
+    targetElement.textContent += chunk;
+    if (onRenderCallback) onRenderCallback();
+  }
+
+  function _renderAll() {
+    if (!targetElement || buffer.length === 0) return;
+    while (buffer.length > 0) {
+      const chunk = buffer.substring(0, MAX_CHUNK);
+      buffer = buffer.substring(chunk.length);
+      targetElement.textContent += chunk;
+    }
+    if (onRenderCallback) onRenderCallback();
+  }
+
+  function _finish() {
+    _removeProgress();
+    isRunning = false;
+    rafId = null;
+    if (onCompleteCallback) {
+      const cb = onCompleteCallback;
+      onCompleteCallback = null;
+      cb();
+    }
+  }
+
+  function appendChunk(text) {
     try {
       if (typeof text !== "string") {
         text = String(text ?? "");
       }
-      fullText += text;
-      // 同步渲染截断预览：立即更新 DOM，不等待 rAF
-      // rAF 不会在繁忙的 SSE 事件处理循环中调用
-      if (targetElement) {
-        if (!isRunning) {
-          targetElement.classList.add("streaming-cursor");
-        }
-        targetElement.textContent = truncatePreview(fullText);
-        if (onRenderCallback) onRenderCallback();
-      }
+      buffer += text;
       if (!isRunning) {
-        startTime = performance.now();
+        _addProgress();
         isRunning = true;
-        lastTickTime = 0;
+        lastRenderTime = 0;
         rafId = requestAnimationFrame(tick);
       }
     } catch (e) {
-      // 异常降级：立即显示全部缓冲文本
       flush();
     }
   }
@@ -704,11 +702,8 @@ function createTypewriterRenderer() {
       rafId = null;
     }
     try {
-      displayedLength = fullText.length;
-      if (targetElement) {
-        targetElement.textContent = fullText;
-        targetElement.classList.remove("streaming-cursor");
-      }
+      _renderAll();
+      _removeProgress();
     } catch (e) {
       // DOM 操作失败，静默降级
     }
@@ -721,18 +716,13 @@ function createTypewriterRenderer() {
       rafId = null;
     }
     isRunning = false;
-    if (targetElement) {
-      targetElement.classList.remove("streaming-cursor");
-    }
+    _removeProgress();
   }
 
   function reset() {
     stop();
-    fullText = "";
-    displayedLength = 0;
-    charDelay = 30;
-    lastTickTime = 0;
-    startTime = 0;
+    buffer = "";
+    lastRenderTime = 0;
   }
 
   function setTarget(el) {
@@ -747,34 +737,19 @@ function createTypewriterRenderer() {
     onCompleteCallback = cb;
   }
 
-  function setCharDelay(delay) {
-    charDelay = delay;
-  }
-
-  function setUseTruncation(truncate) {
-    useTruncation = truncate;
-  }
-
-  function getIsComplete() {
-    return !isRunning && displayedLength >= fullText.length && fullText.length > 0;
-  }
-
   return {
-    appendText,
+    appendChunk,
     flush,
     stop,
     reset,
     setTarget,
     setOnRender,
     setOnComplete,
-    setCharDelay,
-    setUseTruncation,
-    getIsComplete,
   };
 }
 
 // 全局单例
-const typewriter = createTypewriterRenderer();
+const waterfall = createWaterfallRenderer();
 
 // ── StepRenderer ─────────────────────────────────────────────────
 // 工具步骤增量 DOM 渲染：维护 stepId → StepEntry 的 Map 映射，
@@ -947,13 +922,13 @@ function updatePhaseLabel(step) {
 }
 
 /**
- * 清理所有动画效果：停止 TypewriterRenderer、清除步骤动画类名和 will-change 属性、
+ * 清理所有动画效果：停止 WaterfallRenderer、清除步骤动画类名和 will-change 属性、
  * 恢复 .meta 标签为 "DBAgent"。
  * 调用点：finalizeStreamingMessage（正常/取消）、switchSession、sendMessage。
  */
 function cleanupAnimations() {
-  // 停止打字机（不 flush，保留当前渲染内容）
-  typewriter.stop();
+  // 停止瀑布渲染器（不 flush，保留当前渲染内容）
+  waterfall.stop();
 
   const streamingEl = document.querySelector("article.message.assistant.streaming");
   if (streamingEl) {
@@ -999,26 +974,23 @@ function updateStreamingMessage(step, state) {
   updatePhaseLabel(step);
 
   if (step === "thinking") {
-    // 如果上一阶段是工具调用，说明进入了新一轮思考，重置打字机状态
+    // 如果上一阶段是工具调用，说明进入了新一轮思考，重置瀑布渲染器状态
     if (lastPhase === "tool" && text) {
-      typewriter.reset();
-      // 重新设置 target（reset 不清除 target，但确保光标恢复）
+      waterfall.reset();
+      // 重新设置 target（reset 不清除 target，确保渲染目标正确）
       const thinkingEl = streamingMessage?.querySelector(".thinking-text");
       if (thinkingEl) {
-        typewriter.setTarget(thinkingEl);
-        thinkingEl.classList.add("streaming-cursor");
+        waterfall.setTarget(thinkingEl);
       }
     }
     if (text) {
-      typewriter.appendText(text);
+      waterfall.appendChunk(text);
     }
     lastPhase = "thinking";
   } else if (step && step.startsWith("tool:")) {
     lastPhase = "tool";
   }
-  // 注意：不在这里调用 typewriter.flush()，让打字机在后台持续运行
-  // 即使工具步骤同时到达，思考文本也会逐字渲染
-  // flush 仅在 final 事件时通过 finalizeStreamingMessage 触发
+  // 注意：flush 在 final 事件时通过 finalizeReply 触发
 
   // Tool steps → StepRenderer (incremental DOM, no innerHTML rebuild)
   if (step && step.startsWith("tool:")) {
@@ -1026,7 +998,6 @@ function updateStreamingMessage(step, state) {
     const thinkingEl = streamingMessage?.querySelector(".thinking-text");
     if (thinkingEl) {
       thinkingEl.textContent = "";
-      thinkingEl.classList.remove("streaming-cursor");
     }
 
     const label = step.replace(/^tool:/, "");
@@ -1061,9 +1032,9 @@ function createStreamingBubble() {
   body.className = "content";
 
   // Persistent DOM elements for incremental rendering
-  // thinkingEl: TypewriterRenderer target, operates on textContent
+  // thinkingEl: WaterfallRenderer target, operates on textContent
   const thinkingEl = document.createElement("div");
-  thinkingEl.className = "thinking-text streaming-cursor";
+  thinkingEl.className = "thinking-text";
 
   // stepsContainer: StepRenderer manages child elements here
   const stepsContainer = document.createElement("div");
@@ -1073,8 +1044,8 @@ function createStreamingBubble() {
   body.appendChild(stepsContainer);
 
   // Wire renderers to persistent DOM elements
-  typewriter.setTarget(thinkingEl);
-  typewriter.setOnRender(() => {
+  waterfall.setTarget(thinkingEl);
+  waterfall.setOnRender(() => {
     messages.scrollTop = messages.scrollHeight;
   });
   stepRenderer.setContainer(stepsContainer);
@@ -1092,7 +1063,7 @@ function finalizeStreamingMessage(cancelled = false) {
   if (streamingMessage) {
     if (cancelled) {
       // 取消：停止打字机，移除动画类，追加标记
-      typewriter.stop();
+      waterfall.stop();
       streamingMessage.classList.remove("streaming");
       streamingMessage.classList.add("cancelled");
       const body = streamingMessage.querySelector(".content");
@@ -1114,31 +1085,10 @@ function finalizeStreamingMessage(cancelled = false) {
   streamingSteps = [];
 }
 
-/**
- * 剥离 Markdown 格式符号，返回纯文本用于打字机渲染预览。
- * 保留表格结构、代码块标记、标题和列表的视觉线索。
- */
-function stripMarkdownForTypewriter(text) {
-  return String(text ?? "")
-    // 标题符号 → 保留文字
-    .replace(/^#{1,3}\s+/gm, "")
-    // 粗体/斜体
-    .replace(/\*\*([^*]+)\*\*/g, "$1")
-    .replace(/\*([^*]+)\*/g, "$1")
-    // 行内代码
-    .replace(/`([^`]+)`/g, "$1")
-    // 列表标记 → 保留文字
-    .replace(/^\s*[-*]\s+/gm, "")
-    // 代码块标记 → 用空白行分隔
-    .replace(/```[\s\S]*?```/g, "[代码块]")
-    .replace(/```\w*/g, "")
-    // 链接
-    .replace(/\[([^\]]+)\]\([^)]+\)/g, "$1");
-}
 
 /**
- * 用快速打字机效果渲染最终回答到流式气泡中。
- * 打字机期间显示剥离 Markdown 的纯文本，完成后一次性替换为完整 Markdown 渲染。
+ * 瀑布式渲染最终回答：flush 剩余 buffer，直接渲染 Markdown 到流式气泡。
+ * 去除打字机预览的两阶段流程，Markdown 内容一次性格式化显示。
  */
 function finalizeReply(replyText) {
   if (!streamingMessage || !replyText) {
@@ -1146,44 +1096,26 @@ function finalizeReply(replyText) {
     return;
   }
 
+  // flush 瀑布渲染器中所有剩余 buffer
+  waterfall.flush();
+
   const body = streamingMessage.querySelector(".content");
   if (!body) {
     appendMessage("assistant", replyText);
     return;
   }
-  body.innerHTML = "";
 
-  // 创建回复渲染目标元素（使用独立类，允许多行换行）
-  const replyEl = document.createElement("div");
-  replyEl.className = "reply-text streaming-cursor";
-  body.appendChild(replyEl);
+  // 直接渲染完整 Markdown（无纯文本预览阶段）
+  body.innerHTML = renderMarkdown(replyText);
 
-  // 剥离 Markdown 的纯文本版本（打字机渲染用）
-  const plainText = stripMarkdownForTypewriter(replyText);
-
-  typewriter.reset();
-  typewriter.setTarget(replyEl);
-  typewriter.setCharDelay(2);
-  typewriter.setUseTruncation(false);
-  typewriter.setOnRender(() => {
-    messages.scrollTop = messages.scrollHeight;
-  });
-  typewriter.setOnComplete(() => {
-    // 打字机完成 → 替换为完整 Markdown 渲染
-    body.innerHTML = renderMarkdown(replyText);
-    typewriter.setCharDelay(30);
-    typewriter.setUseTruncation(true);
-    streamingMessage.classList.remove("streaming");
-    const meta = streamingMessage.querySelector(".meta");
-    if (meta) meta.textContent = "DBAgent";
-    const copyBtn = createCopyButton(() => body.innerText);
-    streamingMessage.querySelector(".bubble").appendChild(copyBtn);
-    streamingMessage = null;
-    messages.scrollTop = messages.scrollHeight;
-  });
-
-  // 渲染剥离 Markdown 后的纯文本
-  typewriter.appendText(plainText);
+  // 完成流式消息：移除 streaming 类，添加复制按钮
+  streamingMessage.classList.remove("streaming");
+  const meta = streamingMessage.querySelector(".meta");
+  if (meta) meta.textContent = "DBAgent";
+  const copyBtn = createCopyButton(() => body.innerText);
+  streamingMessage.querySelector(".bubble").appendChild(copyBtn);
+  streamingMessage = null;
+  messages.scrollTop = messages.scrollHeight;
 }
 
 function parseSseChunk(buffer, onEvent) {
@@ -1207,7 +1139,7 @@ async function sendMessage(message) {
 
   // 清理上一轮流式消息的动画并重置渲染器状态
   cleanupAnimations();
-  typewriter.reset();
+  waterfall.reset();
   stepRenderer.clearSteps();
 
   appendMessage("user", message);

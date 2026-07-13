@@ -660,8 +660,8 @@ textarea:focus {
 
 /* ── 新动画关键帧 ─────────────────────────────────────────── */
 
-@keyframes blink-cursor {
-  0%, 100% { opacity: 0; }
+@keyframes waterfall-pulse {
+  0%, 100% { opacity: 0.2; }
   50% { opacity: 1; }
 }
 
@@ -675,17 +675,11 @@ textarea:focus {
   50% { opacity: 1; }
 }
 
-/* ── 打字机光标 ───────────────────────────────────────────── */
+/* ── 瀑布式进度指示器 ──────────────────────────────────────── */
 
-.streaming-cursor::after {
-  content: "";
-  display: inline-block;
-  width: 2px;
-  height: 1em;
-  margin-left: 2px;
-  background: var(--accent);
-  vertical-align: text-bottom;
-  animation: blink-cursor 0.8s step-end infinite;
+.waterfall-progress {
+  border-bottom: 2px solid var(--accent);
+  animation: waterfall-pulse 1.2s ease-in-out infinite;
 }
 
 /* ── 工具步骤脉冲指示器 ──────────────────────────────────── */
@@ -739,9 +733,9 @@ textarea:focus {
     opacity: 0.6;
   }
 
-  .streaming-cursor::after {
+  .waterfall-progress {
     animation: none;
-    opacity: 0;
+    border-bottom-color: var(--line);
   }
 
   .streaming-step {
@@ -770,23 +764,11 @@ textarea:focus {
   min-height: 1.4em;
 }
 
-/* 回复打字机：允许多行换行 */
+/* 回复文本：允许多行换行 */
 .reply-text {
   white-space: pre-wrap;
   word-wrap: break-word;
   line-height: 1.65;
-}
-
-.reply-text.streaming-cursor::after,
-.thinking-text.streaming-cursor::after {
-  content: "";
-  display: inline-block;
-  width: 2px;
-  height: 1em;
-  margin-left: 2px;
-  background: var(--accent);
-  vertical-align: text-bottom;
-  animation: blink-cursor 0.8s step-end infinite;
 }
 
 .streaming-steps {

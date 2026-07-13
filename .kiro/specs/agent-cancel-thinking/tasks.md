@@ -1,0 +1,130 @@
+# Implementation Plan
+
+- [ ] 1. Foundation: 取消事件注册表
+- [x] 1.1 实现带 TTL 过期机制的取消事件注册表
+  - 新建 `app/agent/cancel.py`，实现 `CancelEventRegistry` 类维护 `dict[str, tuple[asyncio.Event, float]]`
+  - `create()` 方法：若 session_id 已有事件则先清理旧的，调用 `_purge_expired()` 清理超过 300s 的过期条目，然后创建新事件放入注册表
+  - `cancel()` 方法：若事件存在则调用 `event.set()` 返回 True，否则返回 False
+  - `remove()` 方法：从注册表中删除指定 session_id 的事件
+  - `_purge_expired()` 方法：遍历所有条目，移除 `time.monotonic() - created_at > 300` 的过期事件
+  - 实现 `get_cancel_registry()` 模块级单例工厂函数
+  - 任务完成后，可直接 import 并调用所有 CRUD 方法，TTL 过期机制可通过单元测试验证
+  - _Requirements: 1.1, 1.5, 5.4, 6.3_
+  - _Boundary: CancelEventRegistry_
+
+- [ ] 2. Backend: Agent 取消能力
+- [x] 2.1 (P) 取消 API 端点与响应模型
+  - 在 `app/api/schemas.py` 中新增 `CancelResponse` 模型，包含 `cancelled: bool`、`session_id: str`、`message: str` 字段
+  - 在 `app/api/routes.py` 中新增 `POST /api/chat/{session_id}/cancel` 端点
+  - 端点调用 `get_cancel_registry().cancel(session_id)`，若事件存在则触发取消并返回 `cancelled=true`；若事件不存在（Agent 未执行或已完成）则返回 `cancelled=false` 及说明信息
+  - 端点本身不抛异常，所有错误通过 CancelResponse 的 message 字段返回
+  - 任务完成后，`curl -X POST /api/chat/test-session/cancel` 返回 200 及正确的 JSON 响应
+  - _Requirements: 1.5, 4.3_
+  - _Depends: 1.1_
+  - _Boundary: app/api/routes.py, app/api/schemas.py_
+
+- [x] 2.2 (P) Agent 执行引擎取消感知
+  - 修改 `_run_agent()` 函数签名，新增 `cancel_event: asyncio.Event | None = None` 参数
+  - 在 ReAct 循环每次迭代开始处检查 `cancel_event.is_set()`，若为 True 则 yield `{"type": "final", "subtype": "cancelled"}` 并返回
+  - LLM 调用处使用 `asyncio.wait([llm_task, cancel_wait_task], return_when=FIRST_COMPLETED)` 竞速
+  - 若取消事件先触发：调用 `llm_task.cancel()` 后必须 `await llm_task`（用 try/except CancelledError 包裹），确保 SDK 内部 httpx 连接的 finally 清理逻辑执行完毕，然后 yield 取消 final 事件
+  - 若 LLM 先完成：正常处理响应，工具调用结束后再次检查 `cancel_event.is_set()` 决定是否继续迭代
+  - 取消信号已触发时，工具执行使用 `asyncio.wait_for(_execute_tool(...), timeout=30)` 包装，超时后记录日志并直接终止
+  - `cancel_event` 为 None 时行为与修改前完全一致（向后兼容）
+  - 修改 `run_agent_stream()` 透传 `cancel_event` 参数
+  - 任务完成后，可通过设置 `cancel_event` 在 LLM 等待阶段和工具执行阶段验证取消行为
+  - _Requirements: 1.1, 1.2, 1.3, 1.4_
+  - _Depends: 1.1_
+  - _Boundary: app/agent/runner.py_
+
+- [x] 2.3 请求流取消事件生命周期与部分结果保存
+  - 修改 `_execute_agent_stream()`，在函数开始时调用 `get_cancel_registry().create(session_id)` 创建取消事件
+  - 在 finally 块中调用 `get_cancel_registry().remove(session_id)` 清理事件，确保异常路径也清理
+  - 将 `cancel_event` 传入 `run_agent_stream()` 调用
+  - 在 `async for` 循环中捕获 `subtype="cancelled"` 的 final 事件：保留已收集的思考文本（`all_texts`）和工具调用记录（`tool_calls_info`），追加到 `chat_history`，调用 `save_session()` 持久化
+  - 取消时若无任何产出（首轮 LLM 尚未返回），返回空的 final 事件
+  - 取消异常发生时（如 registry 操作失败），catch 异常并打印日志，Agent 继续正常执行
+  - 注意：与本任务修改同一文件（`routes.py`）的后续任务 4.1、4.2 依赖此任务完成，确保按序执行避免合并冲突
+  - 任务完成后，取消一个正在执行的 Agent 后，会话状态中包含已产出的思考文本和工具调用记录
+  - _Requirements: 1.4, 2.1, 2.2, 2.3, 2.4, 5.1, 5.3, 6.1, 6.2_
+  - _Depends: 2.2_
+  - _Boundary: app/api/routes.py_
+
+- [ ] 3. Frontend: 用户取消交互
+- [x] 3.1 停止按钮 UI 与样式
+  - 在 `app/static/index.html` 的 composer 区域添加停止按钮，位于发送按钮旁边，默认隐藏
+  - 在 `app/static/styles.css` 中添加停止按钮样式（红色调，区别于发送按钮），以及取消徽章样式（`.badge.cancelled`）
+  - 添加 `.message.cancelled` 样式用于取消提示消息
+  - 任务完成后，静态页面可见停止按钮（发送时显示），取消徽章有独特视觉样式
+  - _Requirements: 3.1, 4.1_
+  - _Boundary: app/static/index.html, app/static/styles.css_
+
+- [x] 3.2 前端取消逻辑与流式消息处理
+  - 修改 `sendMessage()` 函数，使用 `AbortController` 包装 `fetch()` 调用（传入 `signal`）
+  - 新增 `stopGeneration()` 函数：先发送 `POST /api/chat/{sessionId}/cancel`，等待 500ms，若 SSE 未返回 cancelled 事件则调用 `abortController.abort()` 强制断开
+  - 新增 `finalHandled` 标志防止双重 final 事件：优先处理 `subtype="cancelled"`，收到后忽略后续 `subtype="completed"` 事件
+  - 发送消息时显示停止按钮、隐藏发送按钮；Agent 完成或取消后恢复发送按钮、隐藏停止按钮
+  - 取消时 `finalizeStreamingMessage()` 改为原地保留：移除 `.streaming` class（停止动画），在内容末尾追加 "[已停止生成]" 标记，作为普通消息保留在对话中
+  - 捕获 `AbortError` 不显示为错误
+  - 取消徽章状态：发送取消请求时显示 "取消中"（busy），收到 cancelled 事件后显示 "已取消"（cancelled）
+  - 任务完成后，点击停止按钮后 Agent 终止、流式内容保留、UI 状态正确恢复
+  - _Requirements: 3.1, 3.2, 3.3, 3.4, 4.1_
+  - _Depends: 3.1_
+  - _Boundary: app/static/app.js_
+
+- [ ] 4. 传输层取消集成
+- [x] 4.1 SSE 客户端断开检测
+  - 修改 `event_stream()` 内部生成器，接受 `Request` 参数
+  - 在生成器外层包裹 `try/except asyncio.CancelledError`：客户端断开时 ASGI 服务器取消任务，捕获后调用 `cancel_registry.cancel(session_id)` 触发 Agent 取消
+  - 在每次 `yield` 前调用 `await request.is_disconnected()` 作为兜底检测，断开时同样触发取消
+  - 任务完成后，关闭浏览器标签页或刷新页面时，服务端 Agent 执行被终止
+  - _Requirements: 4.1, 4.2_
+  - _Depends: 2.3_
+  - _Boundary: app/api/routes.py_
+
+- [x] 4.2 WebSocket 断连自动取消
+  - 修改 WebSocket handler，在 `WebSocketDisconnect` 异常处理中调用 `cancel_registry.cancel(session_id)`
+  - 确保取消调用在 `async for` 循环外也能生效（session_id 在 handler 开头已获取）
+  - 任务完成后，WebSocket 客户端断开连接时，服务端 Agent 执行被终止
+  - _Requirements: 4.2_
+  - _Depends: 2.3_
+  - _Boundary: app/api/routes.py_
+
+- [ ] 5. 测试验证
+- [x] 5.1 (P) CancelEventRegistry 单元测试
+  - 测试 `create()` 创建事件并返回 `asyncio.Event` 对象
+  - 测试 `cancel()` 触发事件后 `event.is_set()` 返回 True
+  - 测试 `cancel()` 对不存在的 session 返回 False
+  - 测试 `remove()` 后事件从注册表移除
+  - 测试 `_purge_expired()` 清理超过 300s 的过期条目
+  - 测试 `create()` 对已存在的 session_id 先清理旧事件再创建新的
+  - 测试 `get_cancel_registry()` 返回单例
+  - 任务完成后，`pytest tests/test_cancel_registry.py -v` 全部通过
+  - _Requirements: 1.1, 1.5, 5.4, 6.3_
+  - _Boundary: CancelEventRegistry_
+
+- [x] 5.2 (P) 取消端点与 Agent 取消集成测试
+  - 测试 `POST /api/chat/{id}/cancel` 对活跃 Agent 返回 `cancelled=true`
+  - 测试 `POST /api/chat/{id}/cancel` 对不存在的 session 返回 `cancelled=false` + 说明信息
+  - 测试 `POST /api/chat/{id}/cancel` 对已完成的 Agent 返回 `cancelled=false`
+  - 测试取消后 Agent 在 2 秒内返回 `subtype="cancelled"` 的 final 事件
+  - 测试取消后会话状态包含已产出的思考文本和工具调用记录
+  - 测试取消 LLM 等待阶段后 httpx 连接正确关闭（通过检查运行中的 Agent 数量验证资源释放）
+  - 测试取消工具执行阶段后工具在 30s 超时内正确终止
+  - 测试取消一个会话不影响另一个活跃会话的 Agent 执行
+  - 任务完成后，`pytest tests/test_cancel_integration.py -v` 全部通过
+  - _Requirements: 1.1, 1.2, 1.3, 1.4, 1.5, 2.1, 2.2, 2.4, 4.3, 5.1, 5.3, 5.4, 6.1, 6.2, 6.3_
+  - _Depends: 4.2_
+  - _Boundary: app/api/routes.py, app/agent/runner.py_
+
+- [ ] 5.3 E2E 取消流程测试
+  - 完整取消流程：用户发送消息 → Agent 开始执行 → 用户点击停止 → Agent 终止 → 前端显示"已取消" → 可继续输入新消息
+  - 取消后流式气泡保留：验证取消后思考文本和工具调用步骤保留在消息中，追加 "[已停止生成]" 标记
+  - 取消后刷新恢复：取消后刷新页面，对话历史包含取消前用户消息和已产出的 Agent 内容
+  - 重复取消幂等：快速连续点击停止按钮 3 次，仅一次生效，UI 状态正确
+  - Agent 已完成时取消：Agent 正常完成后点击停止（按钮已隐藏），不产生错误
+  - WebSocket 取消：WebSocket 客户端断开后 Agent 执行终止，不留下僵尸任务
+  - 任务完成后，`bash tests/test_cancel_e2e.sh` 全部场景通过
+  - _Requirements: 1.1, 1.5, 2.1, 2.3, 3.1, 3.2, 3.3, 3.4, 4.1, 4.2, 5.1, 5.2, 5.3, 6.3_
+  - _Depends: 5.2_
+  - _Boundary: E2E_
