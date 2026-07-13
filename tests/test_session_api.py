@@ -10,17 +10,20 @@ from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
 from app.api.routes import router
-from app.memory.store import reset_store
 
 
 # ── Fixtures ──────────────────────────────────────────────────────────
 
 @pytest.fixture(autouse=True)
-def setup_store():
+def setup_store(monkeypatch):
     """每个测试前重置存储，确保测试隔离"""
-    reset_store()
+    from app.memory import StorageManager, reset_storage
+    from app.memory.store import InMemoryStore
+    reset_storage()
+    sm = StorageManager(session_store=InMemoryStore())
+    monkeypatch.setattr("app.api.routes.get_storage", lambda: sm)
     yield
-    reset_store()
+    reset_storage()
 
 
 @pytest.fixture
@@ -270,12 +273,18 @@ class TestSessionStateSchema:
         assert "preference_count" in data
         assert data["preference_count"] == 5
 
-    def test_session_state_preference_count_in_api_response(self):
+    def test_session_state_preference_count_in_api_response(self, monkeypatch):
         """验证 GET /api/sessions/{session_id} 响应中包含 preference_count 字段"""
         # 使用测试客户端创建会话并获取状态
         from fastapi import FastAPI
         from fastapi.testclient import TestClient
         from app.api.routes import router
+        from app.memory import StorageManager, reset_storage
+        from app.memory.store import InMemoryStore
+
+        reset_storage()
+        sm = StorageManager(session_store=InMemoryStore())
+        monkeypatch.setattr("app.api.routes.get_storage", lambda: sm)
 
         app = FastAPI()
         app.include_router(router, prefix="/api")

@@ -24,8 +24,8 @@ from unittest.mock import AsyncMock, MagicMock
 from app.api.routes import router
 from app.memory.preferences import (
     SqlitePreferenceStore,
-    reset_preference_store,
 )
+from app.memory import reset_storage
 from app.config import Settings
 
 
@@ -148,10 +148,10 @@ def pref_store():
     import asyncio
     loop = asyncio.new_event_loop()
     loop.run_until_complete(store.initialize())
-    reset_preference_store()
+    reset_storage()
     yield store
     loop.run_until_complete(store.close())
-    reset_preference_store()
+    reset_storage()
     loop.close()
 
 
@@ -160,35 +160,34 @@ def _apply_patches(monkeypatch, pref_store, *, preference_enabled=True, kb_enabl
     应用所有 E2E 测试所需的通用 monkeypatch。
 
     - get_settings: 控制 preference_enabled / kb_enabled
-    - get_preference_store: 注入 :memory: 测试实例
+    - get_storage: 注入包含 :memory: 测试实例的 StorageManager
     - run_agent_stream: mock（由各测试自行覆盖）
     - _record_to_openviking: no-op
-    - get_store: 使用默认 InMemoryStore
-    - _get_or_create_session: 注入 selected_database（记录钩子需要）
 
     Args:
         with_database: 默认 True，为会话注入 selected_database 以便偏好记录钩子提取 database_name。
                        静默降级测试设为 False 以模拟缺失场景。
     """
-    from app.memory.store import InMemoryStore, DEFAULT_SESSION, reset_store
+    from app.memory.store import InMemoryStore
+    from app.memory import StorageManager, reset_storage
 
     monkeypatch.setattr(
         "app.config.get_settings",
         lambda: _make_settings(preference_enabled=preference_enabled, kb_enabled=kb_enabled),
     )
     monkeypatch.setattr(
-        "app.memory.preferences.get_preference_store",
-        lambda: pref_store,
-    )
-    monkeypatch.setattr(
         "app.api.routes._record_to_openviking",
         AsyncMock(),
     )
-    # 重置并替换为 InMemoryStore（确保不同导入路径使用同一实例）
-    reset_store()
+
+    # 创建 StorageManager，注入测试 session store 和 preference store
+    reset_storage()
     test_store = InMemoryStore()
-    monkeypatch.setattr("app.api.routes.get_store", lambda: test_store)
-    monkeypatch.setattr("app.memory.store.get_store", lambda: test_store)
+    sm = StorageManager(
+        session_store=test_store,
+        preference_store=pref_store,
+    )
+    monkeypatch.setattr("app.api.routes.get_storage", lambda: sm)
 
     # Monkeypatch _get_or_create_session 以注入 selected_database
     # 记录钩子需要 initial_state["selected_database"]["schemaName"] 来获取 database_name
@@ -514,13 +513,19 @@ class TestPreferenceE2ESilentDegradation:
             _mock_run_agent_stream_simple,
         )
         # 替换为未初始化的 store（在检索时会抛出异常）
+        from app.memory import StorageManager
+        from app.memory.store import InMemoryStore
         uninit_store = MagicMock()
         uninit_store.retrieve_preferences = AsyncMock(
             side_effect=Exception("Store not initialized")
         )
+        sm = StorageManager(
+            session_store=InMemoryStore(),
+            preference_store=uninit_store,
+        )
         monkeypatch.setattr(
-            "app.memory.preferences.get_preference_store",
-            lambda: uninit_store,
+            "app.api.routes.get_storage",
+            lambda: sm,
         )
 
         session = _create_session(client, user_id="alice")

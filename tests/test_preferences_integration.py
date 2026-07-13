@@ -15,8 +15,8 @@ from unittest.mock import AsyncMock, MagicMock
 
 from app.memory.preferences import (
     SqlitePreferenceStore,
-    reset_preference_store,
 )
+from app.memory import reset_storage
 from app.config import Settings
 
 
@@ -34,20 +34,22 @@ def _make_settings(**kwargs):
 
 def _patch_common(monkeypatch, pref_store, *, preference_enabled=True):
     """应用所有测试依赖的通用 patch"""
+    from app.memory.store import InMemoryStore
+    from app.memory import StorageManager
+
     # Patch get_settings — 控制 preference_enabled 和 kb_enabled
     monkeypatch.setattr(
         "app.config.get_settings",
         lambda: _make_settings(preference_enabled=preference_enabled),
     )
-    # Patch get_preference_store — 返回 :memory: 实例
-    monkeypatch.setattr(
-        "app.memory.preferences.get_preference_store",
-        lambda: pref_store,
+    # Patch get_storage — 返回包含测试后端实例的 StorageManager
+    reset_storage()
+    mock_store = InMemoryStore()
+    sm = StorageManager(
+        session_store=mock_store,
+        preference_store=pref_store,
     )
-    # Patch get_store — save_session 是 no-op
-    mock_store = MagicMock()
-    mock_store.save_session = AsyncMock()
-    monkeypatch.setattr("app.api.routes.get_store", lambda: mock_store)
+    monkeypatch.setattr("app.api.routes.get_storage", lambda: sm)
     # Patch _record_to_openviking — no-op（避免真实的 OpenViking 调用）
     monkeypatch.setattr("app.api.routes._record_to_openviking", AsyncMock())
 
@@ -171,7 +173,7 @@ async def pref_store():
     await store.initialize()
     yield store
     await store.close()
-    reset_preference_store()
+    reset_storage()
 
 
 # ========== 检索钩子测试 ====================================================
