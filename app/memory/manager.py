@@ -8,7 +8,9 @@ StorageManager 拥有会话存储和偏好存储两个后端的生命周期，
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Optional
+
+from app.config import get_settings
 
 if TYPE_CHECKING:
     from app.memory.store import StorageBackend
@@ -58,3 +60,75 @@ class StorageManager:
         if self.preference_store is not None:
             await self.preference_store.close()
         await self.session_store.close()
+
+
+# ============================================================================
+# 工厂函数
+# ============================================================================
+
+_storage: Optional[StorageManager] = None
+
+
+def get_storage() -> StorageManager:
+    """
+    获取 StorageManager 单例。
+
+    根据 Settings.storage_backend 配置创建对应的会话和偏好后端实例，
+    注入 StorageManager 并返回模块级单例。
+
+    后端选择规则：
+    - "memory" → InMemoryStore + InMemoryPreferenceStore
+    - "sqlite"  → SqliteStore + SqlitePreferenceStore
+
+    偏好后端类型跟随会话后端类型选择。
+    preference_enabled=False 时跳过偏好后端创建，preference_store 为 None。
+    storage_backend 值非法时抛出 ValueError。
+
+    Returns:
+        StorageManager 实例（单例）
+    """
+    global _storage
+    if _storage is not None:
+        return _storage
+
+    settings = get_settings()
+    backend = settings.storage_backend
+
+    # 创建会话后端
+    if backend == "memory":
+        from app.memory.store import InMemoryStore
+        session_store = InMemoryStore()
+    elif backend == "sqlite":
+        from app.memory.store import SqliteStore
+        session_store = SqliteStore(settings.storage_file_path)
+    else:
+        raise ValueError(
+            f"不支持的存储后端类型: '{backend}'。"
+            f"支持的后端: 'memory', 'sqlite'。"
+            f"请检查 STORAGE_BACKEND 环境变量配置。"
+        )
+
+    # 创建偏好后端（类型跟随会话后端）
+    preference_store = None
+    if settings.preference_enabled:
+        if backend == "memory":
+            from app.memory.preferences import InMemoryPreferenceStore
+            preference_store = InMemoryPreferenceStore()
+        elif backend == "sqlite":
+            from app.memory.preferences import SqlitePreferenceStore
+            preference_store = SqlitePreferenceStore(settings.storage_file_path)
+
+    _storage = StorageManager(
+        session_store=session_store,
+        preference_store=preference_store,
+    )
+    return _storage
+
+
+def reset_storage() -> None:
+    """重置全局 StorageManager 实例（仅用于测试隔离）。
+
+    将模块级单例设为 None，下次 get_storage() 调用时会创建新实例。
+    """
+    global _storage
+    _storage = None

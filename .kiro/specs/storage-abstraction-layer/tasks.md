@@ -49,7 +49,7 @@
   - 完成状态：通过 mock 后端验证 `initialize` 和 `close` 的调用顺序正确
   - _Requirements: 1.1, 1.3, 2.3, 4.1, 4.2, 4.3_
 
-- [ ] 2.4 实现 get_storage() 工厂和 reset_storage()
+- [x] 2.4 实现 get_storage() 工厂和 reset_storage()
   - 在 `manager.py` 中实现 `get_storage()` 函数：读取 `storage_backend` 配置，创建会话和偏好后端实例，注入 `StorageManager`，返回模块级单例
   - 偏好后端跟随会话后端类型选择（`"memory"` → `InMemoryPreferenceStore`，`"sqlite"` → `SqlitePreferenceStore`）
   - `preference_enabled=False` 时跳过偏好后端创建，`preference_store` 为 None

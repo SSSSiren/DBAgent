@@ -6,6 +6,8 @@ StorageManager 单元测试
 - close() 逆序关闭（先偏好后会话）
 - 偏好禁用（preference_store=None）时优雅降级
 - 初始化失败时异常向上传播
+- get_storage() 工厂函数的配置分发
+- reset_storage() 单例重置
 """
 
 import asyncio
@@ -13,9 +15,14 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
-from app.memory.manager import StorageManager
-from app.memory.store import StorageBackend
-from app.memory.preferences import PreferenceBackend
+from app.config import Settings
+from app.memory.manager import StorageManager, get_storage, reset_storage
+from app.memory.store import InMemoryStore, SqliteStore, StorageBackend
+from app.memory.preferences import (
+    InMemoryPreferenceStore,
+    PreferenceBackend,
+    SqlitePreferenceStore,
+)
 
 
 # ============================================================================
@@ -279,3 +286,175 @@ class TestFullLifecycle:
         # 两个都应该尝试关闭
         pref.close.assert_awaited_once()
         session.close.assert_awaited_once()
+
+
+# ============================================================================
+# get_storage() 工厂函数测试
+# ============================================================================
+
+class TestGetStorage:
+    """验证 get_storage() 工厂函数的行为"""
+
+    def test_returns_storage_manager_with_memory_backend(self, monkeypatch):
+        """storage_backend="memory" 时返回包含 InMemoryStore + InMemoryPreferenceStore 的 StorageManager"""
+        reset_storage()
+        settings = Settings(storage_backend="memory", preference_enabled=True)
+        monkeypatch.setattr("app.memory.manager.get_settings", lambda: settings)
+
+        storage = get_storage()
+
+        assert isinstance(storage, StorageManager)
+        assert isinstance(storage.session_store, InMemoryStore)
+        assert isinstance(storage.preference_store, InMemoryPreferenceStore)
+
+    def test_returns_storage_manager_with_sqlite_backend(self, monkeypatch, tmp_path):
+        """storage_backend="sqlite" 时返回包含 SqliteStore + SqlitePreferenceStore 的 StorageManager"""
+        reset_storage()
+        db_path = tmp_path / "test.db"
+        settings = Settings(
+            storage_backend="sqlite",
+            storage_file_path=str(db_path),
+            preference_enabled=True,
+        )
+        monkeypatch.setattr("app.memory.manager.get_settings", lambda: settings)
+
+        storage = get_storage()
+
+        assert isinstance(storage, StorageManager)
+        assert isinstance(storage.session_store, SqliteStore)
+        assert isinstance(storage.preference_store, SqlitePreferenceStore)
+
+    def test_preference_none_when_disabled(self, monkeypatch):
+        """preference_enabled=False 时 preference_store 应为 None"""
+        reset_storage()
+        settings = Settings(storage_backend="memory", preference_enabled=False)
+        monkeypatch.setattr("app.memory.manager.get_settings", lambda: settings)
+
+        storage = get_storage()
+
+        assert isinstance(storage, StorageManager)
+        assert isinstance(storage.session_store, InMemoryStore)
+        assert storage.preference_store is None
+
+    def test_sqlite_preference_none_when_disabled(self, monkeypatch, tmp_path):
+        """SQLite 后端 + preference_enabled=False 时 preference_store 应为 None"""
+        reset_storage()
+        db_path = tmp_path / "test.db"
+        settings = Settings(
+            storage_backend="sqlite",
+            storage_file_path=str(db_path),
+            preference_enabled=False,
+        )
+        monkeypatch.setattr("app.memory.manager.get_settings", lambda: settings)
+
+        storage = get_storage()
+
+        assert isinstance(storage, StorageManager)
+        assert isinstance(storage.session_store, SqliteStore)
+        assert storage.preference_store is None
+
+    def test_raises_value_error_for_invalid_backend(self, monkeypatch):
+        """storage_backend 值非法时抛出 ValueError"""
+        reset_storage()
+        settings = Settings(storage_backend="redis", preference_enabled=True)
+        monkeypatch.setattr("app.memory.manager.get_settings", lambda: settings)
+
+        with pytest.raises(ValueError, match="不支持的存储后端"):
+            get_storage()
+
+    def test_raises_value_error_for_empty_backend(self, monkeypatch):
+        """storage_backend 为空字符串时抛出 ValueError"""
+        reset_storage()
+        settings = Settings(storage_backend="", preference_enabled=True)
+        monkeypatch.setattr("app.memory.manager.get_settings", lambda: settings)
+
+        with pytest.raises(ValueError, match="不支持的存储后端"):
+            get_storage()
+
+    def test_singleton_returns_same_instance(self, monkeypatch):
+        """多次调用 get_storage() 返回同一个实例"""
+        reset_storage()
+        settings = Settings(storage_backend="memory", preference_enabled=True)
+        monkeypatch.setattr("app.memory.manager.get_settings", lambda: settings)
+
+        s1 = get_storage()
+        s2 = get_storage()
+
+        assert s1 is s2
+        assert s1.session_store is s2.session_store
+        assert s1.preference_store is s2.preference_store
+
+    def test_preference_type_follows_session_backend(self, monkeypatch):
+        """偏好后端类型跟随会话后端类型（memory → InMemory, sqlite → Sqlite）"""
+        reset_storage()
+        settings = Settings(storage_backend="memory", preference_enabled=True)
+        monkeypatch.setattr("app.memory.manager.get_settings", lambda: settings)
+
+        storage = get_storage()
+        assert isinstance(storage.preference_store, InMemoryPreferenceStore)
+
+        reset_storage()
+        db_path = "/tmp/test_follow.db"
+        settings2 = Settings(
+            storage_backend="sqlite",
+            storage_file_path=db_path,
+            preference_enabled=True,
+        )
+        monkeypatch.setattr("app.memory.manager.get_settings", lambda: settings2)
+
+        storage2 = get_storage()
+        assert isinstance(storage2.preference_store, SqlitePreferenceStore)
+
+
+# ============================================================================
+# reset_storage() 测试
+# ============================================================================
+
+class TestResetStorage:
+    """验证 reset_storage() 行为"""
+
+    def test_reset_creates_fresh_instance(self, monkeypatch):
+        """reset_storage() 后 next get_storage() 创建新实例"""
+        settings = Settings(storage_backend="memory", preference_enabled=True)
+        monkeypatch.setattr("app.memory.manager.get_settings", lambda: settings)
+
+        reset_storage()
+        s1 = get_storage()
+
+        reset_storage()
+        s2 = get_storage()
+
+        assert s1 is not s2, "reset_storage() 后应创建新实例"
+        assert s1.session_store is not s2.session_store
+
+    def test_reset_before_first_call_is_noop(self, monkeypatch):
+        """首次调用前 reset_storage() 为无害操作"""
+        reset_storage()
+        reset_storage()  # 多次调用也不应出错
+
+        settings = Settings(storage_backend="memory", preference_enabled=True)
+        monkeypatch.setattr("app.memory.manager.get_settings", lambda: settings)
+
+        storage = get_storage()
+        assert isinstance(storage, StorageManager)
+
+    def test_reset_allows_backend_change(self, monkeypatch):
+        """reset_storage() 后可以切换后端类型"""
+        # 先用 memory 后端
+        settings_mem = Settings(storage_backend="memory", preference_enabled=True)
+        monkeypatch.setattr("app.memory.manager.get_settings", lambda: settings_mem)
+        reset_storage()
+        s1 = get_storage()
+        assert isinstance(s1.session_store, InMemoryStore)
+
+        # reset 后切换到 sqlite
+        reset_storage()
+        db_path = "/tmp/test_reset_switch.db"
+        settings_sqlite = Settings(
+            storage_backend="sqlite",
+            storage_file_path=db_path,
+            preference_enabled=True,
+        )
+        monkeypatch.setattr("app.memory.manager.get_settings", lambda: settings_sqlite)
+        s2 = get_storage()
+        assert isinstance(s2.session_store, SqliteStore)
