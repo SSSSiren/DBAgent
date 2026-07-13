@@ -11,7 +11,6 @@ from unittest.mock import patch
 
 from app.memory.preferences import (
     SqlitePreferenceStore,
-    QueryPreferenceStore,
     InMemoryPreferenceStore,
     get_preference_store,
     reset_preference_store,
