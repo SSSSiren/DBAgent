@@ -39,7 +39,7 @@
   - 完成状态：现有 `test_preferences.py` 中的测试用例在类名引用更新后全部通过
   - _Requirements: 2.1, 2.2, 5.1_
 
-- [ ] 2.3 实现 StorageManager 统一生命周期管理
+- [x] 2.3 实现 StorageManager 统一生命周期管理
   - 新建 `app/memory/manager.py`，包含 `StorageManager` 类
   - `session_store: StorageBackend` 属性，`preference_store: PreferenceBackend | None` 属性
   - 构造函数接受已创建的后端实例（依赖注入），不自行创建
