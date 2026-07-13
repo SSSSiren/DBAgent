@@ -93,7 +93,7 @@
   - _Depends: 3.1_
 
 - [ ] 4. 测试与验证
-- [ ] 4.1 (P) 新组件的单元测试
+- [x] 4.1 (P) 新组件的单元测试
   - 新建 `tests/test_storage_manager.py`：验证 `StorageManager.initialize()` 按序初始化、`close()` 逆序关闭、偏好禁用时 `preference_store` 为 None、初始化失败时异常传播
   - 在 `tests/test_preferences.py` 中新增 `InMemoryPreferenceStore` 的 CRUD 测试和 LRU 淘汰测试
   - 更新 `tests/test_preferences.py` 中 `QueryPreferenceStore` 引用为 `SqlitePreferenceStore`
@@ -101,7 +101,7 @@
   - _Requirements: 2.1, 2.2, 2.3, 4.1, 4.2, 4.3, 5.2_
   - _Boundary: tests/_
 
-- [ ] 4.2 (P) 更新现有测试的导入路径和 monkeypatch
+- [x] 4.2 (P) 更新现有测试的导入路径和 monkeypatch
   - `tests/test_preferences_e2e.py`：将 `app.memory.preferences.get_preference_store` 的 monkeypatch 路径更新为 `app.memory.get_storage`
   - `tests/test_preferences_integration.py`：同上更新 monkeypatch 路径
   - `tests/test_store.py`：确认现有 `StorageBackend` 测试不受影响
@@ -111,7 +111,7 @@
   - _Requirements: 5.1, 5.3_
   - _Boundary: tests/_
 
-- [ ] 4.3 全量回归验证
+- [x] 4.3 全量回归验证
   - 运行 `pytest tests/ -v` 确认零失败
   - 分别使用 `STORAGE_BACKEND=memory` 和 `STORAGE_BACKEND=sqlite` 启动应用，验证正常启动
   - 手动发送聊天请求，验证会话持久化和偏好记录功能正常
