@@ -42,7 +42,7 @@ function initUserId() {
   const existing = getUserId();
   userIdInput.value = existing;
   if (existing) {
-    userIdStatus.textContent = "已加载";
+    userIdStatus.textContent = "Loaded";
   }
 }
 
@@ -55,7 +55,7 @@ function setUserId(value) {
   const previous = getUserId();
   localStorage.setItem(userIdStorageKey, trimmed);
   userIdInput.value = trimmed;
-  userIdStatus.textContent = trimmed ? "已保存" : "未设置";
+  userIdStatus.textContent = trimmed ? "Saved" : "Not set";
   return trimmed !== previous;
 }
 
@@ -91,7 +91,7 @@ function createCopyButton(onCopy) {
   const btn = document.createElement("button");
   btn.className = "copy-btn";
   btn.type = "button";
-  btn.title = "复制";
+  btn.title = "Copy";
   btn.innerHTML = `<svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="5.5" y="5.5" width="9" height="9" rx="1.5"/><path d="M2.5 10.5H2a1.5 1.5 0 0 1-1.5-1.5V2.5A1.5 1.5 0 0 1 2 1h7.5a1.5 1.5 0 0 1 1.5 1.5V3"/></svg>`;
   btn.addEventListener("click", (e) => {
     e.stopPropagation();
@@ -101,15 +101,15 @@ function createCopyButton(onCopy) {
     copyToClipboard(text)
       .then(() => {
         btn.classList.add("copied");
-        btn.title = "已复制";
+        btn.title = "Copied";
       })
       .catch(() => {
-        btn.title = "复制失败";
+        btn.title = "Copy failed";
       })
       .finally(() => {
         setTimeout(() => {
           btn.classList.remove("copied");
-          btn.title = "复制";
+          btn.title = "Copy";
         }, 1800);
       });
   });
@@ -124,8 +124,8 @@ function createCopyButton(onCopy) {
 async function listSessions() {
   const userId = getUserId();
   if (!userId) {
-    sessionList.innerHTML = '<div class="session-list-empty">请先设置用户标识</div>';
-    sessionStatus.textContent = "未加载";
+    sessionList.innerHTML = '<div class="session-list-empty">Please set a user ID first</div>';
+    sessionStatus.textContent = "Not loaded";
     return;
   }
 
@@ -138,18 +138,22 @@ async function listSessions() {
     const sessions = data.sessions || [];
     renderSessionList(sessions);
   } catch (err) {
-    sessionList.innerHTML = '<div class="session-list-empty">加载失败，请重试</div>';
-    sessionStatus.textContent = "会话列表加载失败";
+    sessionList.innerHTML = '<div class="session-list-empty">Failed to load, retry</div>';
+    sessionStatus.textContent = "Session list failed";
   }
 }
 
 /**
  * 渲染会话列表，高亮当前活跃会话。
  */
+/**
+ * 渲染会话列表，高亮当前活跃会话。
+ * 会话标题支持双击编辑。
+ */
 function renderSessionList(sessions) {
   if (!sessions.length) {
-    sessionList.innerHTML = '<div class="session-list-empty">暂无会话</div>';
-    sessionStatus.textContent = "0 个会话";
+    sessionList.innerHTML = '<div class="session-list-empty">No sessions</div>';
+    sessionStatus.textContent = "0 sessions";
     return;
   }
 
@@ -163,24 +167,82 @@ function renderSessionList(sessions) {
     const info = document.createElement("div");
     info.className = "session-item-info";
 
+    const titleWrapper = document.createElement("div");
+    titleWrapper.className = "session-item-title-row";
+
     const idSpan = document.createElement("span");
     idSpan.className = "session-item-id";
     idSpan.textContent = s.summary || s.session_id;
     idSpan.title = s.session_id;
 
+    // 编辑按钮
+    const editBtn = document.createElement("button");
+    editBtn.className = "edit-title-btn";
+    editBtn.type = "button";
+    editBtn.title = "Edit title";
+    editBtn.innerHTML = '<svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M11.5 1.5l3 3L5 14H2v-3L11.5 1.5z"/></svg>';
+
+    // 内联编辑输入框（初始隐藏）
+    const editInput = document.createElement("input");
+    editInput.className = "session-item-edit-input";
+    editInput.style.display = "none";
+
+    function _startEdit() {
+      idSpan.style.display = "none";
+      editBtn.style.display = "none";
+      editInput.style.display = "";
+      editInput.value = s.summary || "";
+      editInput.focus();
+      editInput.select();
+    }
+
+    function _finishEdit() {
+      const newTitle = editInput.value.trim();
+      idSpan.style.display = "";
+      editBtn.style.display = "";
+      editInput.style.display = "none";
+      if (newTitle && newTitle !== s.summary) {
+        updateSessionTitle(s.session_id, newTitle);
+        idSpan.textContent = newTitle;
+        s.summary = newTitle;
+      } else if (!s.summary) {
+        idSpan.textContent = s.session_id;
+      }
+    }
+
+    editBtn.addEventListener("click", (e) => {
+      e.stopPropagation();
+      _startEdit();
+    });
+
+    idSpan.addEventListener("dblclick", (e) => {
+      e.stopPropagation();
+      _startEdit();
+    });
+
+    editInput.addEventListener("blur", () => _finishEdit());
+    editInput.addEventListener("keydown", (e) => {
+      if (e.key === "Enter") { e.preventDefault(); _finishEdit(); }
+      if (e.key === "Escape") { editInput.value = s.summary || ""; _finishEdit(); }
+    });
+    editInput.addEventListener("click", (e) => e.stopPropagation());
+
+    titleWrapper.appendChild(idSpan);
+    titleWrapper.appendChild(editBtn);
+    titleWrapper.appendChild(editInput);
+    info.appendChild(titleWrapper);
+
     const meta = document.createElement("span");
     meta.className = "session-item-meta";
     const lastActive = formatRelativeTime(s.last_active_at);
     const created = s.created_at ? s.created_at.slice(0, 10) : "";
-    meta.textContent = `${lastActive}${s.message_count ? ` · ${s.message_count} 条消息` : ""}${created ? ` · ${created}` : ""}`;
-
-    info.appendChild(idSpan);
+    meta.textContent = `${lastActive}${s.message_count ? ` · ${s.message_count} messages` : ""}${created ? ` · ${created}` : ""}`;
     info.appendChild(meta);
 
     const delBtn = document.createElement("button");
     delBtn.className = "delete-btn";
     delBtn.type = "button";
-    delBtn.title = "删除会话";
+    delBtn.title = "Delete session";
     delBtn.innerHTML = '<svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2"><path d="M2 4h12M5.33 4V2.67a1.33 1.33 0 0 1 1.34-1.34h2.66a1.33 1.33 0 0 1 1.34 1.34V4m2 0v9.33a1.33 1.33 0 0 1-1.34 1.34H4.67a1.33 1.33 0 0 1-1.34-1.34V4h9.34z"/></svg>';
     delBtn.addEventListener("click", (e) => {
       e.stopPropagation();
@@ -198,7 +260,7 @@ function renderSessionList(sessions) {
   });
 
   sessionList.appendChild(fragment);
-  sessionStatus.textContent = `${sessions.length} 个会话`;
+  sessionStatus.textContent = `${sessions.length} sessions`;
 }
 
 /**
@@ -207,11 +269,11 @@ function renderSessionList(sessions) {
 async function createSession() {
   const userId = getUserId();
   if (!userId) {
-    sessionStatus.textContent = "请先设置用户标识";
+    sessionStatus.textContent = "Set a user ID first";
     return;
   }
 
-  setBadge("创建中", "busy");
+  setBadge("Creating", "busy");
   try {
     const response = await fetch("/api/sessions", {
       method: "POST",
@@ -225,8 +287,8 @@ async function createSession() {
     const data = await response.json();
     switchSession(data.session_id);
   } catch (err) {
-    sessionStatus.textContent = `创建失败: ${err.message}`;
-    setBadge("创建失败", "error");
+    sessionStatus.textContent = `Create failed: ${err.message}`;
+    setBadge("Create failed", "error");
   }
 }
 
@@ -257,12 +319,29 @@ function switchSession(sessionId) {
 }
 
 /**
+ * 更新会话标题：调用 PUT /api/sessions/{id} 保存新标题。
+ */
+async function updateSessionTitle(sessionId, newTitle) {
+  const userId = getUserId();
+  if (!userId) return;
+  try {
+    await fetch(`/api/sessions/${encodeURIComponent(sessionId)}?user_id=${encodeURIComponent(userId)}`, {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ summary: newTitle }),
+    });
+  } catch (_) {
+    // 标题更新失败不影响主流程
+  }
+}
+
+/**
  * 删除会话：弹出确认对话框，确认后调用 DELETE 并刷新列表。
  */
 function deleteSession(sessionId) {
   showConfirmDialog(
-    "删除会话",
-    `确定要删除会话 "${sessionId}" 吗？此操作不可撤销。`,
+    "Delete session",
+    `Delete session "${sessionId}"? This cannot be undone.`,
     async () => {
       const userId = getUserId();
       if (!userId) return;
@@ -286,12 +365,12 @@ function deleteSession(sessionId) {
           copySqlBtn.disabled = true;
           copySqlStatus.textContent = "";
           setConfirmationMode(false);
-          sessionStatus.textContent = "未加载";
+          sessionStatus.textContent = "Not loaded";
         }
 
         listSessions();
       } catch (err) {
-        sessionStatus.textContent = `删除失败: ${err.message}`;
+        sessionStatus.textContent = `Delete failed: ${err.message}`;
       }
     }
   );
@@ -311,8 +390,8 @@ function showConfirmDialog(title, message, onConfirm) {
     <h3>${escapeHtml(title)}</h3>
     <p>${escapeHtml(message)}</p>
     <div class="confirm-dialog-actions">
-      <button class="cancel-btn" type="button">取消</button>
-      <button class="danger-btn" type="button">确认删除</button>
+      <button class="cancel-btn" type="button">Cancel</button>
+      <button class="danger-btn" type="button">Confirm Delete</button>
     </div>
   `;
 
@@ -343,13 +422,13 @@ function formatRelativeTime(isoStr) {
   if (isNaN(then)) return "";
   const diffMs = now - then;
   const diffSec = Math.floor(diffMs / 1000);
-  if (diffSec < 60) return "刚刚";
+  if (diffSec < 60) return "Just now";
   const diffMin = Math.floor(diffSec / 60);
-  if (diffMin < 60) return `${diffMin} 分钟前`;
+  if (diffMin < 60) return `${diffMin}m ago`;
   const diffHr = Math.floor(diffMin / 60);
-  if (diffHr < 24) return `${diffHr} 小时前`;
+  if (diffHr < 24) return `${diffHr}h ago`;
   const diffDay = Math.floor(diffHr / 24);
-  if (diffDay < 30) return `${diffDay} 天前`;
+  if (diffDay < 30) return `${diffDay}d ago`;
   return new Date(isoStr).toLocaleDateString("zh-CN");
 }
 
@@ -371,7 +450,7 @@ async function refreshSession(renderHistory = false) {
     const selected = data.selected_schema_id
       ? `${db.schemaName || "schema"} @ ${db.instanceName || data.selected_schema_id}`
       : "";
-    sessionStatus.textContent = `${selected}${data.needs_confirmation ? "，等待确认" : ""}`;
+    sessionStatus.textContent = `${selected}${data.needs_confirmation ? ", awaiting" : ""}`;
     updateLatestSql(data.latest_sql);
     updateMemoryBadge(data.memory_count || 0);
     setConfirmationMode(Boolean(data.needs_confirmation));
@@ -380,7 +459,7 @@ async function refreshSession(renderHistory = false) {
       renderChatHistory(data.chat_history);
     }
   } catch {
-    sessionStatus.textContent = "会话状态读取失败";
+    sessionStatus.textContent = "Session state read failed";
   }
 }
 
@@ -417,7 +496,7 @@ function setBadge(text, mode = "") {
 function updateMemoryBadge(count) {
   if (memoryBadge) {
     memoryBadge.textContent = count > 0 ? `🧠 ${count}` : "🧠 --";
-    memoryBadge.title = count > 0 ? `已加载 ${count} 条长期记忆` : "无长期记忆";
+    memoryBadge.title = count > 0 ? `${count} memories loaded` : "No memories";
   }
 }
 
@@ -521,7 +600,7 @@ function appendMessage(role, content) {
   bubble.className = "bubble";
   const meta = document.createElement("div");
   meta.className = "meta";
-  meta.textContent = role === "user" ? "你" : "DBAgent";
+  meta.textContent = role === "user" ? "You" : "DBAgent";
   const body = document.createElement("div");
   body.className = "content";
   body.innerHTML = role === "assistant" ? renderMarkdown(content) : escapeHtml(content);
@@ -562,9 +641,9 @@ async function copyLatestSql() {
   if (!sql) return;
   try {
     await copyToClipboard(sql);
-    copySqlStatus.textContent = "已复制";
+    copySqlStatus.textContent = "Copied";
   } catch {
-    copySqlStatus.textContent = "复制失败";
+    copySqlStatus.textContent = "Copy failed";
   }
   window.setTimeout(() => {
     copySqlStatus.textContent = "";
@@ -594,7 +673,7 @@ function addStep(step, state) {
 // ── WaterfallRenderer ───────────────────────────────────────────
 // 瀑布式渲染引擎：以内容块为单位批量渲染，替代逐字符打字机
 // 渲染延迟（毫秒）：开发者可在此调整，0 = 即时渲染
-const WATERFALL_RENDER_DELAY = 0;
+const WATERFALL_RENDER_DELAY = 1000;
 
 function createWaterfallRenderer() {
   let buffer = "";
@@ -897,29 +976,217 @@ function createStepRenderer() {
 // 全局单例
 const stepRenderer = createStepRenderer();
 
-// ── PhaseLabel & AnimationCleanup ────────────────────────────────
-// 阶段标签更新与动画清理（集成任务 2.3）
+// ── TOOL_LABEL_MAP ────────────────────────────────────────────────
+// 工具名称到人类可读中文描述的映射表。
+// 新增工具时需同步更新此映射表。
 
-/**
- * 根据当前 step 更新流式气泡 `.meta` 元素文本。
- * - thinking: "DBAgent · 思考中..."
- * - tool:*: "DBAgent · 正在查询数据库..."
- * - 其他: "DBAgent"
- */
-function updatePhaseLabel(step) {
-  const streamingEl = document.querySelector("article.message.assistant.streaming");
-  if (!streamingEl) return;
-  const meta = streamingEl.querySelector(".meta");
-  if (!meta) return;
+const TOOL_LABEL_MAP = {
+  "find_table": "Searching tables",
+  "describe_table": "Viewing schema",
+  "execute_sql": "Executing SQL",
+  "list_databases": "Browsing databases",
+  "select_database": "Selecting database",
+  "query_database": "Querying database",
+  "confirm_sql": "Confirming SQL",
+};
 
-  if (step === "thinking") {
-    meta.textContent = "DBAgent · 思考中...";
-  } else if (step && step.startsWith("tool:")) {
-    meta.textContent = "DBAgent · 正在查询数据库...";
-  } else {
-    meta.textContent = "DBAgent";
+// ── PhaseTracker ───────────────────────────────────────────────────
+// 阶段进度追踪：将 Agent 执行过程映射为人类可读的阶段序列，
+// 维护已完成阶段列表，支持增量 DOM 渲染。
+
+function createPhaseTracker() {
+  const phases = [];           // { id, label, status, stepType, element }
+  let thinkingCount = 0;       // 思考阶段计数器，区分首次和后续
+  let container = null;        // 阶段进度容器 DOM 元素
+  let onRenderCallback = null; // 每次渲染后回调
+
+  /**
+   * 渲染单个阶段项到 DOM。若已存在则更新，否则新增。
+   */
+  function _renderPhase(entry) {
+    if (!container) return;
+
+    let element = container.querySelector(`[data-phase-id="${entry.id}"]`);
+    if (!element) {
+      element = document.createElement("div");
+      element.className = "phase-item";
+      element.setAttribute("data-phase-id", entry.id);
+
+      const icon = document.createElement("span");
+      icon.className = "phase-icon";
+      element.appendChild(icon);
+
+      const label = document.createElement("span");
+      label.className = "phase-label";
+      element.appendChild(label);
+
+      container.appendChild(element);
+    }
+
+    entry.element = element;
+
+    // 更新类名
+    element.classList.remove("active", "completed", "cancelled");
+    element.classList.add(entry.status);
+
+    // 更新图标
+    const icon = element.querySelector(".phase-icon");
+    if (icon) {
+      if (entry.status === "running") {
+        icon.textContent = "⏳";
+      } else if (entry.status === "completed") {
+        icon.textContent = "✅";
+      } else if (entry.status === "cancelled") {
+        icon.textContent = "❌";
+      }
+    }
+
+    // 更新标签文本
+    const label = element.querySelector(".phase-label");
+    if (label) {
+      label.textContent = entry.label;
+    }
+
+    if (onRenderCallback) onRenderCallback();
   }
+
+  /**
+   * 添加新阶段。thinking 阶段最多创建 2 个（分析问题 + 生成回答），
+   * 后续 thinking 仅更新已有"生成回答"阶段的状态，不重复创建。
+   * 添加新阶段前自动将当前 running 阶段标记为 completed。
+   * step 为 null/undefined 时静默忽略。
+   */
+  function addPhase(step, status) {
+    if (!step) return;
+
+    let id, label, isNew = true;
+
+    if (step === "thinking") {
+      thinkingCount++;
+      if (thinkingCount === 1) {
+        id = "thinking-1";
+        label = "Analyzing";
+      } else {
+        // Subsequent thinking: reuse existing "Reasoning" phase, update status only
+        id = "thinking-answer";
+        label = "Reasoning";
+        const existing = phases.find(p => p.id === "thinking-answer");
+        if (existing) {
+          existing.status = "running";
+          _renderPhase(existing);
+          return;  // 不创建新阶段，不重复 complete
+        }
+      }
+    } else if (step && step.startsWith("tool:")) {
+      id = step;
+      const toolName = step.replace(/^tool:/, "");
+      label = TOOL_LABEL_MAP[toolName] || toolName;
+    } else {
+      id = step;
+      label = step;
+    }
+
+    // 先将当前 running 阶段自动完成（避免多个 running 阶段同时存在）
+    _completeRunning();
+
+    const entry = {
+      id,
+      label,
+      status: status || "running",
+      stepType: step,
+      element: null,
+    };
+
+    phases.push(entry);
+    _renderPhase(entry);
+  }
+
+  /**
+   * 将所有当前 running 阶段标记为 completed。
+   */
+  function _completeRunning() {
+    for (const entry of phases) {
+      if (entry.status === "running") {
+        entry.status = "completed";
+        _renderPhase(entry);
+      }
+    }
+  }
+
+  /**
+   * 将指定 step 对应的最近一个 running 阶段标记为 completed。
+   */
+  function completePhase(step) {
+    if (!step) return;
+    for (let i = phases.length - 1; i >= 0; i--) {
+      if (phases[i].stepType === step && phases[i].status === "running") {
+        phases[i].status = "completed";
+        _renderPhase(phases[i]);
+        return;
+      }
+    }
+  }
+
+  /**
+   * 将所有 running 阶段标记为 completed。
+   */
+  function completeAll() {
+    for (const entry of phases) {
+      if (entry.status === "running") {
+        entry.status = "completed";
+        _renderPhase(entry);
+      }
+    }
+  }
+
+  /**
+   * 将当前 running 阶段标记为 cancelled。
+   */
+  function cancelCurrent() {
+    for (let i = phases.length - 1; i >= 0; i--) {
+      if (phases[i].status === "running") {
+        phases[i].status = "cancelled";
+        _renderPhase(phases[i]);
+        return;
+      }
+    }
+  }
+
+  /**
+   * 清空所有阶段状态。
+   */
+  function reset() {
+    phases.length = 0;
+    thinkingCount = 0;
+    if (container) {
+      container.innerHTML = "";
+    }
+  }
+
+  function setContainer(element) {
+    container = element;
+  }
+
+  function setOnRender(callback) {
+    onRenderCallback = callback;
+  }
+
+  return {
+    addPhase,
+    completePhase,
+    completeAll,
+    cancelCurrent,
+    reset,
+    setContainer,
+    setOnRender,
+  };
 }
+
+// 全局单例
+const phaseTracker = createPhaseTracker();
+
+// ── AnimationCleanup ──────────────────────────────────────────────
+// 动画清理（集成任务 2.3 + 4.3）
 
 /**
  * 清理所有动画效果：停止 WaterfallRenderer、清除步骤动画类名和 will-change 属性、
@@ -929,6 +1196,9 @@ function updatePhaseLabel(step) {
 function cleanupAnimations() {
   // 停止瀑布渲染器（不 flush，保留当前渲染内容）
   waterfall.stop();
+
+  // 重置阶段追踪器
+  phaseTracker.reset();
 
   const streamingEl = document.querySelector("article.message.assistant.streaming");
   if (streamingEl) {
@@ -959,7 +1229,6 @@ let streamingText = "";        // 累积的思考文本
 let streamingSteps = [];       // 累积的步骤信息
 let abortController = null;    // 当前请求的 AbortController
 let finalHandled = false;      // 防止双重 final 事件
-let lastPhase = null;          // 上一阶段类型（thinking/tool），用于跨轮次状态管理
 
 function updateStreamingMessage(step, state) {
   const status = state?.status || "running";
@@ -970,37 +1239,19 @@ function updateStreamingMessage(step, state) {
     streamingMessage = createStreamingBubble();
   }
 
-  // Phase label: update .meta to reflect current stage
-  updatePhaseLabel(step);
-
   if (step === "thinking") {
-    // 如果上一阶段是工具调用，说明进入了新一轮思考，重置瀑布渲染器状态
-    if (lastPhase === "tool" && text) {
-      waterfall.reset();
-      // 重新设置 target（reset 不清除 target，确保渲染目标正确）
-      const thinkingEl = streamingMessage?.querySelector(".thinking-text");
-      if (thinkingEl) {
-        waterfall.setTarget(thinkingEl);
-      }
-    }
+    // PhaseTracker: only track thinking phases (避免与 StepRenderer 重复显示工具步骤)
+    phaseTracker.addPhase(step, status);
+
     if (text) {
       waterfall.appendChunk(text);
     }
-    lastPhase = "thinking";
-  } else if (step && step.startsWith("tool:")) {
-    lastPhase = "tool";
   }
-  // 注意：flush 在 final 事件时通过 finalizeReply 触发
 
   // Tool steps → StepRenderer (incremental DOM, no innerHTML rebuild)
   if (step && step.startsWith("tool:")) {
-    // 进入工具阶段时清除思考文本预览，避免与工具步骤视觉混淆
-    const thinkingEl = streamingMessage?.querySelector(".thinking-text");
-    if (thinkingEl) {
-      thinkingEl.textContent = "";
-    }
-
-    const label = step.replace(/^tool:/, "");
+    const toolName = step.replace(/^tool:/, "");
+    const label = TOOL_LABEL_MAP[toolName] || toolName;
 
     if (stepRenderer.hasStep(step)) {
       stepRenderer.updateStep(step, status);
@@ -1032,6 +1283,10 @@ function createStreamingBubble() {
   body.className = "content";
 
   // Persistent DOM elements for incremental rendering
+  // phaseTrackerEl: PhaseTracker manages child elements here (before thinkingEl)
+  const phaseTrackerEl = document.createElement("div");
+  phaseTrackerEl.className = "phase-tracker";
+
   // thinkingEl: WaterfallRenderer target, operates on textContent
   const thinkingEl = document.createElement("div");
   thinkingEl.className = "thinking-text";
@@ -1040,12 +1295,22 @@ function createStreamingBubble() {
   const stepsContainer = document.createElement("div");
   stepsContainer.className = "streaming-steps";
 
+  body.appendChild(phaseTrackerEl);
   body.appendChild(thinkingEl);
   body.appendChild(stepsContainer);
 
   // Wire renderers to persistent DOM elements
+  phaseTracker.setContainer(phaseTrackerEl);
+  phaseTracker.setOnRender(() => {
+    messages.scrollTop = messages.scrollHeight;
+  });
+
   waterfall.setTarget(thinkingEl);
   waterfall.setOnRender(() => {
+    // Auto-scroll thinking-text to bottom as content streams in
+    if (thinkingEl) {
+      thinkingEl.scrollTop = thinkingEl.scrollHeight;
+    }
     messages.scrollTop = messages.scrollHeight;
   });
   stepRenderer.setContainer(stepsContainer);
@@ -1062,7 +1327,8 @@ function finalizeStreamingMessage(cancelled = false) {
 
   if (streamingMessage) {
     if (cancelled) {
-      // 取消：停止打字机，移除动画类，追加标记
+      // 取消：标记当前阶段为取消，停止瀑布渲染，追加标记
+      phaseTracker.cancelCurrent();
       waterfall.stop();
       streamingMessage.classList.remove("streaming");
       streamingMessage.classList.add("cancelled");
@@ -1070,7 +1336,7 @@ function finalizeStreamingMessage(cancelled = false) {
       if (body) {
         const stopMark = document.createElement("div");
         stopMark.className = "cancelled-mark";
-        stopMark.textContent = "[已停止生成]";
+        stopMark.textContent = "[Stopped]";
         stopMark.style.cssText = "color:#b45309;font-size:13px;margin-top:8px;font-style:italic;";
         body.appendChild(stopMark);
       }
@@ -1078,6 +1344,10 @@ function finalizeStreamingMessage(cancelled = false) {
       const meta = streamingMessage.querySelector(".meta");
       if (meta) meta.textContent = "DBAgent";
       streamingMessage = null;
+    } else {
+      // 正常完成：标记所有阶段为完成，清理追踪器状态
+      phaseTracker.completeAll();
+      phaseTracker.reset();
     }
     // 正常完成：不删除气泡，由 finalizeReply 用打字机渲染最终回答
   }
@@ -1087,8 +1357,8 @@ function finalizeStreamingMessage(cancelled = false) {
 
 
 /**
- * 瀑布式渲染最终回答：flush 剩余 buffer，直接渲染 Markdown 到流式气泡。
- * 去除打字机预览的两阶段流程，Markdown 内容一次性格式化显示。
+ * 瀑布式渲染最终回答：通过瀑布渲染器分块渲染纯文本，
+ * 全部完成后替换为格式化 Markdown。
  */
 function finalizeReply(replyText) {
   if (!streamingMessage || !replyText) {
@@ -1096,26 +1366,42 @@ function finalizeReply(replyText) {
     return;
   }
 
-  // flush 瀑布渲染器中所有剩余 buffer
-  waterfall.flush();
-
   const body = streamingMessage.querySelector(".content");
   if (!body) {
     appendMessage("assistant", replyText);
     return;
   }
 
-  // 直接渲染完整 Markdown（无纯文本预览阶段）
-  body.innerHTML = renderMarkdown(replyText);
+  // 清空 body，创建瀑布渲染器目标元素
+  body.innerHTML = "";
+  const replyEl = document.createElement("div");
+  replyEl.className = "reply-text";
+  body.appendChild(replyEl);
 
-  // 完成流式消息：移除 streaming 类，添加复制按钮
-  streamingMessage.classList.remove("streaming");
-  const meta = streamingMessage.querySelector(".meta");
-  if (meta) meta.textContent = "DBAgent";
-  const copyBtn = createCopyButton(() => body.innerText);
-  streamingMessage.querySelector(".bubble").appendChild(copyBtn);
-  streamingMessage = null;
-  messages.scrollTop = messages.scrollHeight;
+  // 用瀑布渲染器分块渲染回答文本
+  waterfall.reset();
+  waterfall.setTarget(replyEl);
+  waterfall.setOnRender(() => {
+    messages.scrollTop = messages.scrollHeight;
+  });
+  waterfall.setOnComplete(() => {
+    // 瀑布渲染完成 → 替换为完整 Markdown
+    body.innerHTML = renderMarkdown(replyText);
+    streamingMessage.classList.remove("streaming");
+    const meta = streamingMessage.querySelector(".meta");
+    if (meta) meta.textContent = "DBAgent";
+    const copyBtn = createCopyButton(() => body.innerText);
+    streamingMessage.querySelector(".bubble").appendChild(copyBtn);
+    streamingMessage = null;
+    messages.scrollTop = messages.scrollHeight;
+  });
+
+  // 将回答文本作为单个或少量 chunk 送入瀑布渲染器
+  // 按 MAX_CHUNK 拆分，确保 chunk 大小受 WATERFALL_RENDER_DELAY 控制
+  const CHUNK = 200;
+  for (let i = 0; i < replyText.length; i += CHUNK) {
+    waterfall.appendChunk(replyText.substring(i, i + CHUNK));
+  }
 }
 
 function parseSseChunk(buffer, onEvent) {
@@ -1127,7 +1413,7 @@ function parseSseChunk(buffer, onEvent) {
     try {
       onEvent(JSON.parse(dataLine.slice(6)));
     } catch {
-      onEvent({ type: "error", message: "SSE 数据解析失败" });
+      onEvent({ type: "error", message: "SSE parse failed" });
     }
   }
   return rest;
@@ -1149,7 +1435,7 @@ async function sendMessage(message) {
   stopBtn.hidden = false;
   stopBtn.disabled = false;
   confirmBtn.disabled = true;
-  setBadge("运行中", "busy");
+  setBadge("Running", "busy");
 
   // 重置取消相关状态
   abortController = new AbortController();
@@ -1195,8 +1481,8 @@ async function sendMessage(message) {
         finalHandled = true;
         finalizeStreamingMessage(true);
 
-        runSteps.innerHTML = `<div class="step completed"><strong>已取消</strong><span>已停止生成</span></div>`;
-        setBadge("已取消", "cancelled");
+        runSteps.innerHTML = `<div class="step completed"><strong>Cancelled</strong><span>Generation stopped</span></div>`;
+        setBadge("Cancelled", "cancelled");
         setConfirmationMode(false);
       } else {
         // 正常完成
@@ -1211,30 +1497,30 @@ async function sendMessage(message) {
         runSteps.innerHTML = `<div class="step completed"><strong>${toolCount} tools</strong><span>${tokens} | ${durationSec}</span></div>`;
 
         // 用打字机效果渲染最终回答（不再 appendMessage 一次性输出）
-        finalizeReply(finalPayload.reply || "没有返回内容。");
+        finalizeReply(finalPayload.reply || "No response.");
         updateLatestSql(
           finalPayload.latest_sql || latestSqlFromToolCalls(finalPayload.tool_calls) || sqlFromReply(finalPayload.reply)
         );
-        setBadge(finalPayload.needs_confirmation ? "等待确认" : "就绪", finalPayload.needs_confirmation ? "busy" : "");
+        setBadge(finalPayload.needs_confirmation ? "Awaiting" : "Ready", finalPayload.needs_confirmation ? "busy" : "");
         updateMemoryBadge(finalPayload.memory_count || 0);
         setConfirmationMode(Boolean(finalPayload.needs_confirmation));
       }
     } else {
-      throw new Error("没有收到 final 事件");
+      throw new Error("No final event received");
     }
   } catch (error) {
     if (error.name === "AbortError") {
       // 用户取消导致的 AbortError，静默处理
       if (!finalHandled) {
         finalizeStreamingMessage(true);
-        runSteps.innerHTML = `<div class="step completed"><strong>已取消</strong><span>连接已断开</span></div>`;
-        setBadge("已取消", "cancelled");
+        runSteps.innerHTML = `<div class="step completed"><strong>Cancelled</strong><span>Connection closed</span></div>`;
+        setBadge("Cancelled", "cancelled");
         setConfirmationMode(false);
       }
     } else {
-      runSteps.innerHTML = `<div class="step error"><strong>请求失败</strong><span>${escapeHtml(error.message)}</span></div>`;
-      appendMessage("assistant", `请求失败：${error.message}`);
-      setBadge("请求失败", "error");
+      runSteps.innerHTML = `<div class="step error"><strong>Request failed</strong><span>${escapeHtml(error.message)}</span></div>`;
+      appendMessage("assistant", `Request failed: ${error.message}`);
+      setBadge("Request failed", "error");
       setConfirmationMode(false);
     }
   } finally {
@@ -1253,7 +1539,8 @@ async function stopGeneration() {
   if (!sessionId) return;
 
   stopBtn.disabled = true;
-  setBadge("取消中", "busy");
+  // Cancel in progress
+  setBadge("Cancelling", "busy");
 
   try {
     // 先发送优雅取消请求
@@ -1300,7 +1587,7 @@ messageInput.addEventListener("keydown", (event) => {
   }
 });
 
-confirmBtn.addEventListener("click", () => sendMessage("确认执行"));
+confirmBtn.addEventListener("click", () => sendMessage("Confirm execution"));
 
 copySqlBtn.addEventListener("click", copyLatestSql);
 
@@ -1308,7 +1595,7 @@ newSessionBtn.addEventListener("click", createSession);
 
 userIdInput.addEventListener("change", () => {
   const changed = setUserId(userIdInput.value);
-  userIdStatus.textContent = getUserId() ? "已保存" : "未设置";
+  userIdStatus.textContent = getUserId() ? "Saved" : "Not set";
   if (changed) {
     // 切换用户后清空当前会话，刷新列表
     activeSessionId = null;
@@ -1319,7 +1606,7 @@ userIdInput.addEventListener("change", () => {
     copySqlBtn.disabled = true;
     copySqlStatus.textContent = "";
     setConfirmationMode(false);
-    setBadge("就绪", "");
+    setBadge("Ready", "");
     listSessions();
   }
 });

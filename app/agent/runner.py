@@ -18,7 +18,7 @@ from openai import AsyncOpenAI
 from app.agent.prompts import AGENT_SYSTEM_PROMPT
 from app.agent.context import build_context, update_session_state, extract_sql_from_text
 from app.config import get_settings
-from app.tools import TOOLS, get_tool_handler
+from app.tools import registry
 from app.observation.langfuse import LangfuseObserver, extract_result_size
 
 
@@ -42,30 +42,13 @@ def _get_llm_client() -> AsyncOpenAI:
 # ========== 工具适配层 ==========
 
 def _build_tool_schemas() -> list[dict[str, Any]]:
-    """将内部工具定义转换为 OpenAI function calling 格式"""
-    schemas = []
-    for tool in TOOLS:
-        schemas.append({
-            "name": tool["name"],
-            "description": tool["description"],
-            "input_schema": tool["parameters"],
-        })
-    return schemas
+    """将内部工具定义转换为 OpenAI function calling 格式（通过 registry）"""
+    return registry.get_openai_schemas()
 
 
 async def _execute_tool(name: str, input_data: dict[str, Any]) -> str:
-    """执行工具调用"""
-    handler = get_tool_handler(name)
-    if handler is None:
-        return f"未知工具: {name}"
-
-    try:
-        result = await handler(**input_data)
-        return str(result)
-    except TypeError as e:
-        return f"工具参数错误: {e}"
-    except Exception as e:
-        return f"工具执行异常: {e}"
+    """执行工具调用，使用 registry.execute 应用中间件（超时/错误归一化）"""
+    return await registry.execute(name, **input_data)
 
 
 # ========== Agent 引擎（ReAct 循环）==========

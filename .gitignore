@@ -26,7 +26,8 @@ env/
 htmlcov/
 
 # 数据
-data/user_semantic_rules.json
+data/
+data/*
 
 # Docker
 .docker/

@@ -35,12 +35,45 @@ from app.api.schemas import (
     SessionListResponse,
     SessionState,
     SessionSummary,
+    SessionUpdateRequest,
+    SessionUpdateResponse,
 )
 from app.memory import get_storage
 from app.memory.store import DEFAULT_SESSION
 
 # 创建路由器
 router = APIRouter()
+
+
+# ========== 后台 LLM 标题生成 ==========
+
+async def _generate_session_title(user_input: str, assistant_reply: str) -> str:
+    """
+    后台异步任务：使用 LLM 为会话生成简短标题。
+
+    仅使用用户首条消息和 Agent 的最终回答，用轻量 prompt 生成 ≤15 字的标题。
+    失败时静默返回空字符串，不阻塞主流程。
+    """
+    try:
+        from app.agent.runner import _get_llm_client
+
+        client = _get_llm_client()
+        prompt = (
+            "根据以下对话，生成一个简短的会话标题（不超过15个字），"
+            "直接返回标题文本，不要加引号或任何额外内容。\n\n"
+            f"用户：{user_input[:200]}\n"
+            f"助手：{assistant_reply[:300]}"
+        )
+        response = await client.chat.completions.create(
+            model="deepseek-chat",
+            messages=[{"role": "user", "content": prompt}],
+            max_tokens=32,
+            temperature=0.3,
+        )
+        title = response.choices[0].message.content or ""
+        return title.strip()[:30]  # 最多 30 字符
+    except Exception:
+        return ""
 
 
 # ========== SSE 格式化 ==========
@@ -81,6 +114,7 @@ async def _get_or_create_session(user_id: str, session_id: str) -> dict[str, Any
         "last_active_at": now_iso,
     }
     await store.create_session(user_id, session_id, new_state)
+    print(f"[Session] 新建会话: user={user_id} session={session_id}")
     return new_state
 
 
@@ -102,43 +136,43 @@ async def _record_to_openviking(
         return
 
     user_id = initial_state.get("user_id", "default")
-    print(f"[KB] _record_to_openviking: user={user_id} kb_session_id={initial_state.get('kb_session_id', '')} turn={initial_state.get('kb_turn_count', 0)}")
+    print(f"[KB][INFO] _record_to_openviking: user={user_id} kb_session_id={initial_state.get('kb_session_id', '')} turn={initial_state.get('kb_turn_count', 0)}")
 
     from app.knowledge.openviking import OpenVikingClient
 
     kb = OpenVikingClient(settings.kb_openviking_url, user_id)
     try:
         await kb.start()
-        print(f"[KB] client started, url={settings.kb_openviking_url}")
+        print(f"[KB][OK] client started, url={settings.kb_openviking_url}")
 
         # 懒创建 OpenViking session
         kb_session_id = initial_state.get("kb_session_id", "")
         if not kb_session_id:
             kb_session_id = await kb.create_session()
-            print(f"[KB] session created: {kb_session_id}")
+            print(f"[KB][OK] session created: {kb_session_id}")
             initial_state["kb_session_id"] = kb_session_id
             updated_state["kb_session_id"] = kb_session_id
 
         # 记录本轮对话
         await kb.add_message(kb_session_id, "user", user_input)
         await kb.add_message(kb_session_id, "assistant", response)
-        print(f"[KB] messages recorded")
+        print(f"[KB][OK] messages recorded")
 
         # 定期 commit 提取长期记忆
         turn = initial_state.get("kb_turn_count", 0) + 1
         initial_state["kb_turn_count"] = turn
         updated_state["kb_turn_count"] = turn
         if settings.kb_auto_commit_turns > 0 and turn % settings.kb_auto_commit_turns == 0:
-            print(f"[KB] triggering commit at turn {turn}")
+            print(f"[KB][INFO] triggering commit at turn {turn}")
             # keep_recent_count=3: 只保留最近 3 条消息，其余都参与记忆提取
             result = await kb.commit(kb_session_id, keep_recent_count=3)
-            print(f"[KB] commit result: {result}")
+            print(f"[KB][OK] commit result: {result}")
         else:
-            print(f"[KB] turn={turn}, no commit yet (interval={settings.kb_auto_commit_turns})")
+            print(f"[KB][INFO] turn={turn}, no commit yet (interval={settings.kb_auto_commit_turns})")
 
     except Exception as e:
         # OpenViking 不可用时不应影响正常对话
-        print(f"[KB] ERROR: {type(e).__name__}: {e}")
+        print(f"[KB][ERROR] {type(e).__name__}: {e}")
     finally:
         await kb.close()
 
@@ -157,6 +191,7 @@ async def _execute_agent_stream(
         user_id: 用户标识（用于存储层的用户命名空间隔离）
     """
     session_id = initial_state.get("session_id", "")
+    print(f"[Agent] 开始执行: session={session_id} user={user_id}")
 
     # ── 创建取消事件 ──
     from app.agent.cancel import get_cancel_registry
@@ -177,9 +212,9 @@ async def _execute_agent_stream(
                 memories = await kb.retrieve_memories()
                 memory_count = len(memories)
                 await kb.close()
-                print(f"[KB] 记忆检索: user={user_id} count={memory_count}")
+                print(f"[KB][OK] 记忆检索: user={user_id} count={memory_count}")
             except Exception as e:
-                print(f"[KB] 记忆检索失败: {type(e).__name__}: {e}")
+                print(f"[KB][ERROR] 记忆检索失败: {type(e).__name__}: {e}")
 
         if memories:
             initial_state["_memories"] = memories
@@ -201,11 +236,11 @@ async def _execute_agent_stream(
                     if not preferences:
                         preferences = await pref_store.retrieve_top_preferences(user_id)
                     preference_count = len(preferences)
-                    print(f"[Pref] 偏好检索: user={user_id} count={preference_count}")
+                    print(f"[Pref][OK] 偏好检索: user={user_id} count={preference_count}")
                 else:
-                    print(f"[Pref] 偏好功能已禁用")
+                    print(f"[Pref][WARN] 偏好功能已禁用")
             except Exception as e:
-                print(f"[Pref] 偏好检索失败: {type(e).__name__}: {e}")
+                print(f"[Pref][ERROR] 偏好检索失败: {type(e).__name__}: {e}")
 
         if preferences:
             initial_state["_preferences"] = preferences
@@ -221,9 +256,13 @@ async def _execute_agent_stream(
             cancel_event=cancel_event,
         ):
             if event_type == "step":
+                step_name = data.get("step", "")
+                status = data.get("status", "")
+                print(f"[Tool] {step_name}: {status}")
                 yield "step", data
             elif event_type == "sql":
                 latest_sql = data.get("sql", "")
+                print(f"[SQL] 提取SQL: len={len(latest_sql)}")
                 yield "sql", data
             elif event_type == "final":
                 final_payload = data
@@ -253,7 +292,7 @@ async def _execute_agent_stream(
 
         if cancelled:
             # 取消场景：保留部分结果，但仍记录和保存
-            print(f"[Cancel] 取消完成: session_id={session_id}")
+            print(f"[Cancel][OK] 取消完成: session_id={session_id}")
 
         # ── 记录操作记忆（查询偏好）──
         if _pref_settings.preference_enabled and final_payload:
@@ -283,7 +322,7 @@ async def _execute_agent_stream(
                                             user_id, t_name, database_name, schema_id
                                         )
             except Exception as e:
-                print(f"[Pref] 偏好记录失败: {type(e).__name__}: {e}")
+                print(f"[Pref][ERROR] 偏好记录失败: {type(e).__name__}: {e}")
 
         # ── 记录对话到 OpenViking ──
         user_input = initial_state.get("user_input", "")
@@ -301,6 +340,31 @@ async def _execute_agent_stream(
             initial_state.get("session_id", ""),
             final_payload["updated_state"],
         )
+        print(f"[Session] 保存会话: user={user_id} session={initial_state.get('session_id', '')}")
+
+        # 首轮对话完成后，后台异步生成会话标题
+        current_summary = final_payload["updated_state"].get("summary", "")
+        if not current_summary and not cancelled:
+            user_input = initial_state.get("user_input", "")
+            session_id = initial_state.get("session_id", "")
+
+            async def _auto_title():
+                title = await _generate_session_title(user_input, final_response)
+                if title:
+                    print(f"[Title] 生成标题: session={session_id} title={title}")
+                    try:
+                        state = await get_storage().session_store.get_session(
+                            user_id, session_id
+                        )
+                        if state and not state.get("summary", ""):
+                            state["summary"] = title
+                            await get_storage().session_store.save_session(
+                                user_id, session_id, state
+                            )
+                    except Exception:
+                        pass  # 后台任务失败不影响主流程
+
+            asyncio.create_task(_auto_title())
 
         yield "final", {
             "session_id": initial_state.get("session_id", ""),
@@ -344,6 +408,7 @@ async def chat(request: ChatRequest) -> StreamingResponse:
 
         # 解析 user_id（向后兼容：未提供时使用 "default"）
         user_id = request.user_id if request.user_id else "default"
+        print(f"[API] POST /chat: user={user_id} session={request.session_id}")
 
         # 恢复会话状态（传递 user_id 实现用户命名空间隔离）
         session_state = await _get_or_create_session(user_id, request.session_id)
@@ -393,6 +458,7 @@ async def chat_sync(request: ChatRequest) -> ChatResponse:
     """
     # 解析 user_id（向后兼容：未提供时使用 "default"）
     user_id = request.user_id if request.user_id else "default"
+    print(f"[API] POST /chat/sync: user={user_id} session={request.session_id}")
 
     session_state = await _get_or_create_session(user_id, request.session_id)
     session_state["user_input"] = request.message
@@ -426,6 +492,7 @@ async def cancel_chat(session_id: str) -> CancelResponse:
 
     registry = get_cancel_registry()
     cancelled = registry.cancel(session_id)
+    print(f"[Cancel] POST /chat/{session_id}/cancel: cancelled={cancelled}")
 
     if cancelled:
         return CancelResponse(
@@ -453,11 +520,13 @@ async def websocket_chat(websocket: WebSocket, session_id: str, user_id: str = "
     未提供时默认使用 "default" 保持向后兼容。
     """
     await websocket.accept()
+    print(f"[WS] 连接建立: session={session_id} user={user_id}")
 
     try:
         while True:
             # 接收用户消息
             message = await websocket.receive_text()
+            print(f"[WS] 收到消息: session={session_id} len={len(message)}")
 
             # 恢复会话（传递 user_id 实现用户命名空间隔离）
             session_state = await _get_or_create_session(user_id, session_id)
@@ -470,11 +539,13 @@ async def websocket_chat(websocket: WebSocket, session_id: str, user_id: str = "
 
     except WebSocketDisconnect:
         # 客户端断开连接，触发 Agent 取消
+        print(f"[WS] 客户端断开: session={session_id}")
         from app.agent.cancel import get_cancel_registry
         get_cancel_registry().cancel(session_id)
         return
     except Exception as e:
         # 尝试发送错误信息，并触发取消
+        print(f"[WS] 错误: session={session_id} {type(e).__name__}: {e}")
         from app.agent.cancel import get_cancel_registry
         get_cancel_registry().cancel(session_id)
         try:
@@ -515,6 +586,7 @@ async def create_session(request: SessionCreateRequest) -> SessionCreateResponse
         "user_id": user_id,
     }
     await store.create_session(user_id, session_id, initial_state)
+    print(f"[Session] POST /sessions: user={user_id} session={session_id}")
 
     # 从存储中读取以获取 accurate created_at
     created_session = await store.get_session(user_id, session_id)
@@ -586,7 +658,35 @@ async def delete_session_info(session_id: str, user_id: str = Query(...)) -> Ses
     if not deleted:
         raise HTTPException(status_code=404, detail="Session not found")
 
+    print(f"[Session] DELETE /sessions/{session_id}: user={user_id}")
     return SessionDeleteResponse(
         deleted=True,
         session_id=session_id,
+    )
+
+
+@router.put("/sessions/{session_id}", response_model=SessionUpdateResponse)
+async def update_session_info(
+    session_id: str,
+    request: SessionUpdateRequest,
+    user_id: str = Query(...),
+) -> SessionUpdateResponse:
+    """
+    更新会话信息（目前支持 summary/标题）。
+
+    需要提供 user_id 查询参数用于用户隔离。
+    """
+    _validate_user_id(user_id)
+
+    store = get_storage().session_store
+    session = await store.get_session(user_id, session_id)
+    if session is None:
+        raise HTTPException(status_code=404, detail="Session not found")
+
+    session["summary"] = request.summary
+    await store.save_session(user_id, session_id, session)
+
+    return SessionUpdateResponse(
+        session_id=session_id,
+        summary=request.summary,
     )

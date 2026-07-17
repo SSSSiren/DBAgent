@@ -59,7 +59,7 @@
 
 2. **OpenAI 兼容 API 抽象**：通过公司内部代理访问 DeepSeek-V4，代码天然模型无关，切换 LLM 只需更改配置。
 
-3. **Protocol 驱动的可插拔存储**：`StorageBackend` Protocol 定义清晰的持久化抽象，`InMemoryStore`（开发默认）和 `SqliteStore`（WAL 模式 SQLite）两种实现，通过 `STORAGE_BACKEND` 配置切换。
+3. **Protocol 驱动的可插拔存储**：`StorageBackend` Protocol（会话）和 `PreferenceBackend` Protocol（偏好）定义清晰的持久化抽象，`InMemoryStore`/`SqliteStore`（会话）和 `InMemoryPreferenceStore`/`SqlitePreferenceStore`（偏好）两种实现。`StorageManager` 统一协调两个后端的生命周期，`get_storage()` 工厂返回 `StorageManager` 单例。`app/memory/__init__.py` 提供向后兼容包装（`get_store()` → `get_storage().session_store`）。通过 `STORAGE_BACKEND` 配置切换。
 
 4. **NL2SQL 独立流水线**：`nl2sql/` 模块独立处理 SQL 生成→验证→修复闭环，与 Agent 循环解耦，包含语义规则注入（`semantics.py`）。
 
@@ -67,9 +67,9 @@
 
 6. **多层记忆系统**：三层记忆并存——会话级对话历史（存储后端）、长期记忆（OpenViking 外部知识库，每 N 轮延迟提交）、操作偏好（`query_preferences` 表记录表使用模式），每次 Agent 运行前注入上下文。
 
-7. **asyncio.Event 取消机制**：`CancelEventRegistry` 管理每个会话的取消信号，Agent 循环在多个安全点检查取消（迭代边界、LLM 调用竞态、工具执行），通过 REST 端点暴露。
+7. **asyncio.Event 取消机制**：`CancelEventRegistry`（`app/agent/cancel.py`）管理每个会话的取消信号，Agent 循环在多个安全点检查取消（迭代边界、LLM 调用竞态、工具执行），通过 REST 端点暴露。含 TTL 过期机制（5 分钟）防止内存泄漏。
 
 8. **用户隔离的多租户会话**：所有会话操作使用 `(user_id, session_id)` 复合键，存储层实现多租户隔离。
 
 ---
-_updated_at: 2026-07-13_
+_updated_at: 2026-07-15_

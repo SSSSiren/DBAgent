@@ -663,7 +663,7 @@ class TestMemoryIntegration:
     """
 
     @pytest.fixture
-    async def ov_url(self):
+    def ov_url(self):
         return "http://localhost:1933"
 
     async def test_create_session_returns_valid_id(self, ov_url):

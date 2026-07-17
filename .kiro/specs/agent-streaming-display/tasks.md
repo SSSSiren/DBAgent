@@ -116,3 +116,78 @@
   - **完成标志**：性能测试全部通过，无内存泄漏，帧率达标
   - _Requirements: 1.2, 4.3, 5.3_
   - _Depends: 3.1_
+
+- [x] 4. PhaseTracker 阶段进度追踪
+
+- [x] 4.1 PhaseTracker 核心实现
+  - 定义 `TOOL_LABEL_MAP` 常量映射表，将 5 个工具名（find_table、describe_table、execute_sql、list_databases、confirm_sql）映射为人类可读的中文描述
+  - 实现 `createPhaseTracker()` 工厂函数，返回 PhaseTracker 实例，维护 `phases[]` 数组和 `thinkingCount` 计数器（初始为 0，每次 thinking 阶段调用时递增 1）
+  - 实现 `addPhase(step, status)`：判定阶段类型 — thinkingCount 为 0 时首次 thinking → "分析问题"，thinkingCount ≥ 1 时后续 thinking → "生成回答"；tool:* → 映射表查询，未知工具降级显示原始英文名。每次调用始终创建新阶段项（不更新已有项），使用 `id` 格式 `"thinking-{thinkingCount}"` 或 `"tool:{name}-{callIndex}"` 区分
+  - 实现 `completePhase(step)`：根据传入的 step 字符串（如 `"tool:find_table"`）查找对应阶段项并标记为 `completed` 状态
+  - 实现 `completeAll()`：将所有阶段项标记为 `completed` 状态
+  - 实现 `cancelCurrent()`：将当前 running 状态阶段项标记为 `cancelled`
+  - 实现 `reset()`：清空 phases 数组和 thinkingCount 计数器
+  - 实现 `setContainer(element)`：设置阶段进度容器 DOM 元素引用
+  - 实现 `setOnRender(callback)`：设置每次渲染后的回调（用于自动滚动，由集成任务 4.3 绑定到 `messages.scrollTop`）
+  - 渲染逻辑：创建 `.phase-tracker` 容器，每个阶段项为 `.phase-item` 元素（含 `.phase-icon` 图标和 `.phase-label` 文本），增量更新已有阶段项、仅追加新阶段项，避免全量重建
+  - 阶段图标：running → ⏳，completed → ✅，cancelled → ❌，对应类名 `.active`、`.completed`、`.cancelled`
+  - 异常处理：container 不存在时静默跳过渲染；step 参数为 null/undefined 时忽略调用
+  - **完成标志**：PhaseTracker 独立于渲染管线可单独测试；验证各阶段正确映射和状态切换
+  - _Requirements: 3.1, 3.2, 3.3, 3.4, 3.5, 3.6, 3.7, 3.8, 3.9_
+  - _Boundary: PhaseTracker_
+
+- [x] 4.2 (P) 阶段进度指示器 CSS 样式
+  - 新增 `.phase-tracker` 容器样式：margin-bottom: 12px、padding: 8px 12px、background: var(--panel)、border-radius: 8px、border: 1px solid var(--line)
+  - 新增 `.phase-item` 基础样式：display: flex、align-items: center、gap: 8px、padding: 4px 0、font-size: 0.875rem、color: var(--muted)、transition: color 0.3s ease
+  - 新增 `.phase-item.active` 进行中样式：color: var(--fg)、font-weight: 500
+  - 新增 `.phase-item.completed` 已完成样式：color: var(--ok)
+  - 新增 `.phase-item.cancelled` 已取消样式：color: var(--muted)、text-decoration: line-through
+  - 新增 `.phase-icon` 样式：width: 16px、text-align: center、flex-shrink: 0
+  - 新增 `.phase-label` 样式：flex: 1
+  - 在 `@media (prefers-reduced-motion: reduce)` 块中追加 `.phase-item { transition: none }` 降级规则
+  - **完成标志**：阶段进度指示器在浏览器中正确渲染，各状态样式区分明显，无障碍降级生效
+  - _Requirements: 4.1, 5.2_
+  - _Boundary: CSS Animations_
+
+- [x] 4.3 管线集成：PhaseTracker 接入渲染管线
+  - 创建全局单例：`const phaseTracker = createPhaseTracker();`（与 `waterfall`、`stepRenderer` 并列，位于文件顶部全局作用域）
+  - 在 `createStreamingBubble` 中创建 `.phase-tracker` 容器 DOM 元素（插入到 `.thinking-text` 之前），并调用 `phaseTracker.setContainer()`
+  - 在 `createStreamingBubble` 中绑定自动滚动：`phaseTracker.setOnRender(() => { messages.scrollTop = messages.scrollHeight; })`
+  - 在 `updateStreamingMessage` 中移除 `updatePhaseLabel` 调用，替换为 `phaseTracker.addPhase(step, status)`
+  - 在 `updateStreamingMessage` 中 tool 状态为 completed 时追加调用 `phaseTracker.completePhase(step)`
+  - 在 `finalizeStreamingMessage` 正常完成路径中依次调用 `phaseTracker.completeAll()` 和 `phaseTracker.reset()`
+  - 在 `finalizeStreamingMessage` 取消路径中调用 `phaseTracker.cancelCurrent()`
+  - 在 `cleanupAnimations` 中追加 `phaseTracker.reset()` 调用
+  - 删除旧的 `updatePhaseLabel` 函数（第 988-1001 行）和 `lastPhase` 变量（第 1041 行）
+  - 在 `sendMessage` 入口处追加 `phaseTracker.reset()` 调用（与 `cleanupAnimations` 中的调用形成双重保障）
+  - 在 `switchSession` 中追加 `phaseTracker.reset()` 调用
+  - 此任务为显式集成任务：跨 PhaseTracker、AnimationCleanup、渲染管线三个边界
+  - **完成标志**：完整 Agent 执行流程中阶段进度指示器正确显示，取消/完成/切换会话时状态正确清理，无内存泄漏
+  - _Depends: 4.1, 4.2_
+  - _Requirements: 3.1, 3.5, 3.6, 3.7, 3.8, 3.9, 4.2, 4.4_
+
+- [x] 5. 测试与验证
+
+- [x] 5.1 PhaseTracker 单元测试
+  - 模拟首次 `addPhase("thinking")` → 验证阶段标签为"分析问题"，`thinkingCount` 为 1
+  - 模拟工具调用后再次 `addPhase("thinking")` → 验证阶段标签为"生成回答"
+  - 模拟 `addPhase("tool:find_table")` → 验证阶段标签为"搜索数据库表"
+  - 模拟 `addPhase("tool:unknown_tool")` → 验证降级显示原始英文名 "unknown_tool"
+  - 模拟 `completePhase("tool:find_table")` → 验证对应阶段状态变为 `completed`
+  - 模拟 `completeAll()` → 验证所有阶段状态变为 `completed`
+  - 模拟 `cancelCurrent()` → 验证当前 running 阶段标记为 `cancelled`，已完成阶段不变
+  - 模拟 `reset()` → 验证 phases 数组清空，thinkingCount 归零
+  - 渲染验证：检查 DOM 中 `.phase-item` 元素数量与 phases 数组一致，类名与状态对应
+  - **完成标志**：所有单元测试通过，PhaseTracker 各方法行为符合预期
+  - _Depends: 4.1_
+  - _Requirements: 3.2, 3.3, 3.5, 3.7, 3.9_
+
+- [x] 5.2 (P) 集成与 E2E 验证
+  - 完整流程 E2E：发送真实查询，验证阶段进度指示器依次显示"分析问题"→"搜索数据库表"→"查看表结构"→"执行 SQL 查询"→"生成回答"，所有阶段最终标记为完成
+  - 取消流程：Agent 执行中点击停止按钮，验证已完成阶段保留（✅ 图标），当前阶段标记为取消（❌ 图标）
+  - 多轮对话：连续发送 3 条消息，验证每轮阶段追踪独立，上一轮阶段列表被清理
+  - prefers-reduced-motion：操作系统启用"减少动画"，验证阶段项 transition 被禁用，内容完整
+  - 阶段自动滚动：验证阶段进度指示器新增阶段时，消息区域自动滚动到底部
+  - **完成标志**：所有 E2E 场景通过，阶段进度指示器行为与设计预期一致
+  - _Depends: 4.3_
+  - _Requirements: 3.1, 3.4, 3.6, 3.8, 3.9, 5.2_

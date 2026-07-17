@@ -8,7 +8,7 @@
 
 ### Agent 核心 (`app/agent/`)
 **Purpose**: ReAct Agent 循环、LLM 交互、上下文构建、取消控制  
-**Key modules**: `runner.py`（ReAct 循环）、`context.py`（上下文组装）、`prompts.py`（系统提示词）、`cancel.py`（取消基础设施）  
+**Key modules**: `runner.py`（ReAct 循环）、`context.py`（上下文组装）、`prompts.py`（系统提示词）、`cancel.py`（取消事件注册表，含 TTL 过期）  
 **Pattern**: 编排层，不涉及 HTTP 或 API 知识
 
 ### API 层 (`app/api/`)
@@ -26,15 +26,10 @@
 **Key modules**: `__init__.py`（工具注册表 + `TOOLS` 列表 + `TOOL_HANDLERS` 字典）+ 独立工具模块  
 **Pattern**: 中心化注册表是工具定义的唯一真相源，各工具模块为独立 async 函数
 
-### 存储抽象 (`app/storage/`)
-**Purpose**: 会话持久化抽象  
-**Key modules**: `store.py`（`StorageBackend` Protocol + `InMemoryStore` + `SqliteStore` + `get_store()` 工厂）  
-**Pattern**: Protocol 驱动的可插拔后端，通过配置切换
-
-### 记忆系统 (`app/memory/`)
-**Purpose**: 长期记忆和知识集成  
-**Key modules**: `viking.py`（OpenViking 客户端）、`preferences.py`（查询偏好存储）  
-**Pattern**: 可选子系统，失败不阻断主流程
+### 记忆与存储系统 (`app/memory/`)
+**Purpose**: 会话持久化、偏好存储、长期记忆、统一生命周期管理  
+**Key modules**: `store.py`（会话存储：`StorageBackend` Protocol + `InMemoryStore` + `SqliteStore`）、`preferences.py`（偏好存储：`PreferenceBackend` Protocol + `InMemoryPreferenceStore` + `SqlitePreferenceStore`）、`manager.py`（`StorageManager` 统一生命周期协调器 + `get_storage()` 工厂）、`viking.py`（OpenViking 客户端）  
+**Pattern**: Protocol 驱动的可插拔后端 + 统一生命周期管理；`__init__.py` 作为门面提供向后兼容包装（`get_store()` → `get_storage().session_store`）；可选子系统失败不阻断主流程
 
 ### 观测 (`app/observation/`)
 **Purpose**: Langfuse 可观测性（trace、metrics）  
@@ -100,11 +95,11 @@ from app.tools import TOOLS, TOOL_HANDLERS
 
 2. **工具注册表模式**：`app/tools/__init__.py` 维护中心化的 `TOOLS` 列表和 `TOOL_HANDLERS` 字典，各工具模块为独立 async 函数，无交叉引用。
 
-3. **Protocol 抽象**：`StorageBackend` 使用 `typing.Protocol`（`@runtime_checkable`），`InMemoryStore` 和 `SqliteStore` 为具体实现，`get_store()` 工厂根据配置选择后端。
+3. **Protocol 抽象**：`StorageBackend` 和 `PreferenceBackend` 使用 `typing.Protocol`（`@runtime_checkable`），各自有 `InMemory*`/`Sqlite*` 两种实现。`StorageManager` 统一管理多后端生命周期，`get_storage()` 工厂返回 `StorageManager` 单例。
 
 4. **模块级延迟初始化单例**：重量级资源（LLM 客户端、OneDBA 客户端、取消注册表、偏好存储）通过模块级 `_global: T | None = None` 变量 + `get_xxx()` 函数延迟初始化。
 
-5. **关注点分离**：Agent 流程各环节独立——`runner.py`（ReAct 引擎）、`context.py`（上下文组装）、`prompts.py`（系统提示词）、`cancel.py`（取消基础设施）、`routes.py`（装配编排）。
+5. **关注点分离**：Agent 流程各环节独立——`runner.py`（ReAct 引擎）、`context.py`（上下文组装）、`prompts.py`（系统提示词）、`cancel.py`（取消事件注册表）、`routes.py`（装配编排）。
 
 6. **错误隔离**：可选子系统（OpenViking、偏好追踪、Langfuse）包裹在 try/except 中，单点失败不影响主 Agent 流程。
 
@@ -113,4 +108,4 @@ from app.tools import TOOLS, TOOL_HANDLERS
 8. **中文文档**：模块级和函数级 docstring 使用中文，代码注释中英混合。
 
 ---
-_updated_at: 2026-07-13_
+_updated_at: 2026-07-15_

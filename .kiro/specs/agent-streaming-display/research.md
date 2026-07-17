@@ -1,100 +1,74 @@
 # 研究日志：Agent 流式展示增强
 
 ## 摘要
-- **功能**：agent-streaming-display
-- **发现范围**：Extension（扩展现有前端渲染管线）
+- **功能**：agent-streaming-display（扩展更新 — 新增阶段进度追踪）
+- **发现范围**：Extension — 在现有流式渲染管道上扩展阶段进度追踪
 - **关键发现**：
-  1. `updateStreamingMessage` 每次调用使用 `innerHTML` 全量重建 DOM，需要重构为增量操作以支持 CSS 动画
-  2. 现有 CSS 中 `--ok` 和 `--err` 变量缺失，`pulse-border` 动画使用硬编码颜色 #93c5fd，需要修复
-  3. 纯 CSS 打字机效果不适用于动态 SSE 流（需要预知字符总数），应采用 JS 驱动的逐字渲染 + CSS 光标动画
+  - 现有 `updatePhaseLabel` 仅显示两种通用标签（"思考中..." / "正在查询数据库..."），缺乏具体阶段信息
+  - 后端不提供 `phase` 字段，阶段判定完全由前端根据 `step` 字段推断
+  - 当前工具共 5 个：`find_table`、`describe_table`、`execute_sql`、`list_databases`、`confirm_sql`
+  - 现有 DOM 结构（`.content > .thinking-text + .streaming-steps`）可扩展插入 `.phase-tracker` 容器
 
 ## 研究日志
 
-### 前端 SSE 渲染管线分析
-- **背景**：需要了解现有 SSE 事件到 DOM 的完整渲染链路以确定动画集成点
-- **来源**：`app/static/app.js`（第 597-851 行）、`app/api/routes.py`（第 308-380 行）、`app/agent/runner.py`（第 288-484 行）
-- **发现**：
-  - SSE 事件流：`step (thinking)` → `step (tool:*)` → `sql` → `final`
-  - `updateStreamingMessage` 用 `innerHTML` 全量重建 `.content`，每次调用销毁并重建所有子元素
-  - `finalizeStreamingMessage` 在正常完成时删除流式气泡，取消时保留并添加标记
-  - 思考文本以 `streamingText += text` 累积，无块级身份
-  - 工具步骤以 `streamingSteps` 数组管理，key 为 `step` 标识
-- **影响**：需要将 `innerHTML` 全量重建改为增量 DOM 操作，否则 CSS transition 无法生效
+### 现有阶段显示机制分析
+- **Context**: 需要理解当前阶段显示的实现方式，确定扩展点
+- **Sources Consulted**: `app/static/app.js`（第 988-1001 行 `updatePhaseLabel` 函数）
+- **Findings**:
+  - `updatePhaseLabel` 仅设置 `.meta` 元素的 `textContent`，无状态追踪
+  - 仅区分两种阶段：`thinking` → "思考中..."，`tool:*` → "正在查询数据库..."
+  - 无已完成阶段列表，无进度追踪，无工具名映射
+- **Implications**: 需要新增 `PhaseTracker` 组件替换 `updatePhaseLabel`，在 `.content` 中新增阶段进度容器
 
-### CSS 动画最佳实践研究
-- **背景**：需要确定在不引入第三方库的前提下实现打字机效果和工具步骤动画的最佳方案
-- **来源**：Web 搜索（CSS animation、typewriter effect、compositor-only properties）
-- **发现**：
-  - CSS `steps()` 打字机效果需要预知字符数，不适用于动态 SSE 流
-  - 推荐 JS 驱动的逐字渲染 + CSS `blink-cursor` 伪元素光标
-  - 所有动画应仅使用 `opacity` 和 `transform`（compositor-only，不触发 layout/paint）
-  - `prefers-reduced-motion` 媒体查询是无障碍必需项
-  - `will-change` 应谨慎使用，动画结束后必须移除
-  - 工具步骤 running 状态推荐 `pulse-dot`（缩放+透明度脉冲点）替代 emoji ⏳
-- **影响**：确定采用 JS 打字机 + CSS 动画组合方案，不使用第三方库
+### 工具名称映射
+- **Context**: 需要将后端工具名映射为人类可读的中文描述
+- **Sources Consulted**: `app/tools/__init__.py`（TOOLS 注册表）
+- **Findings**:
+  - 5 个工具：`find_table`（搜索表）、`describe_table`（查看表结构）、`execute_sql`（执行 SQL）、`list_databases`（浏览数据库）、`confirm_sql`（确认执行）
+  - 工具名使用英文下划线命名，前端 `step` 事件格式为 `"tool:find_table"`
+- **Implications**: 在前端维护 `TOOL_LABEL_MAP` 常量映射表，新增工具时需同步更新
 
-### 现有 CSS 变量缺口
-- **背景**：流式步骤 CSS 引用了 `--ok` 和 `--err` 变量，但 `:root` 中未定义
-- **来源**：`app/static/styles.css`（第 1-14 行、第 682-687 行）
-- **发现**：
-  - `.streaming-step.completed { color: var(--ok); }` — `--ok` 未定义，回退到 `currentColor`
-  - `.streaming-step.error { color: var(--err); }` — `--err` 未定义，回退到 `currentColor`
-  - `pulse-border` 动画中使用硬编码 `#93c5fd`，偏离了 CSS 变量体系
-- **影响**：需要定义 `--ok: #0f766e` 和 `--err: #b42318`（复用 `--danger`），修复 `pulse-border` 中的硬编码颜色
+### 思考阶段区分
+- **Context**: 需要区分首次思考（"分析问题"）和后续思考（"生成回答"）
+- **Sources Consulted**: `app/agent/runner.py`（ReAct 循环逻辑）
+- **Findings**:
+  - Agent 循环：thinking → tool → thinking → tool → ... → final thinking → final response
+  - 首次 thinking 是分析用户问题，工具调用后的 thinking 是综合信息生成回答
+- **Implications**: 通过 `thinkingCount` 计数器区分首次和后续思考
 
 ## 架构模式评估
 
-| 方案 | 描述 | 优势 | 风险/局限 | 备注 |
-|---|---|---|---|---|
-| JS 打字机 + 增量 DOM | JS 定时器逐字渲染 + DOM 元素引用管理 | 完全控制渲染节奏，支持队列和加速 | 需要重构现有 `innerHTML` 逻辑 | 选定方案 |
-| CSS steps() 打字机 | 纯 CSS `@keyframes steps()` 逐字揭示 | 零 JS 开销，GPU 加速 | 需要预知字符总数，不支持动态追加 | 不适用 |
-| Web Animation API | 使用 `element.animate()` JS API | 精细控制，支持动态参数 | 相比 CSS 动画增加 JS 复杂度，无显著收益 | 不必要 |
-| 引入动画库（如 anime.js） | 第三方库管理动画 | 功能丰富，API 简洁 | 增加依赖，违反"不引入第三方库"要求 | 已排除 |
+略（本扩展不涉及架构模式变更，在现有管道增强模式上叠加新组件）
 
 ## 设计决策
 
-### 决策：JS 驱动的打字机渲染 + CSS 动画组合
+### 决策：新增 PhaseTracker 组件替换 updatePhaseLabel
+- **Context**: 需求 3.1-3.9 要求展示阶段进度，现有 `updatePhaseLabel` 仅支持简单文本更新
+- **备选方案**:
+  1. 在 `updatePhaseLabel` 中扩展逻辑 — 会导致函数职责膨胀
+  2. 新增独立 `PhaseTracker` 组件 — 职责清晰，可独立测试
+- **选定方案**: 新增 `PhaseTracker` 组件，与 `WaterfallRenderer`、`StepRenderer` 并列
+- **理由**: 保持单一职责，与现有组件模式一致（`createXxxRenderer()` 工厂函数模式）
+- **权衡**: 增加一个组件，但换取了清晰的边界和可测试性
+- **后续跟进**: 实现时确保 `PhaseTracker` 的 DOM 容器插入位置正确（在 `.content` 顶部）
 
-- **背景**：需求 1.1 要求思考文本逐字渲染，需求 4.1 要求不引入第三方动画库
-- **备选方案**：
-  1. CSS `steps()` 动画 — 需要预知字符数，不适用
-  2. Web Animation API — 增加复杂度，无额外收益
-  3. JS `requestAnimationFrame` 定时器 + CSS 光标动画 — 灵活且轻量
-- **选定方案**：方案 3
-- **理由**：JS 控制渲染节奏可以处理动态追加、队列、加速等场景；CSS 仅处理纯视觉效果（光标闪烁、脉冲动画）
-- **权衡**：相比纯 CSS 方案增加了 JS 复杂度，但换取了动态内容处理的灵活性
-- **后续**：实施时验证 rAF 定时器在后台标签页暂停后的恢复行为
-
-### 决策：增量 DOM 操作替代全量 innerHTML
-
-- **背景**：当前 `updateStreamingMessage` 每次用 `innerHTML` 重建全部内容，CSS transition 无法在元素间保持
-- **备选方案**：
-  1. 保持 `innerHTML` + `requestAnimationFrame` 延迟类名应用 — 复杂且脆弱
-  2. 增量 DOM 操作（维护元素引用，仅更新变化部分）— 更精确
-- **选定方案**：方案 2
-- **理由**：StepRenderer 维护步骤 DOM 引用，状态变更时仅修改类名和图标；TypewriterRenderer 直接操作 `textContent`
-- **权衡**：增加了 DOM 引用管理的代码量，但使 CSS 动画和过渡可正常工作
-
-### 决策：CSS 动画指示器替代 emoji 图标
-
-- **背景**：当前使用 emoji ⏳/✅/❌ 表示步骤状态，需求 2.1 要求动态加载指示器
-- **备选方案**：
-  1. 保留 emoji + CSS text-pulse 动画 — 简单但 emoji 跨平台不一致
-  2. CSS 动画 pulse-dot + SVG 图标 — 一致性好，GPU 加速
-- **选定方案**：方案 2（pulse-dot 替代 ⏳，保留 ✅/❌ 作为静态图标）
-- **理由**：pulse-dot 是 compositor-only 动画（`opacity` + `transform: scale()`），不触发重排；emoji 渲染因操作系统和字体而异
-- **权衡**：需要额外的 DOM 元素（span.step-icon），但换来一致的视觉效果
+### 决策：前端静态映射表实现工具名翻译
+- **Context**: 需求 3.3 要求工具名映射为人类可读描述
+- **备选方案**:
+  1. 后端新增 `label` 字段 — 需要修改 SSE 事件格式，变更范围大
+  2. 前端静态映射表 — 零后端变更，维护简单
+- **选定方案**: 前端 `TOOL_LABEL_MAP` 常量映射表
+- **理由**: 不跨越前后端边界，符合"不修改后端 SSE 事件"的约束
+- **权衡**: 新增工具时需同步更新映射表，但工具变更频率低
+- **后续跟进**: 在 `app/tools/__init__.py` 的注释中提醒新增工具时同步更新前端映射表
 
 ## 风险与缓解
+- **工具名变更未同步**：新增/重命名工具时前端映射表未更新 → 降级显示原始英文名，不影响功能
+- **阶段事件乱序**：SSE 事件到达顺序异常 → `PhaseTracker` 按 `stepId` 查找更新，不依赖事件顺序
+- **DOM 容器不存在**：`.content` 元素未找到 → PhaseTracker 静默跳过，不抛异常
 
-- **风险 1**：`requestAnimationFrame` 在后台标签页暂停，恢复时一次性渲染大量字符 → 通过 `lastTickTime` 检测时间差，超过 100ms 时批量渲染 5 个字符
-- **风险 2**：增量 DOM 操作中元素引用丢失（如流式气泡被意外删除）→ 每次操作前检查元素是否存在，丢失时回退到全量重建
-- **风险 3**：CSS 动画在低端设备上导致帧率下降 → 仅动画 `opacity` 和 `transform`，使用 `prefers-reduced-motion` 降级
-- **风险 4**：多轮对话间动画状态泄漏 → 在 `sendMessage` 和 `switchSession` 入口处显式调用清理函数
-
-## 参考
-
-- [MDN: CSS Animations](https://developer.mozilla.org/en-US/docs/Web/CSS/animation) — CSS 动画规范
-- [MDN: prefers-reduced-motion](https://developer.mozilla.org/en-US/docs/Web/CSS/@media/prefers-reduced-motion) — 无障碍动画降级
-- [web.dev: Animations Guide](https://web.dev/animations-guide/) — compositor-only 属性最佳实践
-- [MDN: requestAnimationFrame](https://developer.mozilla.org/en-US/docs/Web/API/Window/requestAnimationFrame) — rAF API 文档
+## 参考资料
+- `app/agent/runner.py` — SSE 事件生成逻辑
+- `app/static/app.js` — 现有前端渲染管线
+- `app/tools/__init__.py` — 工具注册表
+- `app/static/styles.css` — 现有 CSS 变量和动画定义

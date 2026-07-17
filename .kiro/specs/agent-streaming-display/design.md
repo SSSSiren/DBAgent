@@ -2,17 +2,18 @@
 
 ## 概述
 
-**目的**：为 DBAgent 前端提供 Agent 思考过程的实时可视化反馈，将当前一次性整段输出的思考文本改为逐字打字机渲染，并为工具调用步骤增加动态动画效果，让用户直观感知 Agent 正在活跃工作而非卡住。
+**目的**：为 DBAgent 前端提供 Agent 思考过程的实时可视化反馈。核心能力包括：思考文本以瀑布式批量渲染，工具调用步骤显示动态动画，以及以分阶段进度指示器清晰告知用户当前处于哪个执行阶段，让用户实时感知 Agent 的工作进度。
 
 **用户**：DBAgent 的所有 Web 界面用户，通过浏览器使用 NL2SQL 数据探索功能。
 
-**影响**：改变前端 SSE 事件到 DOM 的渲染管线，将当前 `innerHTML` 全量重建改为增量 DOM 操作 + CSS 动画驱动，不改变后端 SSE 事件格式或发送频率。
+**影响**：改变前端 SSE 事件到 DOM 的渲染管线，在现有 `innerHTML` 基础上引入增量 DOM 操作和动画，新增阶段进度追踪组件。不改变后端 SSE 事件格式或发送频率。
 
 ### 目标
 
-- 思考文本以打字机效果逐字渲染（每字符约 30ms），支持新文本到达时追加到渲染队列
+- 思考文本以瀑布式批量渲染，支持可配置的渲染速度
 - 工具调用步骤的 running 状态显示 CSS 动画指示器，状态切换时平滑过渡
-- 思考阶段与工具调用阶段在气泡标签上有明确视觉区分
+- 以分阶段进度指示器清晰展示 Agent 当前执行阶段，已完成阶段可回顾
+- 工具名称映射为人类可读的阶段描述
 - 所有动画使用纯 CSS 实现，不引入第三方库，支持 `prefers-reduced-motion` 无障碍降级
 - 动画异常时降级为静态展示，不影响核心消息内容
 
@@ -23,14 +24,16 @@
 - 不引入 WebSocket 或改变传输协议
 - 不实现图片或复杂 SVG 动画
 - 不改变消息气泡的整体布局结构
+- 不实现对比报告、评分卡片、资源汇总等验证脚本的输出模式
 
 ## 边界承诺
 
 ### 本规范拥有
 
-- 思考文本的逐字打字机渲染逻辑（TypewriterRenderer 状态机）
-- 工具调用步骤的 CSS 动画效果（pulse-dot、text-pulse、状态过渡）
-- 流式消息气泡的阶段标签更新（"思考中..." / "正在查询数据库..."）
+- 思考文本的瀑布式批量渲染逻辑（WaterfallRenderer）
+- 工具调用步骤的 CSS 动画效果（pulse-dot、状态过渡）
+- **阶段进度追踪与展示（PhaseTracker）**：将 Agent 执行过程映射为人类可读的阶段序列，展示当前阶段和已完成阶段列表
+- **工具名称到人类可读描述的映射表**
 - CSS 动画定义及 `prefers-reduced-motion` 无障碍支持
 - 动画状态的生命周期管理（启动、停止、清理）
 - 异常场景的降级渲染（动画失败 → 静态展示）
@@ -38,16 +41,19 @@
 ### 超出边界
 
 - 后端 SSE 事件格式或发送频率的变更（仍使用现有 `step`/`sql`/`final` 事件）
+- 后端新增 `phase` 字段或阶段枚举
 - Agent 执行引擎的思考/工具调用逻辑修改
 - WebSocket 或轮询等替代传输协议
 - 消息气泡布局结构或整体页面布局的变更
 - 复制按钮、侧边栏步骤面板等现有功能的修改
+- 对比报告、评分卡、资源汇总等验证模式的展示
 
 ### 允许的依赖
 
-- 现有 SSE 事件流（`step` 中的 `thinking`/`tool:*` 事件）作为数据源
+- 现有 SSE 事件流（`step` 中的 `thinking`/`tool:*` 事件）作为阶段判定的数据源
 - 现有 `createStreamingBubble()` 创建的 DOM 结构（`article.message.streaming > .bubble > .meta + .content`）
 - 现有 `finalizeStreamingMessage()` 的正常/取消分流逻辑
+- 现有 `WaterfallRenderer` 和 `StepRenderer` 组件
 - `agent-cancel-thinking` 的取消信号，触发所有动画停止
 - 现有 CSS 变量体系（`--accent`、`--muted`、`--line`、`--danger` 等）
 
@@ -55,6 +61,7 @@
 
 - SSE 事件格式变更（新增字段或修改事件类型）
 - 流式气泡 DOM 结构变更（`.meta`、`.content` 元素的层级或类名修改）
+- 工具名称变更（新增/删除/重命名工具）
 - CSS 变量命名体系重构
 - 消息渲染管线从 `innerHTML` 改为框架驱动的 DOM 管理（如引入 React/Vue）
 
@@ -62,50 +69,52 @@
 
 ### 现有架构分析
 
-当前流式渲染管线（`app.js` 第 597-638 行）：
+当前流式渲染管线（`app.js`）：
 
 ```
-SSE 事件 → parseSseChunk → addStep → updateStreamingMessage → innerHTML 全量重建
+SSE 事件 → parseSseChunk → addStep → updateStreamingMessage → WaterfallRenderer / StepRenderer
+                                                                → updatePhaseLabel (.meta 文本)
 ```
 
 核心问题：
-- `updateStreamingMessage` 每次调用都用 `innerHTML` 全量重建 `.content` 内容，导致 CSS 过渡效果无法在 DOM 元素间保持
-- 思考文本一次性追加到 `streamingText` 并直接渲染全部内容，无逐字动画
-- 工具步骤仅显示静态 emoji 图标（⏳/✅/❌），无动态效果
-- `.meta` 标签始终显示 "DBAgent"，不反映当前执行阶段
+- `updatePhaseLabel` 仅设置两种通用标签（"思考中..." / "正在查询数据库..."），缺乏具体阶段信息
+- 无阶段进度追踪，用户不知道 Agent 已执行了哪些步骤、当前在哪一步
+- 工具名称（如 `find_table`）为英文技术术语，对非技术用户不够友好
 
 ### 架构模式与边界图
 
 ```mermaid
 graph TB
     SSE[SSE Event Stream] --> Router[parseSseChunk]
-    Router --> Typewriter[TypewriterRenderer]
+    Router --> Waterfall[WaterfallRenderer]
     Router --> StepRenderer[StepRenderer]
-    Typewriter --> ThinkingEl[Thinking Text DOM Element]
-    StepRenderer --> StepsEl[Steps Container DOM Element]
-    Router --> MetaLabel[Meta Label Updater]
-    MetaLabel --> MetaEl[.meta DOM Element]
+    Router --> PhaseTracker[PhaseTracker]
+    PhaseTracker --> PhaseEl[Phase Indicator DOM]
+    Waterfall --> ThinkingEl[Thinking Text DOM]
+    StepRenderer --> StepsEl[Steps Container DOM]
     CSS[CSS Animations] --> ThinkingEl
     CSS --> StepsEl
+    CSS --> PhaseEl
     Final[final/cancel Event] --> Cleanup[Animation Cleanup]
-    Cleanup --> Typewriter
+    Cleanup --> Waterfall
     Cleanup --> StepRenderer
+    Cleanup --> PhaseTracker
 ```
 
 **架构集成**：
-- 选择模式：**管道增强** — 在现有 `updateStreamingMessage` 渲染管道中插入打字机状态机和 CSS 动画层，不引入新的架构模式
-- 领域边界：打字机逻辑和动画效果完全在前端 JS/CSS 层，不跨越前后端边界
+- 选择模式：**管道增强** — 在现有 `updateStreamingMessage` 渲染管道中替换 `updatePhaseLabel` 为 `PhaseTracker`，不引入新的架构模式
+- 领域边界：阶段追踪和展示完全在前端 JS/CSS 层，不跨越前后端边界
 - 保留的现有模式：`createStreamingBubble` → `updateStreamingMessage` → `finalizeStreamingMessage` 生命周期
-- 新组件理由：`TypewriterRenderer` 是独立状态机（有自身定时器和队列），需要与渲染循环解耦；`StepRenderer` 负责工具步骤的 DOM 增量更新
+- 新组件理由：`PhaseTracker` 替换 `updatePhaseLabel` 的简单文本更新，提供有状态的阶段序列管理
 
 ### 技术栈
 
 | 层 | 选择 / 版本 | 功能角色 | 备注 |
 |---|---|---|---|
-| 前端 | Vanilla JS (ES2020+) | 打字机状态机 + DOM 操作 | 无框架依赖，与现有代码一致 |
-| 样式 | CSS3 Animation + Transition | 动画效果 + 状态过渡 | 纯 CSS，无第三方动画库 |
+| 前端 | Vanilla JS (ES2020+) | 阶段追踪状态机 + DOM 操作 | 无框架依赖，与现有代码一致 |
+| 样式 | CSS3 Animation + Transition | 阶段动画 + 状态过渡 | 纯 CSS，无第三方动画库 |
 | 事件 | SSE (text/event-stream) | 现有数据源，不做修改 | 复用现有 `step`/`sql`/`final` 事件 |
-| 运行时 | 浏览器 Web API | `requestAnimationFrame`、`setTimeout` | 用于打字机定时和帧同步 |
+| 运行时 | 浏览器 Web API | `requestAnimationFrame` | 用于瀑布渲染帧同步 |
 
 ## 文件结构计划
 
@@ -113,83 +122,92 @@ graph TB
 
 ```
 app/static/
-├── app.js          # 打字机状态机 + 增量 DOM 渲染 + 阶段标签更新
-├── styles.css      # CSS 动画定义 + 状态过渡 + 无障碍媒体查询
-└── index.html      # 无结构变更（仅可能调整 aria 属性）
+├── app.js          # PhaseTracker 组件 + 工具名映射表 + 重构 updatePhaseLabel
+├── styles.css      # 阶段进度指示器样式 + 动画
+└── index.html      # 无结构变更（现有 DOM 已满足需求）
 ```
 
-- `app/static/app.js` — 核心变更文件。新增 `TypewriterRenderer` 状态机（`startTypewriter`、`stopTypewriter`、`flushTypewriter`），重构 `updateStreamingMessage` 为增量 DOM 操作（分离思考文本元素和步骤容器），新增 `updatePhaseLabel` 函数更新 `.meta` 标签
-- `app/static/styles.css` — 新增 `@keyframes blink-cursor`、`@keyframes pulse-dot`、`@keyframes text-pulse` 动画定义；新增 `.streaming-step` 的 `transition` 规则；新增 `@media (prefers-reduced-motion)` 降级规则；修复缺失的 `--ok` / `--err` CSS 变量；新增 `.phase-label` 样式
-- `app/static/index.html` — 无 DOM 结构变更（现有结构已满足需求）
+- `app/static/app.js` — 新增 `PhaseTracker` 组件（替换 `updatePhaseLabel`），新增 `TOOL_LABEL_MAP` 映射表，重构 `updateStreamingMessage` 中的阶段判定逻辑，`cleanupAnimations` 新增 PhaseTracker 清理
+- `app/static/styles.css` — 新增 `.phase-tracker`、`.phase-item`、`.phase-item.active`、`.phase-item.completed`、`.phase-item.cancelled` 样式规则
+- `app/static/index.html` — 无 DOM 结构变更（PhaseTracker 在 JS 中动态创建 DOM 元素）
 
 ## 系统流程
 
-### 思考文本打字机流程
+### 阶段进度追踪流程
 
 ```mermaid
 sequenceDiagram
     participant SSE as SSE Event
     participant U as updateStreamingMessage
-    participant T as TypewriterRenderer
+    participant PT as PhaseTracker
     participant DOM as DOM (.content)
 
     SSE->>U: step=thinking, text="用户想查..."
-    U->>T: appendText("用户想查...")
-    alt 打字机未运行
-        T->>T: 启动 rAF 定时器
-        loop 每 30ms
-            T->>DOM: 追加 1 个字符到 thinking-el
-            DOM->>DOM: 自动滚动到底部
-        end
-    else 打字机运行中
-        T->>T: 追加到渲染队列
-    end
-    SSE->>U: step=tool:query_database
-    U->>T: flush() 立即渲染剩余字符
-    T->>DOM: 一次性输出所有缓冲文本
-    U->>U: 更新阶段标签为"正在查询数据库..."
+    U->>PT: addPhase("thinking")
+    PT->>PT: 判定为新阶段 or 追加到已有思考阶段
+    PT->>DOM: 渲染/更新阶段进度指示器
+
+    SSE->>U: step=tool:find_table, status=running
+    U->>PT: addPhase("tool:find_table")
+    PT->>PT: 映射 "find_table" → "搜索数据库表"
+    PT->>DOM: 新增阶段项 (running 状态)
+
+    SSE->>U: step=tool:find_table, status=completed
+    U->>PT: completePhase("tool:find_table")
+    PT->>DOM: 标记阶段为已完成
+
+    SSE->>U: step=thinking, text="根据表结构..."
+    U->>PT: addPhase("thinking")
+    PT->>PT: 加入新阶段（与上一轮思考不同）
+    PT->>DOM: 新增阶段项 "生成回答"
+
+    SSE->>U: final event
+    U->>PT: completeAll()
+    PT->>DOM: 所有阶段标记为完成
 ```
 
-### 工具步骤状态流转
+### 阶段类型判定逻辑
 
-```mermaid
-stateDiagram-v2
-    [*] --> Running: tool_start 事件
-    Running --> Completed: tool_end 事件 (status=completed)
-    Running --> Error: tool_end 事件 (status=error)
-    Running --> Cancelled: cancel 事件
-    Completed --> [*]
-    Error --> [*]
-    Cancelled --> [*]
+```
+step === "thinking"  →  首次 thinking: "分析问题"
+                         后续 thinking: "生成回答"
 
-    note right of Running: CSS: pulse-dot 动画 + text-pulse
-    note right of Completed: CSS: transition 到静态 checkmark
-    note right of Error: CSS: transition 到静态 error 图标
+step === "tool:find_table"       → "搜索数据库表"
+step === "tool:describe_table"   → "查看表结构"
+step === "tool:execute_sql"      → "执行 SQL 查询"
+step === "tool:list_databases"   → "浏览数据库列表"
+step === "tool:confirm_sql"      → "确认 SQL 执行"
 ```
 
 ## 需求可追溯性
 
 | 需求 | 摘要 | 组件 | 接口 | 流程 |
 |---|---|---|---|---|
-| 1.1 | 思考文本逐字渲染 | TypewriterRenderer | `appendText(text)`, `flush()` | 思考文本打字机流程 |
-| 1.2 | 每字符 20-40ms 渲染速度 | TypewriterRenderer | `charDelay` 配置项 (30ms) | 打字机定时器循环 |
-| 1.3 | 新文本追加到渲染队列 | TypewriterRenderer | `appendText(text)` 内部队列 | 打字机流程（运行中分支） |
-| 1.4 | 阶段结束立即完成渲染 | TypewriterRenderer | `flush()` | 打字机流程（flush 分支） |
-| 1.5 | 渲染时自动滚动 | TypewriterRenderer | DOM `scrollTop` 操作 | 打字机流程（每字符循环） |
+| 1.1 | 思考文本瀑布式批量渲染 | WaterfallRenderer | `appendChunk(text)` | 瀑布渲染流程 |
+| 1.2 | 渲染速度可配置 | WaterfallRenderer | `WATERFALL_RENDER_DELAY` 配置项 | 瀑布渲染流程 |
+| 1.3 | 思考文本瀑布式渲染 | WaterfallRenderer | `appendChunk(text)` | 瀑布渲染流程 |
+| 1.4 | 向后兼容 SSE 事件 | WaterfallRenderer + StepRenderer | SSE 事件处理管道 | — |
+| 1.5 | 渲染性能保障 | WaterfallRenderer | `MAX_CHUNK` + rAF 分帧 | 瀑布渲染流程 |
 | 2.1 | running 状态动态指示器 | StepRenderer + CSS | `.streaming-step.running` + `pulse-dot` 动画 | 工具步骤状态流转 |
 | 2.2 | running→completed 平滑过渡 | StepRenderer + CSS | `transition` 规则 | 工具步骤状态流转 |
 | 2.3 | running→error 状态显示 | StepRenderer + CSS | `.streaming-step.error` 样式 | 工具步骤状态流转 |
 | 2.4 | 仅当前 running 步骤动画 | StepRenderer | 状态类名精确控制 | 工具步骤状态流转 |
-| 3.1 | 思考阶段显示"思考中..."标签 | MetaLabel | `updatePhaseLabel('thinking')` | 阶段标签更新 |
-| 3.2 | 工具调用阶段显示工具名称 | MetaLabel | `updatePhaseLabel('tool', name)` | 阶段标签更新 |
-| 3.3 | 返回思考阶段恢复标签 | MetaLabel | `updatePhaseLabel('thinking')` | 阶段标签更新 |
+| 3.1 | 执行开始时显示阶段进度指示器 | PhaseTracker | `addPhase(step)` | 阶段进度追踪流程 |
+| 3.2 | 思考阶段显示具体化描述 | PhaseTracker | 首次→"分析问题"，后续→"生成回答" | 阶段类型判定逻辑 |
+| 3.3 | 工具操作映射为人类可读描述 | PhaseTracker + TOOL_LABEL_MAP | 映射表查询 | 阶段类型判定逻辑 |
+| 3.4 | 维护已完成阶段列表 | PhaseTracker | `phases[]` 状态 + DOM 渲染 | 阶段进度追踪流程 |
+| 3.5 | 工具执行完成时标记阶段 | PhaseTracker | `completePhase(stepId)` | 阶段进度追踪流程 |
+| 3.6 | 后续思考阶段更新进度位置 | PhaseTracker | `addPhase("thinking")` 追加新阶段 | 阶段类型判定逻辑 |
+| 3.7 | 全部完成时标记所有阶段 | PhaseTracker | `completeAll()` | 阶段进度追踪流程 |
+| 3.8 | 阶段进度指示器自动滚动 | PhaseTracker | DOM `scrollTop` 操作 | 阶段进度追踪流程 |
+| 3.9 | 取消时保留已完成阶段 | PhaseTracker | `cancelCurrent()` | 阶段进度追踪流程 |
 | 4.1 | 纯 CSS 动画实现 | CSS | `@keyframes` 定义 | — |
-| 4.2 | finalize 时清除动画 | AnimationCleanup | `stopTypewriter()` + 类名移除 | 清理流程 |
+| 4.2 | finalize 时清除动画 | AnimationCleanup | `waterfall.stop()` + `stepRenderer.clearSteps()` + `phaseTracker.reset()` | 清理流程 |
 | 4.3 | 多动画时页面流畅 | CSS | `will-change` + compositor-only 属性 | — |
-| 4.4 | 切换会话/新消息时停止 | AnimationCleanup | `stopTypewriter()` + `finalizeStreamingMessage` | 清理流程 |
-| 5.1 | 渲染队列异常时降级 | TypewriterRenderer | try-catch + 立即显示缓冲文本 | 异常降级 |
+| 4.4 | 切换会话/新消息时停止 | AnimationCleanup | `cleanupAnimations()` | 清理流程 |
+| 5.1 | 渲染队列异常时降级 | WaterfallRenderer | try-catch + 立即显示缓冲文本 | 异常降级 |
 | 5.2 | 浏览器不支持 CSS animation | CSS | `@supports` 规则 + 静态降级 | 异常降级 |
-| 5.3 | SSE 事件过快时加速渲染 | TypewriterRenderer | 最大延迟 3 秒检测 + 加速模式 | 异常降级 |
+| 5.3 | SSE 事件过快时加速渲染 | WaterfallRenderer | 后台标签页批量渲染 | 异常降级 |
 
 ## 组件与接口
 
@@ -197,29 +215,117 @@ stateDiagram-v2
 
 | 组件 | 领域/层 | 意图 | 需求覆盖 | 关键依赖 | 约定 |
 |---|---|---|---|---|---|
-| TypewriterRenderer | UI/JS | 逐字打字机状态机和渲染 | 1.1-1.5, 5.1, 5.3 | rAF API (P0) | State |
-| StepRenderer | UI/JS | 工具步骤增量 DOM 更新 | 2.1-2.4 | TypewriterRenderer (P1) | State |
-| MetaLabel | UI/JS | 阶段标签更新 | 3.1-3.3 | DOM `.meta` 元素 (P0) | State |
-| AnimationCleanup | UI/JS | 动画生命周期清理 | 4.2, 4.4 | TypewriterRenderer (P0) | State |
+| WaterfallRenderer | UI/JS | 瀑布式批量渲染思考文本 | 1.1-1.5, 5.1, 5.3 | rAF API (P0) | State |
+| StepRenderer | UI/JS | 工具步骤增量 DOM 更新 | 2.1-2.4 | DOM 容器 (P0) | State |
+| PhaseTracker | UI/JS | 阶段进度追踪与展示 | 3.1-3.9 | DOM 容器 (P0), TOOL_LABEL_MAP (P1) | State |
+| AnimationCleanup | UI/JS | 动画生命周期清理 | 4.2, 4.4 | WaterfallRenderer (P0), StepRenderer (P0), PhaseTracker (P0) | State |
 | CSS Animations | UI/CSS | 动画效果定义 | 2.1, 4.1, 4.3, 5.2 | CSS cascade (P0) | — |
 
 ### UI / JavaScript 层
 
-#### TypewriterRenderer
+#### PhaseTracker
 
 | 字段 | 详情 |
 |---|---|
-| 意图 | 管理思考文本的逐字打字机渲染，维护渲染队列和定时器 |
+| 意图 | 追踪 Agent 执行阶段序列，将 step 事件映射为人类可读的阶段描述，维护已完成的阶段列表并渲染到 DOM |
+| 需求 | 3.1, 3.2, 3.3, 3.4, 3.5, 3.6, 3.7, 3.8, 3.9 |
+
+**职责与约束**
+- 维护 `phases` 数组（`{id, label, status, stepType}`），记录所有阶段的完整序列
+- 接收 `step` 事件（`"thinking"` 或 `"tool:xxx"`），判定是新增阶段还是更新已有阶段
+- 通过 `TOOL_LABEL_MAP` 将工具名称映射为人类可读的中文描述
+- 思考阶段自动判定：首次 thinking → "分析问题"，后续 thinking → "生成回答"
+- 渲染阶段进度指示器 DOM 到 `.content` 容器顶部，与思考文本和工具步骤容器并列
+- 每个阶段项显示图标（⏳ running / ✅ completed / ❌ cancelled）和阶段描述文本
+- 当 `completePhase(stepId)` 被调用时，将对应阶段标记为 completed
+- 当 `completeAll()` 被调用时（final 事件），所有阶段标记为 completed
+- 当 `cancelCurrent()` 被调用时，当前 running 阶段标记为 cancelled
+- 每个阶段状态变更后触发 `onRender` 回调（用于自动滚动）
+
+**依赖**
+- 入站：`updateStreamingMessage` — 传入 `step` 和 `status` (P0)
+- 出站：DOM 阶段容器 — 增量渲染阶段项 (P0)
+- 外部：`TOOL_LABEL_MAP` 常量 — 工具名到人类可读描述的映射 (P1)
+
+**约定**：State [x]
+
+##### 状态管理
+
+```typescript
+interface PhaseEntry {
+  id: string;              // 阶段标识（"thinking-1", "tool:find_table-0"）
+  label: string;           // 人类可读的阶段描述
+  status: "running" | "completed" | "cancelled";
+  stepType: string;        // 原始 step 类型（"thinking" 或 "tool:xxx"）
+  element: HTMLElement;    // 对应 DOM 元素引用
+}
+
+interface PhaseTrackerState {
+  phases: PhaseEntry[];          // 阶段序列（按时间顺序）
+  container: HTMLElement | null; // 阶段进度容器 DOM 元素
+  thinkingCount: number;         // 思考阶段计数（用于区分"分析问题"和"生成回答"）
+  isActive: boolean;             // 是否处于活跃追踪状态
+}
+
+interface PhaseTrackerAPI {
+  addPhase(step: string, status: string): void;
+  completePhase(step: string): void;
+  completeAll(): void;
+  cancelCurrent(): void;
+  reset(): void;
+  setContainer(element: HTMLElement): void;
+  setOnRender(callback: () => void): void;
+}
+```
+
+- 状态模型：数组序列，记录完整的阶段执行轨迹
+- 持久化：不持久化，页面刷新或会话切换时重置
+- 并发策略：同步操作，无并发问题
+
+**实现说明**
+- 集成：在 `updateStreamingMessage` 中，每次调用时执行 `phaseTracker.addPhase(step, status)`
+- 验证：`container` 存在性检查，`step` 参数非空检查
+- 风险：快速连续事件可能导致阶段项频繁创建；通过 `_renderPhase` 增量更新而非全量重建来避免
+
+##### 工具名称映射表
+
+```javascript
+const TOOL_LABEL_MAP = {
+  "find_table": "搜索数据库表",
+  "describe_table": "查看表结构",
+  "execute_sql": "执行 SQL 查询",
+  "list_databases": "浏览数据库列表",
+  "confirm_sql": "确认 SQL 执行",
+};
+```
+
+##### 阶段判定规则
+
+| 条件 | 阶段标签 | 说明 |
+|---|---|---|
+| 首次 `thinking` | "分析问题" | Agent 开始理解用户意图 |
+| 后续 `thinking` | "生成回答" | Agent 综合信息生成最终回答 |
+| `tool:find_table` | "搜索数据库表" | 映射自 TOOL_LABEL_MAP |
+| `tool:describe_table` | "查看表结构" | 映射自 TOOL_LABEL_MAP |
+| `tool:execute_sql` | "执行 SQL 查询" | 映射自 TOOL_LABEL_MAP |
+| `tool:list_databases` | "浏览数据库列表" | 映射自 TOOL_LABEL_MAP |
+| `tool:confirm_sql` | "确认 SQL 执行" | 映射自 TOOL_LABEL_MAP |
+| 未知工具 | 工具英文名 | 降级显示原始名称 |
+
+#### WaterfallRenderer
+
+| 字段 | 详情 |
+|---|---|
+| 意图 | 以瀑布式批量渲染思考文本，支持可配置延迟和后台标签页恢复 |
 | 需求 | 1.1, 1.2, 1.3, 1.4, 1.5, 5.1, 5.3 |
 
 **职责与约束**
-- 维护 `fullText`（累计文本）、`displayedLength`（已渲染字符数）、`charDelay`（字符间隔，默认 30ms）
-- 使用 `requestAnimationFrame` + 时间戳控制渲染节奏，避免 `setInterval` 的累积误差
-- 新文本到达时追加到 `fullText`，若定时器未运行则启动；若已运行则自然在后续 tick 中渲染
-- 当 `flush()` 被调用时，立即渲染所有剩余字符并停止定时器
-- 当 SSE 事件积压导致渲染延迟超过 3 秒时，自动切换到加速模式（`charDelay` 降至 5ms）
-- 每个字符渲染后触发 `onRender` 回调（用于自动滚动）
-- 异常时（如 `fullText` 为 null/undefined）立即降级为显示全部文本
+- 使用 `requestAnimationFrame` + 时间戳控制渲染节奏
+- 维护 `buffer` 字符串缓冲区，按 `WATERFALL_RENDER_DELAY` 间隔消费
+- 单帧最大渲染 `MAX_CHUNK = 200` 字符，防止阻塞主线程
+- 后台标签页恢复时一次性渲染全部 buffer
+- 当 `stop()` 被调用时停止渲染但不 flush buffer
+- 当 `reset()` 被调用时清空 buffer 和状态
 
 **依赖**
 - 入站：`updateStreamingMessage` — 传入增量文本 (P0)
@@ -228,39 +334,10 @@ stateDiagram-v2
 
 **约定**：State [x]
 
-##### 状态管理
-
-```typescript
-interface TypewriterState {
-  fullText: string;           // 累计全部文本
-  displayedLength: number;    // 已渲染字符数
-  charDelay: number;          // 每字符间隔 (ms)，默认 30
-  isRunning: boolean;         // 定时器是否运行中
-  rafId: number | null;       // 当前 rAF ID
-  lastTickTime: number;       // 上次 tick 时间戳
-  targetElement: HTMLElement | null; // 渲染目标 DOM 元素
-  onRender: (() => void) | null;     // 每次渲染后回调
-  queueStartTime: number;     // 队列开始时间（用于 3 秒超时检测）
-}
-
-interface TypewriterAPI {
-  appendText(text: string): void;
-  flush(): void;
-  stop(): void;
-  reset(): void;
-  setTarget(element: HTMLElement): void;
-  setOnRender(callback: () => void): void;
-}
-```
-
-- 状态模型：单例状态机，全局唯一实例（同一时间只有一个流式消息）
-- 持久化：不持久化，页面刷新或会话切换时重置
-- 并发策略：`isRunning` 标志位防止重复启动定时器
-
 **实现说明**
-- 集成：在 `updateStreamingMessage` 中，当 `step === "thinking"` 时调用 `appendText(text)`，当 `step` 为其他值时调用 `flush()`
-- 验证：`fullText` 类型检查，`targetElement` 存在性检查
-- 风险：`requestAnimationFrame` 在后台标签页会暂停，恢复时可能一次性渲染大量字符；通过 `lastTickTime` 检测间隔并批量渲染（超过 100ms 时间差时一次渲染 5 个字符）
+- 集成：在 `updateStreamingMessage` 中，当 `step === "thinking"` 时调用 `waterfall.appendChunk(text)`
+- 验证：`targetElement` 存在性检查
+- 风险：`requestAnimationFrame` 在后台标签页会暂停，通过 `elapsed > 200ms` 检测并批量渲染
 
 #### StepRenderer
 
@@ -270,11 +347,10 @@ interface TypewriterAPI {
 | 需求 | 2.1, 2.2, 2.3, 2.4 |
 
 **职责与约束**
-- 维护步骤 DOM 元素的引用映射（`stepId → HTMLElement`），避免全量 `innerHTML` 重建
+- 维护步骤 DOM 元素的 Map 映射（`stepId → StepEntry`），避免全量 `innerHTML` 重建
 - 新步骤出现时创建 DOM 元素并追加到步骤容器
 - 步骤状态变更时仅更新对应元素的类名和图标
 - 使用 CSS `animation`（非 `transition`）确保新插入元素立即开始动画
-- 状态变更时先移除旧状态类名，通过 `requestAnimationFrame` 延迟一帧后添加新状态类名以触发 CSS transition
 
 **依赖**
 - 入站：`updateStreamingMessage` — 传入步骤状态变更 (P0)
@@ -282,55 +358,6 @@ interface TypewriterAPI {
 - 外部：CSS 动画定义 — 类名驱动的动画 (P1)
 
 **约定**：State [x]
-
-##### 状态管理
-
-```typescript
-interface StepEntry {
-  stepId: string;           // 步骤标识（如 "tool:query_database"）
-  status: "running" | "completed" | "error";
-  label: string;            // 显示名称
-  element: HTMLElement;     // 对应 DOM 元素引用
-}
-
-interface StepRendererState {
-  steps: Map<string, StepEntry>;  // stepId → StepEntry
-  container: HTMLElement | null;   // 步骤容器 DOM 元素
-}
-```
-
-- 状态模型：Map 结构，键为步骤标识
-- 持久化：与 TypewriterRenderer 共享生命周期
-- 并发策略：同步操作，无并发问题
-
-**实现说明**
-- 集成：在 `updateStreamingMessage` 中，对 `streamingSteps` 数组进行 diff 操作（新增/更新）
-- 验证：`container` 存在性检查，步骤状态值合法性检查
-- 风险：`innerHTML` 重建会丢失 DOM 引用；需要确保在 `createStreamingBubble` 后立
-
-#### MetaLabel
-
-| 字段 | 详情 |
-|---|---|
-| 意图 | 更新流式气泡的 `.meta` 标签以反映当前 Agent 执行阶段 |
-| 需求 | 3.1, 3.2, 3.3 |
-
-**职责与约束**
-- 思考阶段：设置 `.meta` 文本为 "DBAgent · 思考中..."
-- 工具调用阶段：设置 `.meta` 文本为 "DBAgent · 正在查询数据库..."（使用工具名称）
-- 返回思考阶段：恢复为 "DBAgent · 思考中..."
-- 消息最终确定时恢复为 "DBAgent"
-
-**依赖**
-- 入站：`updateStreamingMessage` — 传入当前阶段信息 (P0)
-- 出站：DOM `.meta` 元素 — 更新 `textContent` (P0)
-
-**约定**：State [ ]
-
-**实现说明**
-- 集成：在 `updateStreamingMessage` 中，根据 `step` 参数判断阶段类型并更新标签
-- 验证：`.meta` 元素存在性检查
-- 风险：无
 
 #### AnimationCleanup
 
@@ -340,81 +367,81 @@ interface StepRendererState {
 | 需求 | 4.2, 4.4 |
 
 **职责与约束**
-- `finalizeStreamingMessage` 调用时停止 TypewriterRenderer 并清除步骤动画类名
-- 用户取消时（`cancelled = true`）同样执行清理
-- `switchSession` 和 `sendMessage` 开始时调用清理
+- `finalizeStreamingMessage` 调用时停止 WaterfallRenderer、清除 StepRenderer 步骤、重置 PhaseTracker
+- 用户取消时（`cancelled = true`）调用 `phaseTracker.cancelCurrent()` 后执行清理
+- `switchSession` 和 `sendMessage` 开始时调用 `cleanupAnimations()`
 - 清理后移除 `will-change` 属性释放 GPU 资源
 
 **依赖**
 - 入站：`finalizeStreamingMessage`、`switchSession`、`sendMessage` (P0)
-- 出站：TypewriterRenderer.stop()、StepRenderer 类名清理 (P0)
+- 出站：WaterfallRenderer.stop()、stepRenderer.clearSteps()、phaseTracker.reset() (P0)
 
 **约定**：State [ ]
 
 ### CSS 层
 
-#### CSS Animations
+#### Phase Tracker 样式
 
-| 字段 | 详情 |
-|---|---|
-| 意图 | 定义所有动画效果，遵循 compositor-only 原则 |
-| 需求 | 2.1, 4.1, 4.3, 5.2 |
-
-**新增 CSS 变量**
 ```css
-:root {
-  --ok: #0f766e;       /* 修复：完成状态色 */
-  --err: #b42318;      /* 修复：错误状态色（复用 --danger） */
+/* 阶段进度容器 */
+.phase-tracker {
+  margin-bottom: 12px;
+  padding: 8px 12px;
+  background: var(--panel);
+  border-radius: 8px;
+  border: 1px solid var(--line);
+}
+
+/* 单个阶段项 */
+.phase-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 4px 0;
+  font-size: 0.875rem;
+  color: var(--muted);
+  transition: color 0.3s ease;
+}
+
+/* 进行中的阶段 */
+.phase-item.active {
+  color: var(--fg);
+  font-weight: 500;
+}
+
+/* 已完成的阶段 */
+.phase-item.completed {
+  color: var(--ok);
+}
+
+/* 已取消的阶段 */
+.phase-item.cancelled {
+  color: var(--muted);
+  text-decoration: line-through;
+}
+
+/* 阶段图标 */
+.phase-item .phase-icon {
+  width: 16px;
+  text-align: center;
+  flex-shrink: 0;
+}
+
+/* 阶段描述 */
+.phase-item .phase-label {
+  flex: 1;
 }
 ```
 
-**新增关键帧动画**
+#### 无障碍降级（追加）
 
-```css
-/* 打字机光标闪烁 */
-@keyframes blink-cursor {
-  0%, 100% { opacity: 0; }
-  50% { opacity: 1; }
-}
-
-/* 工具步骤运行指示器（脉冲点） */
-@keyframes pulse-dot {
-  0%, 100% { opacity: 0.3; transform: scale(0.85); }
-  50% { opacity: 1; transform: scale(1); }
-}
-
-/* 工具步骤标签文字脉冲 */
-@keyframes text-pulse {
-  0%, 100% { opacity: 0.5; }
-  50% { opacity: 1; }
-}
-```
-
-**新增步骤过渡规则**
-```css
-.streaming-step {
-  transition: color 0.3s ease, opacity 0.3s ease;
-}
-
-.streaming-step .step-icon {
-  transition: opacity 0.2s ease, transform 0.2s ease;
-}
-```
-
-**无障碍降级**
 ```css
 @media (prefers-reduced-motion: reduce) {
-  .streaming-cursor::after { animation: none; }
-  .pulse-dot { animation: none; opacity: 0.6; }
-  .text-pulse { animation: none; opacity: 1; }
-  .streaming-step { transition: none; }
+  .phase-item {
+    transition: none;
+  }
 }
 ```
-
-**职责与约束**
-- 所有动画仅使用 `opacity` 和 `transform`（compositor-only 属性）
-- 动画时长 ≤ 2s，避免用户注意力疲劳
-- 遵循现有 CSS 命名约定（kebab-case 类名，`--` 变量前缀）
 
 ## 数据模型
 
@@ -422,8 +449,9 @@ interface StepRendererState {
 
 本功能不引入持久化数据模型。所有状态为运行时 JavaScript 对象，生命周期与单个流式请求绑定。
 
-- **TypewriterState**：打字机渲染状态（聚合根），包含累计文本、渲染进度、定时器引用
-- **StepEntry**：工具步骤实体，包含步骤标识、状态、DOM 引用
+- **WaterfallState**：瀑布渲染状态（buffer、渲染进度、定时器引用）
+- **StepEntry**：工具步骤实体（步骤标识、状态、DOM 引用）
+- **PhaseEntry**：执行阶段实体（阶段标识、人类可读标签、状态、DOM 引用）
 - 事务边界：单个 SSE 连接的生命周期（从 `sendMessage` 到 `finalizeStreamingMessage`）
 
 ### 数据约定与集成
@@ -433,9 +461,19 @@ interface StepRendererState {
 | 事件类型 | 触发条件 | 数据字段 |
 |---|---|---|
 | `step` (thinking) | LLM 推理文本 | `{step: "thinking", status: "running", text: string}` |
-| `step` (tool:*) | 工具调用开始 | `{step: "tool:<name>", status: "running", call_index: int}` |
-| `step` (tool:*) | 工具调用完成 | `{step: "tool:<name>", status: "completed", call_index: int}` |
+| `step` (tool:*) | 工具调用开始/完成 | `{step: "tool:<name>", status: "running"\|"completed"}` |
+| `sql` | SQL 提取 | `{sql: string}` |
 | `final` | 对话结束 | `{reply, cancelled, tool_calls, stats, ...}` |
+
+**TOOL_LABEL_MAP 映射表（新增，前端常量）**：
+
+| 工具名（step 值） | 人类可读标签 |
+|---|---|
+| `find_table` | "搜索数据库表" |
+| `describe_table` | "查看表结构" |
+| `execute_sql` | "执行 SQL 查询" |
+| `list_databases` | "浏览数据库列表" |
+| `confirm_sql` | "确认 SQL 执行" |
 
 ## 错误处理
 
@@ -445,60 +483,57 @@ interface StepRendererState {
 
 ### 错误类别与响应
 
+**PhaseTracker 异常**：
+- 未知工具名（不在 `TOOL_LABEL_MAP` 中）→ 降级显示原始工具英文名
+- `container` 不存在 → 静默跳过渲染，不抛异常
+- `step` 参数为 null/undefined → 忽略本次调用
+
 **渲染异常**（JS 层）：
-- TypewriterRenderer 状态异常 → 立即调用 `flush()` 显示全部缓冲文本，停止定时器
+- WaterfallRenderer 状态异常 → 立即 flush 全部缓冲文本，停止定时器
 - DOM 元素引用丢失 → 回退到 `innerHTML` 全量重建（当前行为）
 - `requestAnimationFrame` 不可用 → 降级为直接设置 `textContent`
 
 **动画异常**（CSS 层）：
-- 浏览器不支持 `@keyframes` → 通过 `@supports (animation: 1s) { ... }` 渐进增强，不支持时保持静态展示
+- 浏览器不支持 `@keyframes` → 通过 `@supports (animation: 1s) { ... }` 渐进增强
 - GPU 资源不足 → `will-change` 仅应用于当前活跃动画元素，完成后移除
-
-**数据异常**：
-- SSE 文本字段为 null/undefined → 类型检查 + 默认值 `""`
-- 步骤状态值非法 → 默认视为 `"running"`
 
 ### 监控
 
-- 前端 console 日志：打字机启动/停止/flush 事件（开发模式下）
-- 现有后端观测体系不受影响（Langfuse 继续记录现有指标）
+- 前端 console 日志：PhaseTracker 阶段变更事件（开发模式下）
+- 现有后端观测体系不受影响
 
 ## 测试策略
 
 ### 单元测试（JS 层）
 
-1. **TypewriterRenderer.appendText**：验证新文本追加后 `fullText` 正确累积，`displayedLength` 不变
-2. **TypewriterRenderer.flush**：验证 `flush()` 后 `displayedLength === fullText.length`，`isRunning === false`
-3. **TypewriterRenderer 加速模式**：模拟 `queueStartTime` 超过 3 秒，验证 `charDelay` 降至 5ms
-4. **StepRenderer 状态变更**：验证步骤从 running→completed 时 DOM 类名正确更新
-5. **MetaLabel 更新**：验证 thinking 阶段设置 "思考中..."，tool 阶段设置工具名称
+1. **PhaseTracker.addPhase — thinking**：模拟首次 thinking 事件，验证阶段标签为"分析问题"
+2. **PhaseTracker.addPhase — 二次 thinking**：模拟工具调用后再次 thinking，验证阶段标签为"生成回答"
+3. **PhaseTracker.addPhase — tool**：模拟 `tool:find_table` 事件，验证阶段标签为"搜索数据库表"
+4. **PhaseTracker 工具名降级**：模拟未知工具名，验证降级显示原始英文名
+5. **PhaseTracker.completePhase**：模拟工具完成事件，验证阶段状态变为 completed
+6. **PhaseTracker.completeAll**：模拟 final 事件，验证所有阶段标记为 completed
+7. **PhaseTracker.cancelCurrent**：模拟取消事件，验证当前 running 阶段标记为 cancelled
+8. **PhaseTracker.reset**：验证 reset 后 phases 数组清空
+9. **WaterfallRenderer.appendChunk**：验证 buffer 正确累积，渲染循环正常启动
+10. **StepRenderer 状态变更**：验证步骤从 running→completed 时 DOM 类名正确更新
 
 ### 集成测试
 
-1. **SSE 事件 → 打字机管道**：模拟 SSE thinking 事件序列，验证 DOM 中文本逐字增加
-2. **阶段切换 → flush**：模拟 thinking→tool_start 事件序列，验证打字机 flush 被触发
-3. **取消流程 → 动画清理**：模拟 cancel 事件，验证 TypewriterRenderer 停止、动画类名清除
-4. **会话切换 → 状态重置**：模拟 `switchSession` 调用，验证所有动画状态被重置
-5. **异常降级**：模拟 `fullText` 为 null，验证降级为静态文本展示
+1. **SSE 事件 → 阶段追踪管道**：模拟完整 thinking→tool→thinking→final 事件序列，验证阶段列表正确
+2. **阶段切换 → 滚动**：模拟阶段新增事件，验证消息区域自动滚动
+3. **取消流程 → 阶段取消**：模拟 cancel 事件，验证 PhaseTracker 取消当前阶段
+4. **会话切换 → 状态重置**：模拟 `switchSession` 调用，验证 PhaseTracker 被重置
+5. **异常降级**：模拟未知工具名，验证降级为显示原始名称
 
 ### E2E 测试
 
-1. **完整思考-工具-回答流程**：发送真实查询，验证思考文本逐字出现、工具步骤动画展示、最终回答正常渲染
-2. **取消中流程**：在 Agent 执行中点击停止按钮，验证动画立即停止、消息保留取消标记
-3. **多轮对话**：连续发送多条消息，验证每轮动画独立、上一轮动画被正确清理
-4. **prefers-reduced-motion**：在系统设置中启用"减少动画"，验证所有动画降级为静态展示
+1. **完整思考-工具-回答流程**：发送真实查询，验证阶段进度指示器正确显示各阶段
+2. **取消中流程**：在 Agent 执行中点击停止按钮，验证当前阶段标记为取消
+3. **多轮对话**：连续发送多条消息，验证每轮阶段追踪独立、上一轮被正确清理
+4. **prefers-reduced-motion**：在系统设置中启用"减少动画"，验证阶段动画降级为静态
 
 ### 性能测试
 
-1. **快速 SSE 事件**：模拟 10ms 间隔的 SSE 事件，验证 3 秒超时加速机制触发
-2. **多动画并发**：同时运行打字机 + 3 个工具步骤动画，验证页面帧率保持在 30fps 以上
-3. **内存泄漏**：连续 10 轮对话后检查 TypewriterRenderer 和 StepRenderer 状态是否正确释放
-
-## 可选章节
-
-### 无障碍考虑
-
-- `prefers-reduced-motion: reduce` 媒体查询：所有动画停止或降级
-- 动画元素使用 `aria-hidden="true"` 避免屏幕阅读器重复朗读
-- 状态标签（"思考中..."）使用 `aria-live="polite"` 确保屏幕阅读器感知阶段变化
-- 打字机光标不影响屏幕阅读器（`::after` 伪元素内容不被朗读）
+1. **快速 SSE 事件**：模拟 10ms 间隔的 SSE 事件，验证 PhaseTracker 增量渲染不卡顿
+2. **多动画并发**：同时运行 PhaseTracker + 瀑布渲染 + 3 个工具步骤动画，验证页面帧率保持 30fps 以上
+3. **内存泄漏**：连续 10 轮对话后检查 PhaseTracker 状态是否正确释放

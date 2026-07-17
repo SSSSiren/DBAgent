@@ -49,6 +49,17 @@ class SessionCreateRequest(BaseModel):
     user_id: str = Field(..., min_length=1, description="用户标识（必填，非空）")
 
 
+class SessionUpdateRequest(BaseModel):
+    """会话更新请求"""
+    summary: str = Field(default="", description="会话摘要/标题")
+
+
+class SessionUpdateResponse(BaseModel):
+    """会话更新响应"""
+    session_id: str = Field(..., description="会话 ID")
+    summary: str = Field(default="", description="更新后的会话摘要")
+
+
 class SessionSummary(BaseModel):
     """会话摘要信息"""
     session_id: str = Field(..., description="会话 ID")

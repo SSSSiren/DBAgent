@@ -67,7 +67,20 @@ def build_context(session_state: dict[str, Any]) -> str:
         context_parts.append("\n".join(memory_lines))
         print(f"[KB] build_context: 注入 {len(memories[:10])} 条长期记忆到提示词")
 
-    # 5. 操作记忆（查询偏好）
+    # 5. SQL 参考知识库（RAG 检索结果，可信任的精确技术参考）
+    rag_reference = session_state.get("_rag_reference", [])
+    if rag_reference:
+        rag_lines = ["[SQL 参考知识库 — 以下是你熟悉的数据库中已验证的 SQL 知识，包含真实的表名、字段名和常见取值，可以直接使用]"]
+        for r in rag_reference[:5]:
+            abstract = r.get("abstract", "")
+            # 截断过长的参考内容
+            if len(abstract) > 2000:
+                abstract = abstract[:2000] + "..."
+            rag_lines.append(f"- {abstract}")
+        context_parts.append("\n".join(rag_lines))
+        print(f"[KB] build_context: 注入 {len(rag_reference[:5])} 条 RAG SQL 参考")
+
+    # 6. 操作记忆（查询偏好）
     preferences = session_state.get("_preferences", [])
     if preferences:
         pref_lines = ["[操作记忆 — 查询偏好]"]
