@@ -27,6 +27,12 @@ class Settings(BaseSettings):
     PORT: int = Field(default=8000)
     DEBUG: bool = Field(default=True)
 
+    # Langfuse 可观测性配置
+    LANGFUSE_ENABLED: bool = Field(default=True, description="Enable Langfuse tracing")
+    LANGFUSE_PUBLIC_KEY: str = Field(default="", description="Langfuse public key")
+    LANGFUSE_SECRET_KEY: str = Field(default="", description="Langfuse secret key")
+    LANGFUSE_HOST: str = Field(default="https://cloud.langfuse.com", description="Langfuse host URL")
+
 
 @lru_cache
 def get_settings() -> Settings:

@@ -30,6 +30,12 @@ from app.tools import (
     ask_user_tool,
 )
 from app.memory.summary import update_summary
+from app.observation import (
+    TraceMetrics,
+    create_trace_and_handler,
+    extract_result_size,
+    flush_metrics,
+)
 
 
 # ========== 阶段3-1：Agent 创建 ==========
@@ -184,6 +190,7 @@ async def run_agent_stream(
     3. 调用 agent.astream_events() 启动 ReAct 循环
     4. 监听事件流，产出 step/sql/final 事件
     5. 更新对话记忆（历史 + 摘要）
+    6. 写入 Langfuse 观测指标
 
     参数：
         user_input: 用户当前输入的消息
@@ -195,12 +202,21 @@ async def run_agent_stream(
         - "sql": 提取的 SQL 语句
         - "final": 最终响应，包含回复内容和更新后的状态
     """
+    # 步骤0：创建 Langfuse Trace + CallbackHandler
+    session_id = session_state.get("session_id", "")
+    langfuse_handler, langfuse_trace = create_trace_and_handler(
+        session_id=session_id,
+        trace_name="DBAgent-Chat",
+    )
+
+    # 初始化观测指标收集器
+    metrics = TraceMetrics()
+
     # 步骤1：创建 Agent 实例
     # 每次请求都创建新的 Agent，避免状态污染
     agent = create_agent_executor()
 
     # 步骤2：从会话状态中提取上下文信息
-    session_id = session_state.get("session_id", "")
     chat_history = session_state.get("chat_history", [])
     summary = session_state.get("summary", "")
     selected_schema_id = session_state.get("selected_schema_id")
@@ -242,7 +258,12 @@ async def run_agent_stream(
     seen_tool_calls = set()     # 去重：已处理的工具调用
     yielded_steps = set()       # 去重：已 yield 的步骤，避免重复推送
 
-    # 步骤5：启动 ReAct 循环
+    # 步骤5：构建 astream_events 的 config
+    stream_config: dict[str, Any] = {"recursion_limit": 40}
+    if langfuse_handler is not None:
+        stream_config["callbacks"] = [langfuse_handler]
+
+    # 步骤6：启动 ReAct 循环
     # astream_events 是 LangGraph 的核心 API，它返回一个异步事件流
     # 每个事件代表 Agent 执行过程中的一个步骤（LLM 推理、工具调用等）
     # version="v2" 使用新版事件格式
@@ -251,7 +272,7 @@ async def run_agent_stream(
         async for event in agent.astream_events(
             {"messages": messages},  # 输入：摘要 + 历史消息 + 当前用户问题
             version="v2",
-            config={"recursion_limit": 40},  # 最多 40 步，防止无限重试
+            config=stream_config,
         ):
             event_name = event.get("event", "")  # 事件类型
             run_id = event.get("run_id", "")     # 运行 ID，用于关联同一次工具调用
@@ -285,6 +306,23 @@ async def run_agent_stream(
                     yielded_steps.add(step_key)
                     # yield 步骤事件：工具执行完成
                     yield "step", {"step": f"tool:{tool_name}", "status": "completed"}
+
+                # === Langfuse 观测：记录工具调用 + 数据大小 ===
+                metrics.record_tool_call(tool_name)
+
+                # 对于返回表格数据的工具，提取数据大小
+                if tool_name in (
+                    "query_database_tool",
+                    "execute_sql_tool",
+                    "list_tables_tool",
+                    "describe_table_tool",
+                    "list_databases_tool",
+                ):
+                    output_str = str(tool_output)
+                    row_count, col_count = extract_result_size(output_str)
+                    if row_count > 0 or col_count > 0:
+                        metrics.record_data_size(tool_name, row_count, col_count)
+
                 # 找到对应的工具调用记录并更新结果
                 for tc in tool_calls_info:
                     if tc.get("run_id") == run_id:
@@ -315,6 +353,9 @@ async def run_agent_stream(
                 if output and hasattr(output, "content"):
                     all_messages.append(output)
 
+                # === Langfuse 观测：记录推理步骤 ===
+                metrics.record_llm_call()
+
     except Exception as e:
         # 捕获递归限制错误或其他异常，返回友好的错误消息
         error_msg = str(e)
@@ -338,6 +379,9 @@ async def run_agent_stream(
             "selected_database": selected_database,
         }
 
+        # === Langfuse 观测：异常时也写入指标 ===
+        flush_metrics(langfuse_trace, metrics)
+
         yield "final", {
             "response": response,
             "updated_state": updated_state,
@@ -347,16 +391,16 @@ async def run_agent_stream(
         }
         return
 
-    # 步骤6：提取最终响应
+    # 步骤7：提取最终响应
     # 最后一条消息是 LLM 的最终回答（不包含工具调用）
     response = all_messages[-1].content if all_messages else "获取响应失败"
 
-    # 步骤7：检查是否需要确认（当前未实现，预留功能）
+    # 步骤8：检查是否需要确认（当前未实现，预留功能）
     # 如果 Agent 执行了写操作（UPDATE/DELETE/INSERT），需要用户确认
     needs_confirmation = False
     pending_action = None
 
-    # 步骤8：更新对话记忆
+    # 步骤9：更新对话记忆
     # 将本次对话添加到历史记录
     chat_history.append(HumanMessage(content=user_input))   # 用户输入
     chat_history.append(AIMessage(content=response))        # AI 回答
@@ -366,12 +410,12 @@ async def run_agent_stream(
     if len(chat_history) > 20:
         chat_history = chat_history[-20:]
 
-    # 步骤9：更新对话摘要
+    # 步骤10：更新对话摘要
     # 调用 LLM 将对话历史压缩为摘要，用于后续请求的上下文
     # 这样即使对话历史被截断，Agent 仍然知道之前讨论过什么
     new_summary = await update_summary(summary, user_input, response)
 
-    # 步骤10：构建更新后的状态
+    # 步骤11：构建更新后的状态
     updated_state = {
         "session_id": session_id,                 # 会话 ID（save_session 保存状态时需要）
         "chat_history": chat_history,             # 更新后的对话历史
@@ -380,7 +424,10 @@ async def run_agent_stream(
         "selected_database": selected_database,   # 保持数据库信息
     }
 
-    # 步骤11：yield 最终事件
+    # === Langfuse 观测：写入自定义指标 ===
+    flush_metrics(langfuse_trace, metrics)
+
+    # 步骤12：yield 最终事件
     # 包含：最终响应、更新后的状态、工具调用记录
     yield "final", {
         "response": response,                   # Agent 的最终回答

@@ -55,24 +55,45 @@ async def query_database_tool(
         if not generated.sql:
             return "无法生成 SQL，请检查问题描述"
 
-        # 3. 验证 SQL
+        # 3. 验证 SQL + 最多 3 次修复重试
+        MAX_REPAIR_ATTEMPTS = 3
         validation = validate_sql(generated.sql, table_name, columns)
+        current_sql = generated.sql
+        previous_errors: list[str] = []
+
         if not validation.passed:
-            error_msg = "; ".join(validation.errors) if validation.errors else "SQL 验证失败"
-            # 尝试修复
-            repaired = await repair_sql(
-                question=question,
-                table_name=table_name,
-                columns=columns,
-                failed_sql=generated.sql,
-                error_message=error_msg,
-            )
-            if repaired.needs_clarification or not repaired.sql:
-                return f"SQL 生成失败：{error_msg}"
-            generated = repaired
-            validation = validate_sql(generated.sql, table_name, columns)
-            if not validation.passed:
-                return f"SQL 修复后仍然失败：{'; '.join(validation.errors)}"
+            for attempt in range(1, MAX_REPAIR_ATTEMPTS + 1):
+                error_msg = "; ".join(validation.errors) if validation.errors else "SQL 验证失败"
+                previous_errors.append(error_msg)
+
+                repaired = await repair_sql(
+                    question=question,
+                    table_name=table_name,
+                    columns=columns,
+                    failed_sql=current_sql,
+                    error_message=error_msg,
+                    attempt=attempt,
+                    previous_errors=previous_errors[:-1] if len(previous_errors) > 1 else None,
+                )
+
+                # 立即失败的场景：权限问题、需要用户澄清、或 LLM 拒绝输出 SQL
+                if repaired.needs_clarification or not repaired.sql:
+                    return f"SQL 生成失败：{repaired.clarification_question or error_msg}"
+
+                current_sql = repaired.sql
+                generated = repaired
+                validation = validate_sql(current_sql, table_name, columns)
+
+                if validation.passed:
+                    print(f"[query_database_tool] SQL repaired on attempt {attempt}/{MAX_REPAIR_ATTEMPTS}")
+                    break
+            else:
+                # 3 次重试后仍然失败
+                return (
+                    f"SQL 修复失败（已尝试 {MAX_REPAIR_ATTEMPTS} 次）：\n"
+                    + "\n".join(f"  第{i}次: {err}" for i, err in enumerate(previous_errors, 1))
+                    + f"\n  最终错误: {'; '.join(validation.errors)}"
+                )
 
         # 4. 执行 SQL
         result = await onedba_client.execute_sql(schema_id, generated.sql)

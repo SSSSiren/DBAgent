@@ -5,7 +5,7 @@ services:
       dockerfile: Dockerfile
     container_name: dbagent
     ports:
-      - "${HOST_PORT:-8000}:8000"
+      - "${HOST_PORT:-8001}:8000"
     environment:
       - DEEPSEEK_API_KEY=${DEEPSEEK_API_KEY}
       - DEEPSEEK_BASE_URL=${DEEPSEEK_BASE_URL:-https://api.deepseek.com/v1}
@@ -13,7 +13,7 @@ services:
       - ONEDBA_BASE_URL=${ONEDBA_BASE_URL:-https://onedba.shizhuang-inc.com}
       - ONEDBA_ACCESS_TOKEN=${ONEDBA_ACCESS_TOKEN}
       - HOST=0.0.0.0
-      - PORT=8000
+      - PORT=8001
       - DEBUG=${DEBUG:-false}
     volumes:
       # 持久化语义规则
