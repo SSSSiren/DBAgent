@@ -95,7 +95,7 @@
   - _Boundary: HDCRetriever_
 
 - [ ] 4. HDC 增量更新
-- [ ] 4.1 构建 HDCUpdater — Schema 变更检测与增量重算
+- [x] 4.1 构建 HDCUpdater — Schema 变更检测与增量重算
   - 在 `app/datavault/updater.py` 中实现 `HDCUpdater` 类
   - 实现 `_compute_columns_hash(columns)` 方法：将列名+类型拼接后做 hash，用于快速对比
   - 实现 `check_and_update(schema_id, database_name)` 方法：
