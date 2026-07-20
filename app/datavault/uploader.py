@@ -243,12 +243,12 @@ class HDCUploader:
         index_uri = f"{table_dir}/_INDEX.md"
         await self._ov.write(index_uri, index_content, mode="replace", wait=True)
 
-        # 设置 tags
+        # 设置 tags（OpenViking 要求 k=v 格式）
         tags = [
-            "hdc_level:table",
-            f"main_entity:{table_desc.main_entity}",
-            f"table_type:{table_desc.table_type}",
-            f"pk:{table_desc.primary_key}",
+            "hdc_level=table",
+            f"main_entity={table_desc.main_entity}",
+            f"table_type={table_desc.table_type}",
+            f"pk={table_desc.primary_key}",
         ]
         await self._ov.set_tags(table_dir, tags, mode="replace")
 

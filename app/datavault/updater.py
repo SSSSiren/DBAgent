@@ -145,8 +145,8 @@ class HDCUpdater:
                 tags = []
 
             for tag in tags:
-                if isinstance(tag, str) and tag.startswith("columns_hash:"):
-                    stored_hashes[table_name] = tag[len("columns_hash:"):]
+                if isinstance(tag, str) and tag.startswith("columns_hash="):
+                    stored_hashes[table_name] = tag[len("columns_hash="):]
                     break
 
         return stored_hashes, existing_names
@@ -165,7 +165,7 @@ class HDCUpdater:
         try:
             await self._uploader._ov.set_tags(
                 table_dir,
-                [f"columns_hash:{hash_value}"],
+                [f"columns_hash={hash_value}"],
                 mode="merge",
             )
         except Exception:

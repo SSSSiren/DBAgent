@@ -42,7 +42,7 @@ class HDCRetriever:
         """两阶段 HDC 检索，返回 HDCContext 或 None（降级）。
 
         Stage 1: find(query, target_uri=".../hdc/{db}/_tables",
-                       tags=["hdc_level:table"], level=[0,1], limit=10)
+                       tags=["hdc_level=table"], level=[0,1], limit=10)
         Stage 2: for top 5 tables, find(query, target_uri=".../hdc/{db}/_tables/{table}",
                                        level=[2], limit=6)
 
@@ -55,7 +55,7 @@ class HDCRetriever:
         result = await self._ov.find(
             query=user_input,
             target_uri=f"{target_base}/_tables",
-            tags=["hdc_level:table"],
+            tags=["hdc_level=table"],
             level=[0, 1],
             limit=10,
         )
@@ -186,7 +186,7 @@ class HDCRetriever:
         result = await self._ov.find(
             query="database summary",
             target_uri=target_base,
-            tags=["hdc_level:database"],
+            tags=["hdc_level=database"],
             level=[0, 1],
             limit=1,
         )
@@ -261,7 +261,7 @@ class HDCRetriever:
         """解析 tags 为 key-value 字典。
 
         兼容两种格式：
-        - list[str]: ["hdc_level:table", "main_entity:订单/order", "table_type:fact"]
+        - list[str]: ["hdc_level=table", "main_entity=订单/order", "table_type=fact"]
         - dict[str, str]: {"hdc_level": "table", "main_entity": "订单/order"}
         """
         if isinstance(tags, dict):
@@ -269,8 +269,13 @@ class HDCRetriever:
         if isinstance(tags, list):
             result: dict[str, str] = {}
             for tag in tags:
-                if isinstance(tag, str) and ":" in tag:
-                    key, _, value = tag.partition(":")
+                if isinstance(tag, str):
+                    if "=" in tag:
+                        key, _, value = tag.partition("=")
+                    elif ":" in tag:
+                        key, _, value = tag.partition(":")
+                    else:
+                        continue
                     result[key.strip()] = value.strip()
             return result
         return {}

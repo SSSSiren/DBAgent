@@ -694,7 +694,7 @@ class HDCGenerator:
             result = await self._uploader._ov.find(
                 query=query,
                 target_uri=target_uri,
-                tags=["hdc_level:table"],
+                tags=["hdc_level=table"],
                 level=[0, 1],
                 limit=10,
             )

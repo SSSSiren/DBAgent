@@ -305,6 +305,8 @@ class OpenVikingClient:
         wait=True 时阻塞直到 SemanticProcessor 处理完成（L0/L1 摘要生成）。
         结果自动解包 {"status":"ok","result":...}。
         错误时记录警告并返回空 dict，不抛出异常。
+
+        如果 mode="replace" 失败（文件不存在），自动回退到 mode="create"。
         """
         try:
             payload: dict[str, Any] = {
@@ -317,6 +319,14 @@ class OpenVikingClient:
                 payload["timeout"] = timeout
             return await self._post("/api/v1/content/write", payload)
         except Exception:
+            # mode="replace" 要求文件已存在；如果失败，回退到 create
+            if mode == "replace":
+                try:
+                    payload["mode"] = "create"
+                    return await self._post("/api/v1/content/write", payload)
+                except Exception:
+                    log.warning("OpenViking write (create fallback) failed: uri=%s", uri, exc_info=True)
+                    return {}
             log.warning("OpenViking write failed: uri=%s", uri, exc_info=True)
             return {}
 
