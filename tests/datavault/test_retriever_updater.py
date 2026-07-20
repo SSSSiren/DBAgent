@@ -26,7 +26,12 @@ class MockOVClient:
         table = m.group(1) if m else ""
         if uri.endswith("_INDEX.md") and table in self._indexes:
             main_entity, table_type = self._indexes[table]
-            return f"# {table}\n\n**{main_entity}** — {table_type} 表\n主键: id\n\n## 详细描述\n{table}事实表描述。\n"
+            return (
+                f"{main_entity}\n\n"
+                f"**{table}** 是 **{table_type}** 类型的表，主键为 `id`。\n\n"
+                f"## 详细描述\n\n"
+                f"{table}事实表描述。\n"
+            )
         if ".md" in uri and table in self._indexes:
             col_name = uri.rstrip("/").split("/")[-1].replace(".md", "")
             return f"# {col_name}\n\n{col_name} 的业务描述。\n"

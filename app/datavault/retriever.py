@@ -177,9 +177,9 @@ class HDCRetriever:
         """Parse our _INDEX.md format to extract main_entity, table_type, description.
 
         Our format:
-          # table_name
-          **核心实体/同义词** — type 表
-          主键: ...
+          <main_entity>                    ← Line 1: plain text entity name
+                                          ← Line 2: blank
+          **<table_name>** 是 **<type>** 类型的表，主键为 `<pk>`。  ← Line 3
           ...
           ## 详细描述
           description text
@@ -187,46 +187,33 @@ class HDCRetriever:
         main_entity = ""
         table_type = ""
         description = ""
+        lines = content.split("\n")
+
+        # Line 1: main_entity (plain text, not bold)
+        if lines:
+            first = lines[0].strip()
+            if first and not first.startswith("#") and not first.startswith("**"):
+                main_entity = first
+
+        # Line 3: "**table_name** 是 **fact** 类型的表"
+        if len(lines) >= 3:
+            meta_line = lines[2].strip()
+            if "fact" in meta_line:
+                table_type = "fact"
+            elif "dimension" in meta_line or "维度" in meta_line:
+                table_type = "dimension"
+            elif "bridge" in meta_line or "桥接" in meta_line:
+                table_type = "bridge"
+
+        # Description: after "## 详细描述"
         in_detail = False
-
-        for line in content.split("\n"):
-            stripped = line.strip()
-            if not stripped or stripped.startswith("# "):
-                continue
-
-            # Line 2: **entity** — type 表
-            if stripped.startswith("**") and not main_entity:
-                # "**售后/退货/退款** — fact 表"
-                parts = stripped.split("—")
-                if len(parts) >= 1:
-                    entity_part = parts[0].strip().strip("*").strip()
-                    if entity_part:
-                        main_entity = entity_part
-                if len(parts) >= 2:
-                    type_part = parts[1].strip()
-                    if "fact" in type_part:
-                        table_type = "fact"
-                    elif "dimension" in type_part or "维度" in type_part:
-                        table_type = "dimension"
-                    elif "bridge" in type_part or "桥接" in type_part:
-                        table_type = "bridge"
-
-            if "详细描述" in stripped or "Detailed Description" in stripped:
+        for line in lines:
+            if "详细描述" in line or "Detailed Description" in line:
                 in_detail = True
                 continue
-
-            if in_detail and not description and stripped and not stripped.startswith("**"):
-                description = stripped
+            if in_detail and line.strip() and not line.strip().startswith("*"):
+                description = line.strip()
                 break
-
-        # Fallback: check for "核心实体" / "main_entity" field
-        if not main_entity:
-            for line in content.split("\n"):
-                if "核心实体" in line or "main_entity" in line:
-                    val = line.split("：", 1)[-1].split(":", 1)[-1].strip().strip("* ")
-                    if val:
-                        main_entity = val
-                        break
 
         return main_entity, table_type, description
 
