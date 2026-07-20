@@ -801,37 +801,56 @@ class HDCGenerator:
         column_summaries: dict[str, list[ColumnSummary]],
         max_candidates: int = 5,
     ) -> list[str]:
-        """Fallback coarse screening: find tables with overlapping column names.
+        """Fallback coarse screening: score other tables as potential relatives.
 
-        When OpenViking find is unavailable or returns empty (e.g. during
-        initial HDC generation before upload), use shared column name prefixes
-        as a signal of potential relationships.
+        Uses two signals:
+        1. Column name overlap (Jaccard similarity)
+        2. main_entity keyword overlap (e.g. "告警" in two entities)
 
-        Returns up to max_candidates table names, excluding the source table.
+        If no tables score above 0, returns all other tables as candidates
+        (for small databases, brute-force stage 2 LLM screening is acceptable).
         """
         source_cols = {
             cs.column_name.lower() for cs in column_summaries.get(source_table, [])
         }
-        if not source_cols:
-            return []
+        source_desc = next((td for td in table_descriptions if td.table_name == source_table), None)
+        source_entity_words = set((source_desc.main_entity or "").replace("/", " ").split()) if source_desc else set()
 
         scored: list[tuple[str, float]] = []
         for td in table_descriptions:
             if td.table_name == source_table:
                 continue
+
+            score = 0.0
+
+            # Signal 1: column name overlap
             target_cols = {
                 cs.column_name.lower() for cs in column_summaries.get(td.table_name, [])
             }
-            if not target_cols:
-                continue
-            overlap = source_cols & target_cols
-            if overlap:
-                # Score: Jaccard similarity
-                jaccard = len(overlap) / len(source_cols | target_cols)
-                scored.append((td.table_name, jaccard))
+            if source_cols and target_cols:
+                overlap = source_cols & target_cols
+                if overlap:
+                    jaccard = len(overlap) / len(source_cols | target_cols)
+                    score += jaccard * 0.7  # column overlap is strong signal
+
+            # Signal 2: main_entity keyword overlap
+            target_entity_words = set((td.main_entity or "").replace("/", " ").split())
+            if source_entity_words and target_entity_words:
+                kw_overlap = source_entity_words & target_entity_words
+                if kw_overlap:
+                    score += len(kw_overlap) / max(len(source_entity_words), len(target_entity_words)) * 0.3
+
+            scored.append((td.table_name, score))
 
         scored.sort(key=lambda x: x[1], reverse=True)
-        return [name for name, _ in scored[:max_candidates]]
+        candidates = [name for name, s in scored[:max_candidates] if s > 0]
+
+        # If no tables scored, include all others as fallback (small DBs)
+        if not candidates:
+            candidates = [td.table_name for td in table_descriptions
+                          if td.table_name != source_table][:max_candidates]
+
+        return candidates
 
     async def generate_relationships(
         self,

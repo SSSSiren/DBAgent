@@ -95,11 +95,16 @@ async def ov_delete(path: str, params: dict = None) -> dict:
 
 
 async def ov_ls(uri: str) -> list:
-    result = await ov_get("/fs/ls", {"uri": uri, "node_limit": 200})
-    if isinstance(result, list):
-        return result
-    if isinstance(result, dict) and result.get("status") == "error":
-        return []
+    raw = await ov_get("/fs/ls", {"uri": uri, "node_limit": 200})
+    # ov_get returns raw JSON: {"status":"ok","result":[...]}
+    if isinstance(raw, list):
+        return raw
+    if isinstance(raw, dict):
+        if raw.get("status") == "error":
+            return []
+        result = raw.get("result")
+        if isinstance(result, list):
+            return result
     return []
 
 

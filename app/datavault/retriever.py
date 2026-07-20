@@ -214,7 +214,7 @@ class HDCRetriever:
         if isinstance(result, list):
             return result
         if isinstance(result, dict):
-            for key in ("matches", "items", "data", "results"):
+            for key in ("matches", "items", "data", "results", "resources"):
                 val = result.get(key)
                 if isinstance(val, list):
                     return val
