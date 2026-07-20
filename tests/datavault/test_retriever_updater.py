@@ -34,7 +34,14 @@ class MockOVClient:
             )
         if ".md" in uri and table in self._indexes:
             col_name = uri.rstrip("/").split("/")[-1].replace(".md", "")
-            return f"# {col_name}\n\n{col_name} 的业务描述。\n"
+            # Map column names to their Chinese descriptions
+            desc_map = {
+                "refund_amount": "退款金额",
+                "refund_status": "退款状态",
+                "total_amount": "订单总金额",
+            }
+            desc = desc_map.get(col_name, f"{col_name} 的业务描述")
+            return f"# {col_name}\n\n{desc}\n"
         return ""
 
 
