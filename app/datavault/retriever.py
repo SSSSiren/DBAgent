@@ -69,7 +69,10 @@ class HDCRetriever:
             )
             return None
 
-        # ── Stage 2: for top 5 tables, find relevant columns ──
+        # ── Stage 2: for top 5 tables, read _INDEX.md for real metadata ──
+        # find() returns derived files (.abstract.md/.overview.md) which
+        # are VLM summaries — they don't carry our tags. Instead, read
+        # the actual _INDEX.md files we wrote for real metadata.
         table_matches: list[TableMatch] = []
         seen_tables: set[str] = set()
         for match in matches[:10]:
@@ -78,24 +81,9 @@ class HDCRetriever:
                 continue
             seen_tables.add(table_name)
 
-            # Tags may be on the match itself or absent (derived files don't carry them)
-            tags = self._parse_tags(match.get("tags", []))
-            main_entity = tags.get("main_entity", "")
-            table_type = tags.get("table_type", "")
-            # Derived files (.abstract.md/.overview.md) don't carry tags —
-            # try reading the table's _INDEX.md overview as fallback
-            if not main_entity and not table_type:
-                overview = match.get("overview", "")
-                if overview:
-                    # Extract main_entity and table_type from overview text
-                    for line in overview.split("\n"):
-                        line = line.strip()
-                        if line.startswith("**核心实体**") or line.startswith("**main_entity**"):
-                            main_entity = line.split("：", 1)[-1].split(":", 1)[-1].strip().strip("* ")
-                        elif line.startswith("**表类型**") or line.startswith("**table_type**"):
-                            table_type = line.split("：", 1)[-1].split(":", 1)[-1].strip().strip("* ")
-            # Use overview for richer description, fall back to abstract
-            description = match.get("overview") or match.get("abstract") or ""
+            # Read _INDEX.md to get real metadata we wrote
+            index_content = await self._read_index(target_base, table_name)
+            main_entity, table_type, description = self._parse_index(index_content)
 
             relevant_columns = await self._retrieve_columns(
                 user_input, target_base, table_name
@@ -168,6 +156,80 @@ class HDCRetriever:
 
     # ── Private helpers ──
 
+    async def _read_index(self, target_base: str, table_name: str) -> str:
+        """Read the actual _INDEX.md file we wrote (not VLM summary).
+
+        Uses OpenViking content/read API to get raw L2 content.
+        """
+        uri = f"{target_base}/_tables/{table_name}/_INDEX.md"
+        try:
+            raw = await self._ov._get_raw("/api/v1/content/read", uri)
+            if isinstance(raw, str):
+                return raw
+            if isinstance(raw, dict):
+                return raw.get("content", "") or raw.get("result", "") or ""
+        except Exception:
+            pass
+        return ""
+
+    @staticmethod
+    def _parse_index(content: str) -> tuple[str, str, str]:
+        """Parse our _INDEX.md format to extract main_entity, table_type, description.
+
+        Our format:
+          # table_name
+          **核心实体/同义词** — type 表
+          主键: ...
+          ...
+          ## 详细描述
+          description text
+        """
+        main_entity = ""
+        table_type = ""
+        description = ""
+        in_detail = False
+
+        for line in content.split("\n"):
+            stripped = line.strip()
+            if not stripped or stripped.startswith("# "):
+                continue
+
+            # Line 2: **entity** — type 表
+            if stripped.startswith("**") and not main_entity:
+                # "**售后/退货/退款** — fact 表"
+                parts = stripped.split("—")
+                if len(parts) >= 1:
+                    entity_part = parts[0].strip().strip("*").strip()
+                    if entity_part:
+                        main_entity = entity_part
+                if len(parts) >= 2:
+                    type_part = parts[1].strip()
+                    if "fact" in type_part:
+                        table_type = "fact"
+                    elif "dimension" in type_part or "维度" in type_part:
+                        table_type = "dimension"
+                    elif "bridge" in type_part or "桥接" in type_part:
+                        table_type = "bridge"
+
+            if "详细描述" in stripped or "Detailed Description" in stripped:
+                in_detail = True
+                continue
+
+            if in_detail and not description and stripped and not stripped.startswith("**"):
+                description = stripped
+                break
+
+        # Fallback: check for "核心实体" / "main_entity" field
+        if not main_entity:
+            for line in content.split("\n"):
+                if "核心实体" in line or "main_entity" in line:
+                    val = line.split("：", 1)[-1].split(":", 1)[-1].strip().strip("* ")
+                    if val:
+                        main_entity = val
+                        break
+
+        return main_entity, table_type, description
+
     async def _retrieve_columns(
         self,
         user_input: str,
@@ -176,7 +238,7 @@ class HDCRetriever:
     ) -> list[str]:
         """Stage 2: 检索某张表的相关列描述（level=[2]，最多 6 列）。
 
-        每列返回 "列名: 描述" 格式的字符串。
+        使用 find(level=[2]) 定位相关列名，再读取原始 .md 文件获取简洁描述。
         检索失败时返回空列表，不中断整体流程。
         """
         result = await self._ov.find(
@@ -193,12 +255,32 @@ class HDCRetriever:
         columns: list[str] = []
         for match in matches[:6]:
             col_name = self._extract_column_name(match)
-            content = match.get("content") or match.get("abstract") or ""
-            if col_name and content:
-                columns.append(f"{col_name}: {content}")
-            elif content:
-                columns.append(content)
+            if not col_name:
+                continue
+            # Read the original .md file for the short description we wrote
+            col_content = await self._read_column_file(target_base, table_name, col_name)
+            if col_content:
+                columns.append(f"{col_name}: {col_content}")
         return columns
+
+    async def _read_column_file(self, target_base: str, table_name: str, column_name: str) -> str:
+        """Read a column .md file to get the original short description."""
+        uri = f"{target_base}/_tables/{table_name}/{column_name}.md"
+        try:
+            raw = await self._ov._get_raw("/api/v1/content/read", uri)
+            content = ""
+            if isinstance(raw, str):
+                content = raw
+            elif isinstance(raw, dict):
+                content = raw.get("content", "") or raw.get("result", "") or ""
+            # Extract the first meaningful line after the heading
+            for line in content.split("\n"):
+                stripped = line.strip()
+                if stripped and not stripped.startswith("#") and not stripped.startswith("**"):
+                    return stripped[:200]
+            return content[:200] if content else ""
+        except Exception:
+            return ""
 
     async def _retrieve_database_summary(self, target_base: str) -> str:
         """检索数据库摘要（数据库根目录的 _INDEX.md）。"""
