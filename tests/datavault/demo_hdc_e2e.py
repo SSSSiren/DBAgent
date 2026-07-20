@@ -329,9 +329,19 @@ async def generate_hdc_knowledge_base():
     print(f"  [Step 5/5] 生成数据库摘要 + 上传到 OpenViking...")
     db_start = time.monotonic()
     db_summary = await generator.generate_database_summary(TARGET_DB_NAME, table_descs, relationships)
+    from app.datavault.models import TableDescriptionWithColumns
     tbl_with_cols = []
     for td in table_descs:
-        tdc = generator._build_table_description_with_columns(td, col_summaries.get(td.table_name, []))
+        tdc = TableDescriptionWithColumns(
+            table_name=td.table_name,
+            main_entity=td.main_entity,
+            table_type=td.table_type,
+            primary_key=td.primary_key,
+            key_attributes=td.key_attributes,
+            description=td.description,
+            row_count_estimate=td.row_count_estimate,
+            columns=col_summaries.get(td.table_name, []),
+        )
         tbl_with_cols.append(tdc)
     await uploader.upload_database(TARGET_DB_NAME, db_summary, tbl_with_cols, relationships)
     db_elapsed = time.monotonic() - db_start
