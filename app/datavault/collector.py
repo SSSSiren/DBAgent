@@ -52,15 +52,16 @@ def _parse_show_table_status_row(row: dict[str, Any]) -> dict[str, str]:
 def _parse_describe_row(row: dict[str, Any]) -> ColumnRaw:
     """Parse a single row from DESCRIBE result into a ColumnRaw.
 
-    DESCRIBE 返回的列：Field, Type, Null, Key, Default, Extra
+    DESCRIBE 返回的列可能是命名键（Field/Type/Null/Key/Default/Extra）
+    或数字键（col_1/col_2/col_3/col_4/col_5/col_6）。
     """
-    name = str(row.get("Field") or "")
-    data_type = str(row.get("Type") or "")
-    nullable_str = str(row.get("Null") or "YES")
+    name = str(row.get("Field") or row.get("col_1") or "")
+    data_type = str(row.get("Type") or row.get("col_2") or "")
+    nullable_str = str(row.get("Null") or row.get("col_3") or "YES")
     nullable = nullable_str.strip().upper() == "YES"
-    key = str(row.get("Key") or "")
-    default = str(row.get("Default") or "")
-    extra = str(row.get("Extra") or "")
+    key = str(row.get("Key") or row.get("col_4") or "")
+    default = str(row.get("Default") or row.get("col_5") or "")
+    extra = str(row.get("Extra") or row.get("col_6") or "")
 
     return ColumnRaw(
         name=name,

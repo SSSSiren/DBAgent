@@ -250,7 +250,7 @@ class HDCUploader:
             f"table_type={table_desc.table_type}",
             f"pk={table_desc.primary_key}",
         ]
-        await self._ov.set_tags(table_dir, tags, mode="replace")
+        await self._ov.set_tags(table_dir, tags, mode="append")
 
         log.info(
             "HDCUploader: uploaded table %s.%s (%d columns)",
