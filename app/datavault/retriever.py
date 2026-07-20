@@ -71,15 +71,31 @@ class HDCRetriever:
 
         # ── Stage 2: for top 5 tables, find relevant columns ──
         table_matches: list[TableMatch] = []
-        for match in matches[:5]:
+        seen_tables: set[str] = set()
+        for match in matches[:10]:
             table_name = self._extract_table_name(match)
-            if not table_name:
+            if not table_name or table_name in seen_tables:
                 continue
+            seen_tables.add(table_name)
 
+            # Tags may be on the match itself or absent (derived files don't carry them)
             tags = self._parse_tags(match.get("tags", []))
             main_entity = tags.get("main_entity", "")
             table_type = tags.get("table_type", "")
-            description = match.get("abstract") or ""
+            # Derived files (.abstract.md/.overview.md) don't carry tags —
+            # try reading the table's _INDEX.md overview as fallback
+            if not main_entity and not table_type:
+                overview = match.get("overview", "")
+                if overview:
+                    # Extract main_entity and table_type from overview text
+                    for line in overview.split("\n"):
+                        line = line.strip()
+                        if line.startswith("**核心实体**") or line.startswith("**main_entity**"):
+                            main_entity = line.split("：", 1)[-1].split(":", 1)[-1].strip().strip("* ")
+                        elif line.startswith("**表类型**") or line.startswith("**table_type**"):
+                            table_type = line.split("：", 1)[-1].split(":", 1)[-1].strip().strip("* ")
+            # Use overview for richer description, fall back to abstract
+            description = match.get("overview") or match.get("abstract") or ""
 
             relevant_columns = await self._retrieve_columns(
                 user_input, target_base, table_name
@@ -92,6 +108,9 @@ class HDCRetriever:
                 description=description,
                 relevant_columns=relevant_columns,
             ))
+
+            if len(table_matches) >= 5:
+                break
 
         if not table_matches:
             return None
@@ -227,17 +246,25 @@ class HDCRetriever:
         """从匹配项的 URI 中提取表名。
 
         URI 格式: viking://resources/hdc/{db}/_tables/{table_name}
+        或:       viking://resources/hdc/{db}/_tables/{table_name}/.abstract.md
         """
         uri = match.get("uri", "")
         if uri:
             parts = uri.rstrip("/").split("/")
-            if parts:
-                name = parts[-1]
-                if name.endswith(".md"):
-                    name = name[:-3]
-                return name
+            # If the last segment is a derived file (.abstract.md, .overview.md),
+            # the table name is the parent directory
+            last = parts[-1] if parts else ""
+            if last in (".abstract.md", ".overview.md", ".abstract", ".overview"):
+                if len(parts) >= 2:
+                    return parts[-2]
+                return ""
+            if last.endswith(".md"):
+                last = last[:-3]
+            return last
         name = match.get("name", "")
         if name:
+            if name in (".abstract", ".overview", ".abstract.md", ".overview.md"):
+                return ""
             return name.replace(".md", "")
         return ""
 
@@ -246,15 +273,22 @@ class HDCRetriever:
         """从匹配项的 URI 中提取列名。
 
         URI 格式: viking://resources/hdc/{db}/_tables/{table}/{column}.md
+        跳过 .abstract.md 和 .overview.md
         """
         uri = match.get("uri", "")
         if uri:
             parts = uri.rstrip("/").split("/")
             name = parts[-1] if parts else ""
+            # Skip derived files
+            if name in (".abstract.md", ".overview.md", ".abstract", ".overview"):
+                return ""
             if name.endswith(".md"):
                 name = name[:-3]
             return name
-        return match.get("name", "").replace(".md", "")
+        raw_name = match.get("name", "")
+        if raw_name in (".abstract", ".overview", ".abstract.md", ".overview.md", ""):
+            return ""
+        return raw_name.replace(".md", "")
 
     @staticmethod
     def _parse_tags(tags) -> dict[str, str]:
