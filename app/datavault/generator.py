@@ -794,6 +794,45 @@ class HDCGenerator:
 
         return relationships
 
+    @staticmethod
+    def _local_coarse_candidates(
+        source_table: str,
+        table_descriptions: list[TableDescription],
+        column_summaries: dict[str, list[ColumnSummary]],
+        max_candidates: int = 5,
+    ) -> list[str]:
+        """Fallback coarse screening: find tables with overlapping column names.
+
+        When OpenViking find is unavailable or returns empty (e.g. during
+        initial HDC generation before upload), use shared column name prefixes
+        as a signal of potential relationships.
+
+        Returns up to max_candidates table names, excluding the source table.
+        """
+        source_cols = {
+            cs.column_name.lower() for cs in column_summaries.get(source_table, [])
+        }
+        if not source_cols:
+            return []
+
+        scored: list[tuple[str, float]] = []
+        for td in table_descriptions:
+            if td.table_name == source_table:
+                continue
+            target_cols = {
+                cs.column_name.lower() for cs in column_summaries.get(td.table_name, [])
+            }
+            if not target_cols:
+                continue
+            overlap = source_cols & target_cols
+            if overlap:
+                # Score: Jaccard similarity
+                jaccard = len(overlap) / len(source_cols | target_cols)
+                scored.append((td.table_name, jaccard))
+
+        scored.sort(key=lambda x: x[1], reverse=True)
+        return [name for name, _ in scored[:max_candidates]]
+
     async def generate_relationships(
         self,
         database_name: str,
@@ -829,17 +868,19 @@ class HDCGenerator:
 
         # Process each table as a source, running Stage 1 in parallel
         async def _relate_one_source(source_table: str) -> list[TableRelationship]:
-            if not self._uploader:
-                logger.warning(
-                    "generate_relationships: no uploader configured; "
-                    "cannot run Stage 1 coarse screening"
-                )
-                return []
-
             # Stage 1: coarse candidates
-            candidates = await self._stage1_coarse_candidates(
-                database_name, source_table, table_descriptions,
-            )
+            candidates: list[str] = []
+            if self._uploader:
+                # Try OpenViking find first
+                candidates = await self._stage1_coarse_candidates(
+                    database_name, source_table, table_descriptions,
+                )
+            if not candidates:
+                # Fallback: local column-name heuristic — find other tables
+                # that share column names with the source table
+                candidates = _local_coarse_candidates(
+                    source_table, table_descriptions, column_summaries,
+                )
             if not candidates:
                 return []
 
