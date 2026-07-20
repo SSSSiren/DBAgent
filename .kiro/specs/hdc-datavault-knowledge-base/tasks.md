@@ -43,7 +43,7 @@
   - _Boundary: HDC Models_
 
 - [ ] 2. HDC 生成管线
-- [ ] 2.1 (P) 构建 SchemaCollector — Schema 元数据采集器
+- [x] 2.1 (P) 构建 SchemaCollector — Schema 元数据采集器
   - 在 `app/datavault/collector.py` 中实现 `SchemaCollector` 类
   - 实现 `collect_database(schema_id)` 方法：调用 `OneDBAClient.execute_sql()` 依次执行 `SHOW TABLE STATUS`（获取表列表+注释）→ 逐表 `DESCRIBE`（获取列结构）→ 逐表 `SELECT * LIMIT 3`（获取采样数据）
   - 单表采集失败时记录错误并继续处理其余表，不中断整体采集
