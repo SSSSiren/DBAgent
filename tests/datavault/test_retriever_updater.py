@@ -8,14 +8,29 @@ from app.datavault.models import HDCContext, TableMatch, ColumnSummary, TableDes
 class MockOVClient:
     """Mock OpenViking client for testing."""
 
-    def __init__(self, find_responses=None):
+    def __init__(self, find_responses=None, index_contents=None):
         self._responses = find_responses or {}
+        self._indexes = index_contents or {}
         self._call_count = 0
 
     async def find(self, query="", target_uri="", tags=None, level=None, limit=10, **kwargs):
         self._call_count += 1
         key = target_uri.rstrip("/").split("/")[-1] if target_uri else "default"
         return self._responses.get(key, self._responses.get("default", {}))
+
+    async def _get_raw(self, path, uri):
+        """Mock content read for _INDEX.md and column .md files."""
+        import re
+        # Extract table_name from URI
+        m = re.search(r'/_tables/([^/]+)/', uri)
+        table = m.group(1) if m else ""
+        if uri.endswith("_INDEX.md") and table in self._indexes:
+            main_entity, table_type = self._indexes[table]
+            return f"# {table}\n\n**{main_entity}** — {table_type} 表\n主键: id\n\n## 详细描述\n{table}事实表描述。\n"
+        if ".md" in uri and table in self._indexes:
+            col_name = uri.rstrip("/").split("/")[-1].replace(".md", "")
+            return f"# {col_name}\n\n{col_name} 的业务描述。\n"
+        return ""
 
 
 def make_find_result(items):
@@ -73,6 +88,9 @@ class TestHDCRetriever:
                     make_column_item("total_amount", "订单总金额"),
                 ]
             },
+        }, index_contents={
+            "after_sale_order": ("售后/退货/退款", "fact"),
+            "order_info": ("订单/交易", "fact"),
         })
 
         r = retriever(ov)
