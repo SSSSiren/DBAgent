@@ -54,6 +54,10 @@ class Settings(BaseSettings):
     # ========== 操作记忆（查询偏好）==========
     preference_enabled: bool = True
 
+    # ========== HDC 数据底座 ==========
+    hdc_enabled: bool = False
+    hdc_auto_generate: bool = False
+
     model_config = SettingsConfigDict(
         env_file=".env",
         env_file_encoding="utf-8",

@@ -34,6 +34,7 @@ async def lifespan(app: FastAPI):
     print(f"[DBAgent] KB: {'enabled' if settings.kb_enabled else 'disabled'} (provider=openviking, url={settings.kb_openviking_url}, auto_commit={settings.kb_auto_commit_turns}turns)")
     print(f"[DBAgent] Storage backend: {settings.storage_backend}")
     print(f"[DBAgent] Preference: {'enabled' if settings.preference_enabled else 'disabled'}")
+    print(f"[DBAgent] HDC: {'enabled' if settings.hdc_enabled else 'disabled'}" + (f" (auto_generate)" if settings.hdc_auto_generate else ""))
 
     # 初始化存储（会话 + 偏好，创建数据库表和索引）
     storage = get_storage()
