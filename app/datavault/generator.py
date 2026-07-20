@@ -897,7 +897,7 @@ class HDCGenerator:
             if not candidates:
                 # Fallback: local column-name heuristic — find other tables
                 # that share column names with the source table
-                candidates = _local_coarse_candidates(
+                candidates = HDCGenerator._local_coarse_candidates(
                     source_table, table_descriptions, column_summaries,
                 )
             if not candidates:
