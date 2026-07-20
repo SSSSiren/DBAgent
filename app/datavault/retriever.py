@@ -73,14 +73,30 @@ class HDCRetriever:
         # find() returns derived files (.abstract.md/.overview.md) which
         # are VLM summaries — they don't carry our tags. Instead, read
         # the actual _INDEX.md files we wrote for real metadata.
-        table_matches: list[TableMatch] = []
-        seen_tables: set[str] = set()
-        for match in matches[:10]:
+        #
+        # Sort matches by score (desc) so that most relevant tables appear first,
+        # then dedup by table_name (a single table may have multiple returned files
+        # like .abstract.md + .overview.md).
+        candidates: list[tuple[str, float]] = []  # (table_name, best_score)
+        for match in matches:
             table_name = self._extract_table_name(match)
-            if not table_name or table_name in seen_tables:
+            if not table_name:
                 continue
-            seen_tables.add(table_name)
+            score = match.get("score", 0.0)
+            # Keep the highest score for each table
+            existing = next((c for c in candidates if c[0] == table_name), None)
+            if existing is None:
+                candidates.append((table_name, score))
+            else:
+                idx = candidates.index(existing)
+                if score > existing[1]:
+                    candidates[idx] = (table_name, score)
 
+        # Sort by score descending
+        candidates.sort(key=lambda x: x[1], reverse=True)
+
+        table_matches: list[TableMatch] = []
+        for table_name, score in candidates[:5]:
             # Read _INDEX.md to get real metadata we wrote
             index_content = await self._read_index(target_base, table_name)
             main_entity, table_type, description = self._parse_index(index_content)
@@ -96,9 +112,6 @@ class HDCRetriever:
                 description=description,
                 relevant_columns=relevant_columns,
             ))
-
-            if len(table_matches) >= 5:
-                break
 
         if not table_matches:
             return None
@@ -242,7 +255,7 @@ class HDCRetriever:
         columns: list[str] = []
         for match in matches[:6]:
             col_name = self._extract_column_name(match)
-            if not col_name:
+            if not col_name or col_name == "_INDEX":
                 continue
             # Read the original .md file for the short description we wrote
             col_content = await self._read_column_file(target_base, table_name, col_name)
@@ -270,22 +283,32 @@ class HDCRetriever:
             return ""
 
     async def _retrieve_database_summary(self, target_base: str) -> str:
-        """检索数据库摘要（数据库根目录的 _INDEX.md）。"""
-        result = await self._ov.find(
-            query="database summary",
-            target_uri=target_base,
-            tags=["hdc_level=database"],
-            level=[0, 1],
-            limit=1,
-        )
+        """读取数据库根目录的 _INDEX.md 获取摘要。"""
+        uri = f"{target_base}/_INDEX.md"
+        try:
+            raw = await self._ov._get_raw("/api/v1/content/read", uri)
+            content = ""
+            if isinstance(raw, str):
+                content = raw
+            elif isinstance(raw, dict):
+                content = raw.get("content", "") or raw.get("result", "") or ""
 
-        if not result:
+            parts: list[str] = []
+            for line in content.split("\n"):
+                stripped = line.strip()
+                if not stripped or stripped.startswith("# "):
+                    continue
+                if "核心实体" in stripped:
+                    parts.append(stripped.strip("* "))
+                elif "表数量" in stripped:
+                    parts.append(stripped.strip("* "))
+                elif not stripped.startswith("**") and len(stripped) > 20:
+                    parts.append(stripped)
+                    break  # got the description paragraph
+
+            return "；".join(parts) if parts else content[:300]
+        except Exception:
             return ""
-
-        matches = self._extract_matches(result)
-        if matches:
-            return matches[0].get("abstract") or ""
-        return ""
 
     # ── Static helpers ──
 
