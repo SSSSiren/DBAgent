@@ -246,6 +246,29 @@ async def _execute_agent_stream(
             initial_state["_preferences"] = preferences
         initial_state["_preference_count"] = preference_count
 
+        # ── 检索 HDC 数据底座 ──
+        from app.config import get_settings as _get_hdc_settings
+        _hdc_settings = _get_hdc_settings()
+        if _hdc_settings.hdc_enabled:
+            try:
+                from app.datavault.retriever import HDCRetriever
+                from app.knowledge.openviking import OpenVikingClient as OVC
+                selected_db = initial_state.get("selected_database")
+                if selected_db:
+                    hdc_ov = OVC(_hdc_settings.kb_openviking_url, user_id)
+                    await hdc_ov.start()
+                    retriever = HDCRetriever(hdc_ov)
+                    hdc_ctx = await retriever.retrieve(
+                        initial_state["user_input"],
+                        selected_db.get("schemaName", ""),
+                    )
+                    if hdc_ctx:
+                        initial_state["_hdc_context"] = retriever.format_context(hdc_ctx)
+                        print(f"[HDC][OK] 检索成功: db={selected_db.get('schemaName')}, tables={len(hdc_ctx.matched_tables)}")
+                    await hdc_ov.close()
+            except Exception as e:
+                print(f"[HDC][ERROR] 检索失败: {type(e).__name__}: {e}")
+
         final_payload = None
         latest_sql = ""
         cancelled = False
@@ -690,3 +713,131 @@ async def update_session_info(
         session_id=session_id,
         summary=request.summary,
     )
+
+
+# ═══════════════════════════════════════════════════════════════
+# HDC 管理端点
+# ═══════════════════════════════════════════════════════════════
+
+# 内存任务状态存储
+_hdc_tasks: dict[str, dict[str, Any]] = {}
+
+
+@router.post("/hdc/generate")
+async def hdc_generate(payload: dict[str, Any]):
+    """触发生成指定数据库的 HDC 知识库。异步执行，立即返回 task_id。"""
+    from app.config import get_settings as _gs
+    settings = _gs()
+    if not settings.hdc_enabled:
+        raise HTTPException(status_code=503, detail="HDC 功能未启用")
+
+    schema_id = payload.get("schema_id")
+    database_name = payload.get("database_name", "").strip()
+    if not schema_id or not database_name:
+        raise HTTPException(status_code=400, detail="schema_id 和 database_name 为必填项")
+
+    task_id = str(uuid6.uuid7())
+    _hdc_tasks[task_id] = {
+        "task_id": task_id,
+        "database_name": database_name,
+        "status": "started",
+        "progress": {"phase": "initializing", "tables_done": 0, "tables_total": 0},
+        "result": None,
+    }
+
+    # 后台异步生成
+    asyncio.create_task(_run_hdc_generate(task_id, schema_id, database_name))
+    return {"task_id": task_id, "status": "started"}
+
+
+async def _run_hdc_generate(task_id: str, schema_id: int, database_name: str):
+    """后台执行 HDC 生成任务。"""
+    try:
+        from app.client.onedba import get_onedba_client
+        from app.datavault.collector import SchemaCollector
+        from app.datavault.generator import HDCGenerator
+        from app.datavault.uploader import HDCUploader
+        from app.knowledge.openviking import OpenVikingClient
+        from app.config import get_settings
+
+        settings = get_settings()
+        from openai import AsyncOpenAI
+        llm = AsyncOpenAI(api_key=settings.llm_api_key, base_url=settings.llm_base_url)
+        ov = OpenVikingClient(settings.kb_openviking_url, "hdc-admin")
+        await ov.start()
+        onedba = get_onedba_client()
+
+        collector = SchemaCollector(onedba)
+        uploader = HDCUploader(ov)
+        generator = HDCGenerator(llm_client=llm, collector=collector, uploader=uploader)
+
+        _hdc_tasks[task_id]["status"] = "running"
+        _hdc_tasks[task_id]["progress"] = {"phase": "generating", "tables_done": 0, "tables_total": 0}
+
+        result = await generator.generate(schema_id, database_name)
+        _hdc_tasks[task_id]["status"] = "completed"
+        _hdc_tasks[task_id]["result"] = result
+
+        await ov.close()
+    except Exception as e:
+        _hdc_tasks[task_id]["status"] = "failed"
+        _hdc_tasks[task_id]["result"] = {"error": str(e)}
+
+
+@router.get("/hdc/status/{database_name}")
+async def hdc_status(database_name: str):
+    """查询指定数据库的 HDC 状态。"""
+    from app.config import get_settings as _gs
+    settings = _gs()
+    if not settings.hdc_enabled:
+        raise HTTPException(status_code=503, detail="HDC 功能未启用")
+
+    # Check if HDC data exists in OpenViking by listing the directory
+    try:
+        from app.knowledge.openviking import OpenVikingClient
+        ov = OpenVikingClient(settings.kb_openviking_url, "hdc-admin")
+        await ov.start()
+        entries = await ov.ls(f"viking://resources/hdc/{database_name}")
+        await ov.close()
+
+        exists = len(entries) > 0 if isinstance(entries, list) else False
+        table_count = sum(1 for e in (entries if isinstance(entries, list) else []) if e.get("isDir"))
+        return {
+            "database_name": database_name,
+            "exists": exists,
+            "table_count": table_count,
+        }
+    except Exception as e:
+        return {
+            "database_name": database_name,
+            "exists": False,
+            "error": str(e),
+        }
+
+
+@router.get("/hdc/tasks/{task_id}")
+async def hdc_task_status(task_id: str):
+    """查询 HDC 生成任务进度。"""
+    task = _hdc_tasks.get(task_id)
+    if task is None:
+        raise HTTPException(status_code=404, detail="任务不存在")
+    return task
+
+
+@router.delete("/hdc/{database_name}")
+async def hdc_delete(database_name: str):
+    """删除指定数据库的全部 HDC 数据。"""
+    from app.config import get_settings as _gs
+    settings = _gs()
+    if not settings.hdc_enabled:
+        raise HTTPException(status_code=503, detail="HDC 功能未启用")
+
+    try:
+        from app.knowledge.openviking import OpenVikingClient
+        ov = OpenVikingClient(settings.kb_openviking_url, "hdc-admin")
+        await ov.start()
+        await ov.rm(f"viking://resources/hdc/{database_name}", recursive=True)
+        await ov.close()
+        return {"deleted": True, "database_name": database_name}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"删除失败: {e}")

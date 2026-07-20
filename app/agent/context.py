@@ -90,6 +90,11 @@ def build_context(session_state: dict[str, Any]) -> str:
             )
         context_parts.append("\n".join(pref_lines))
 
+    # 7. 数据底座（HDC）— 来自 app/datavault/retriever
+    hdc_context = session_state.get("_hdc_context", "")
+    if hdc_context:
+        context_parts.append(str(hdc_context))
+
     return "\n\n".join(context_parts) if context_parts else ""
 
 
