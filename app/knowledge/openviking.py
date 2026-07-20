@@ -1,15 +1,29 @@
 """
 OpenViking 会话记忆客户端 — 轻量 HTTP 封装
 
-只暴露对话记忆所需的 3 个 API：
+暴露对话记忆和 HDC 知识库所需的 API：
+会话管理：
 - create_session()  → POST /api/v1/sessions
 - add_message()     → POST /api/v1/sessions/{id}/messages
 - commit()          → POST /api/v1/sessions/{id}/commit
+
+搜索与检索：
+- find()            → POST /api/v1/search/find
+- search()          → POST /api/v1/search/search
+
+内容写入：
+- write()           → POST /api/v1/content/write
+
+文件系统操作：
+- set_tags()        → POST /api/v1/fs/attrs/set_tags
+- mkdir()           → POST /api/v1/fs/mkdir
+- rm()              → DELETE /api/v1/fs
 
 设计：
 - 按请求创建（构造函数接收 user_id），保证多用户隔离
 - 每次用完调用 close() 释放 HTTP 连接
 - 不支持全局单例模式
+- 所有方法自动解包 {"status":"ok","result":...}，错误时记录日志不抛出异常
 """
 
 from __future__ import annotations
@@ -81,6 +95,17 @@ class OpenVikingClient:
         if self._client is None:
             await self.start()
         resp = await self._client.get(f"{path}?uri={uri}")
+        resp.raise_for_status()
+        data = resp.json()
+        if isinstance(data, dict) and data.get("status") == "ok" and "result" in data:
+            return data["result"]
+        return data
+
+    async def _delete(self, path: str, params: dict = None) -> dict:
+        """DELETE 请求，自动解包 result 字段"""
+        if self._client is None:
+            await self.start()
+        resp = await self._client.request("DELETE", path, params=params or {})
         resp.raise_for_status()
         data = resp.json()
         if isinstance(data, dict) and data.get("status") == "ok" and "result" in data:
@@ -183,6 +208,190 @@ class OpenVikingClient:
                 break
 
         return all_memories
+
+    # ── 搜索与检索（HDC）──
+
+    async def find(
+        self,
+        query: str,
+        target_uri: str = "",
+        limit: int = 10,
+        score_threshold: Optional[float] = None,
+        level: Optional[list[int]] = None,
+        filter: Optional[dict] = None,
+        context_type: Optional[str] = None,
+        tags: Optional[list[str]] = None,
+    ) -> dict:
+        """向量 + tags 精确检索，返回匹配项列表。
+
+        POST /api/v1/search/find
+        结果自动解包 {"status":"ok","result":...}。
+        错误时记录警告并返回空 dict，不抛出异常。
+
+        level: 过滤内容层级，[0,1] 只返回 L0+L1（摘要+概览），[2] 返回 L2（完整内容）。
+        """
+        try:
+            payload: dict[str, Any] = {
+                "query": query,
+                "target_uri": target_uri,
+                "limit": limit,
+            }
+            if score_threshold is not None:
+                payload["score_threshold"] = score_threshold
+            if level is not None:
+                payload["level"] = level
+            if filter is not None:
+                payload["filter"] = filter
+            if context_type is not None:
+                payload["context_type"] = context_type
+            if tags is not None:
+                payload["tags"] = tags
+            return await self._post("/api/v1/search/find", payload)
+        except Exception:
+            log.warning("OpenViking find failed", exc_info=True)
+            return {}
+
+    async def search(
+        self,
+        query: str,
+        target_uri: str = "",
+        session_id: Optional[str] = None,
+        limit: int = 10,
+        score_threshold: Optional[float] = None,
+        filter: Optional[dict] = None,
+        context_type: Optional[str] = None,
+        tags: Optional[list[str]] = None,
+    ) -> dict:
+        """意图感知检索（需要 session_id 上下文）。
+
+        POST /api/v1/search/search
+        结果自动解包 {"status":"ok","result":...}。
+        错误时记录警告并返回空 dict，不抛出异常。
+        """
+        try:
+            payload: dict[str, Any] = {
+                "query": query,
+                "target_uri": target_uri,
+                "limit": limit,
+            }
+            if session_id is not None:
+                payload["session_id"] = session_id
+            if score_threshold is not None:
+                payload["score_threshold"] = score_threshold
+            if filter is not None:
+                payload["filter"] = filter
+            if context_type is not None:
+                payload["context_type"] = context_type
+            if tags is not None:
+                payload["tags"] = tags
+            return await self._post("/api/v1/search/search", payload)
+        except Exception:
+            log.warning("OpenViking search failed", exc_info=True)
+            return {}
+
+    # ── 内容写入（HDC）──
+
+    async def write(
+        self,
+        uri: str,
+        content: str,
+        mode: str = "replace",
+        wait: bool = False,
+        timeout: Optional[float] = None,
+    ) -> dict:
+        """写入文件内容到 OpenViking。
+
+        POST /api/v1/content/write
+        wait=True 时阻塞直到 SemanticProcessor 处理完成（L0/L1 摘要生成）。
+        结果自动解包 {"status":"ok","result":...}。
+        错误时记录警告并返回空 dict，不抛出异常。
+        """
+        try:
+            payload: dict[str, Any] = {
+                "uri": uri,
+                "content": content,
+                "mode": mode,
+                "wait": wait,
+            }
+            if timeout is not None:
+                payload["timeout"] = timeout
+            return await self._post("/api/v1/content/write", payload)
+        except Exception:
+            log.warning("OpenViking write failed: uri=%s", uri, exc_info=True)
+            return {}
+
+    # ── 文件系统操作（HDC）──
+
+    async def set_tags(
+        self,
+        uri: str,
+        tags: list[str],
+        mode: str = "replace",
+        recursive: bool = False,
+    ) -> dict:
+        """设置文件/目录的 tags。
+
+        POST /api/v1/fs/attrs/set_tags
+        结果自动解包 {"status":"ok","result":...}。
+        错误时记录警告并返回空 dict，不抛出异常。
+        """
+        try:
+            payload: dict[str, Any] = {
+                "uri": uri,
+                "tags": tags,
+                "mode": mode,
+                "recursive": recursive,
+            }
+            return await self._post("/api/v1/fs/attrs/set_tags", payload)
+        except Exception:
+            log.warning("OpenViking set_tags failed: uri=%s", uri, exc_info=True)
+            return {}
+
+    async def mkdir(
+        self,
+        uri: str,
+        description: Optional[str] = None,
+    ) -> dict:
+        """创建目录。
+
+        POST /api/v1/fs/mkdir
+        结果自动解包 {"status":"ok","result":...}。
+        错误时记录警告并返回空 dict，不抛出异常。
+        """
+        try:
+            payload: dict[str, Any] = {"uri": uri}
+            if description is not None:
+                payload["description"] = description
+            return await self._post("/api/v1/fs/mkdir", payload)
+        except Exception:
+            log.warning("OpenViking mkdir failed: uri=%s", uri, exc_info=True)
+            return {}
+
+    async def rm(
+        self,
+        uri: str,
+        recursive: bool = False,
+        wait: bool = False,
+        timeout: Optional[float] = None,
+    ) -> dict:
+        """删除文件或目录。
+
+        DELETE /api/v1/fs
+        结果自动解包 {"status":"ok","result":...}。
+        错误时记录警告并返回空 dict，不抛出异常。
+        """
+        try:
+            params: dict[str, Any] = {
+                "uri": uri,
+                "recursive": recursive,
+                "wait": wait,
+            }
+            if timeout is not None:
+                params["timeout"] = timeout
+            return await self._delete("/api/v1/fs", params)
+        except Exception:
+            log.warning("OpenViking rm failed: uri=%s", uri, exc_info=True)
+            return {}
 
     async def _read_file_abstract(self, uri: str) -> str:
         """读取单个文件的 abstract，失败返回空字符串"""
