@@ -444,7 +444,7 @@ LIMIT 10;
 
 **自然语言问题：**
 ```
-告警系统db_alert_history：查询 level='critical' 的告警，返回告警ID、实例ID、指标名称和告警时间，按告警时间降序。
+告警系统：查询 level='critical' 的告警，返回告警ID、实例ID、指标名称和告警时间，按告警时间降序。
 ```
 
 **参考答案 SQL：**
@@ -469,7 +469,7 @@ ORDER BY alert_time DESC;
 
 **自然语言问题：**
 ```
-告警系统db_alert_history：统计每种告警级别的数量。
+告警系统：统计每种告警级别的数量。
 ```
 
 **参考答案 SQL：**
@@ -498,7 +498,7 @@ ORDER BY alert_count DESC;
 
 **自然语言问题：**
 ```
-告警系统db_alert_history：统计每种告警指标的数量，按数量降序排列前 10 名。
+告警系统：统计每种告警指标的数量，按数量降序排列前 10 名。
 ```
 
 **参考答案 SQL：**
@@ -536,7 +536,7 @@ LIMIT 10;
 
 **自然语言问题：**
 ```
-告警系统db_alert_history：统计 2024 年 8 月每天的告警数量，按日期升序排列。
+告警系统：统计 2024 年 8 月每天的告警数量，按日期升序排列。
 ```
 
 **参考答案 SQL：**
@@ -565,7 +565,7 @@ ORDER BY alert_date ASC;
 
 **自然语言问题：**
 ```
-告警系统db_alert_history：查询 env_type='prd' 且 level='critical' 的告警，返回实例ID、指标名称、当前值和告警时间，按告警时间降序。
+告警系统：查询 env_type='prd' 且 level='critical' 的告警，返回实例ID、指标名称、当前值和告警时间，按告警时间降序。
 ```
 
 **参考答案 SQL：**
@@ -591,7 +591,7 @@ ORDER BY alert_time DESC;
 
 **自然语言问题：**
 ```
-告警系统db_alert_history：统计每种 namespace（数据库产品类型）的告警数量，按数量降序排列。
+告警系统：统计每种 namespace（数据库产品类型）的告警数量，按数量降序排列。
 ```
 
 **参考答案 SQL：**
@@ -991,7 +991,7 @@ ORDER BY o.create_time DESC;
 
 **自然语言问题：**
 ```
-告警系统db_alert_history：查询 level='critical' 的告警涉及的业务子域（business_subdomain），去重。
+告警系统：查询 level='critical' 的告警涉及的业务子域（business_subdomain），去重。
 ```
 
 **参考答案 SQL：**
@@ -1016,7 +1016,7 @@ ORDER BY business_subdomain;
 
 **自然语言问题：**
 ```
-告警系统db_alert_history：查询每个业务域内各告警指标的告警数量，使用 ROW_NUMBER() 按业务域分组并按告警数量降序排名，返回业务域、指标名、告警数量、排名。
+告警系统：查询每个业务域内各告警指标的告警数量，使用 ROW_NUMBER() 按业务域分组并按告警数量降序排名，返回业务域、指标名、告警数量、排名。
 ```
 
 **参考答案 SQL：**
@@ -1076,7 +1076,7 @@ ORDER BY finish_rate DESC;
 
 **自然语言问题：**
 ```
-告警系统db_alert_history：使用 CASE WHEN 按月统计 2024 年 4-5 月每天的告警数量，返回日期、4月告警数、5月告警数。
+告警系统：使用 CASE WHEN 按月统计 2024 年 4-5 月每天的告警数量，返回日期、4月告警数、5月告警数。
 ```
 
 **参考答案 SQL：**
@@ -1106,7 +1106,7 @@ ORDER BY alert_date;
 
 **自然语言问题：**
 ```
-告警系统db_alert_history：统计每位DBA（dba_owner 字段）负责的业务域的告警数量，返回DBA标识、业务域、告警数量，按告警数量降序排列前 20 名。
+告警系统：统计每位DBA（dba_owner 字段）负责的业务域的告警数量，返回DBA标识、业务域、告警数量，按告警数量降序排列前 20 名。
 ```
 
 **参考答案 SQL：**
@@ -1276,7 +1276,7 @@ SELECT committer_name, COUNT(*) AS order_count FROM order_record WHERE create_ti
 
 问题：
 ```
-告警系统db_alert_history：查询 level='critical' 的告警，返回告警ID、实例ID、指标名称和告警时间，按告警时间降序。
+告警系统：查询 level='critical' 的告警，返回告警ID、实例ID、指标名称和告警时间，按告警时间降序。
 ```
 
 参考SQL：
@@ -1288,7 +1288,7 @@ SELECT id, db_instance_id, metric_name, alert_time FROM db_alert_history WHERE l
 
 问题：
 ```
-告警系统db_alert_history：统计每种告警级别的数量。
+告警系统：统计每种告警级别的数量。
 ```
 
 参考SQL：
@@ -1300,7 +1300,7 @@ SELECT level, COUNT(*) AS alert_count FROM db_alert_history GROUP BY level ORDER
 
 问题：
 ```
-告警系统db_alert_history：统计每种告警指标的数量，按数量降序排列前 10 名。
+告警系统：统计每种告警指标的数量，按数量降序排列前 10 名。
 ```
 
 参考SQL：
@@ -1312,7 +1312,7 @@ SELECT metric_name, COUNT(*) AS alert_count FROM db_alert_history GROUP BY metri
 
 问题：
 ```
-告警系统db_alert_history：统计 2024 年 8 月每天的告警数量，按日期升序排列。
+告警系统：统计 2024 年 8 月每天的告警数量，按日期升序排列。
 ```
 
 参考SQL：
@@ -1324,7 +1324,7 @@ SELECT DATE(alert_time) AS alert_date, COUNT(*) AS alert_count FROM db_alert_his
 
 问题：
 ```
-告警系统db_alert_history：查询 env_type='prd' 且 level='critical' 的告警，返回实例ID、指标名称、当前值和告警时间，按告警时间降序。
+告警系统：查询 env_type='prd' 且 level='critical' 的告警，返回实例ID、指标名称、当前值和告警时间，按告警时间降序。
 ```
 
 参考SQL：
@@ -1336,7 +1336,7 @@ SELECT db_instance_id, metric_name, cur_value, alert_time FROM db_alert_history 
 
 问题：
 ```
-告警系统db_alert_history：统计每种 namespace（数据库产品类型）的告警数量，按数量降序排列。
+告警系统：统计每种 namespace（数据库产品类型）的告警数量，按数量降序排列。
 ```
 
 参考SQL：
@@ -1492,7 +1492,7 @@ SELECT o.id, o.order_type, o.status_desc, w.status_desc AS workflow_status FROM 
 
 问题：
 ```
-告警系统db_alert_history：查询 level='critical' 的告警涉及的业务子域（business_subdomain），去重。
+告警系统：查询 level='critical' 的告警涉及的业务子域（business_subdomain），去重。
 ```
 
 参考SQL：
@@ -1504,7 +1504,7 @@ SELECT DISTINCT business_subdomain FROM db_alert_history WHERE level = 'critical
 
 问题：
 ```
-告警系统db_alert_history：查询每个业务域内各告警指标的告警数量，使用 ROW_NUMBER() 按业务域分组并按告警数量降序排名，返回业务域、指标名、告警数量、排名。
+告警系统：查询每个业务域内各告警指标的告警数量，使用 ROW_NUMBER() 按业务域分组并按告警数量降序排名，返回业务域、指标名、告警数量、排名。
 ```
 
 参考SQL：
@@ -1528,7 +1528,7 @@ SELECT order_type, COUNT(*) AS total_count, SUM(CASE WHEN is_finished = 1 THEN 1
 
 问题：
 ```
-告警系统db_alert_history：使用 CASE WHEN 按月统计 2024 年 4-5 月每天的告警数量，返回日期、4月告警数、5月告警数。
+告警系统：使用 CASE WHEN 按月统计 2024 年 4-5 月每天的告警数量，返回日期、4月告警数、5月告警数。
 ```
 
 参考SQL：
@@ -1540,7 +1540,7 @@ SELECT DATE(alert_time) AS alert_date, SUM(CASE WHEN MONTH(alert_time) = 4 THEN 
 
 问题：
 ```
-告警系统db_alert_history：统计每位DBA（dba_owner 字段）负责的业务域的告警数量，返回DBA标识、业务域、告警数量，按告警数量降序排列前 20 名。
+告警系统：统计每位DBA（dba_owner 字段）负责的业务域的告警数量，返回DBA标识、业务域、告警数量，按告警数量降序排列前 20 名。
 ```
 
 参考SQL：

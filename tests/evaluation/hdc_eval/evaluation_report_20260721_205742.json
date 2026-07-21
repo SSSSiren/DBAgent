@@ -1,0 +1,2431 @@
+{
+  "generated_at": "2026-07-21T20:57:42.858307",
+  "schema_id": 24223568,
+  "llm_model": "deepseek-v4-pro-260425",
+  "llm_base_url": "https://dwai-data.dewu-inc.com/openai/v1",
+  "total_cases": 20,
+  "passed_cases": 19,
+  "failed_cases": 1,
+  "error_cases": 0,
+  "overall_pass_rate": 0.95,
+  "average_score": 0.9122299999999999,
+  "average_latency_ms": 43843.0,
+  "average_tool_calls": 1.15,
+  "average_turns": 1.95,
+  "average_tokens": 9952.15,
+  "std_tool_calls": 0.1735,
+  "std_tokens": 1393.6545,
+  "std_latency_ms": 6364.838,
+  "std_turns": 0.28900000000000003,
+  "dimension_averages": {
+    "sql_syntax": 0.6,
+    "table_column": 0.9040719696969697,
+    "filter_condition": 0.9407859848484849,
+    "result_data": 0.9887499999999999,
+    "sql_standard": 0.7449999999999999
+  },
+  "case_results": [
+    {
+      "test_case": {
+        "case_id": "CS-001",
+        "difficulty": "Easy",
+        "question": "告警系统：查询 level='critical' 的告警，返回告警ID、实例ID、指标名称和告警时间，按告警时间降序。",
+        "reference_sql": "SELECT id, db_instance_id, metric_name, alert_time\nFROM db_alert_history\nWHERE level = 'critical'\nORDER BY alert_time DESC;",
+        "expected_row_count": 24576,
+        "category": "单表过滤",
+        "tables": [
+          "db_alert_history"
+        ],
+        "judging_criteria": [
+          "必须使用 `level = 'critical'`",
+          "排序方向为 DESC",
+          "不能出现 `SELECT *`"
+        ]
+      },
+      "started_at": "2026-07-21T20:42:15.407581",
+      "completed_at": "2026-07-21T20:43:37.220903",
+      "duration_ms": 81813,
+      "agent_response": "查询成功！以下是 `db_alert_history` 表中 `level='critical'` 的告警记录：\n\n## 执行的 SQL\n\n```sql\nSELECT id, db_instance_id, metric_name, alert_time \nFROM db_alert_history \nWHERE level = 'critical' \nORDER BY alert_time DESC\n```\n\n## 查询结果\n\n| 序号 | 告警ID (id) | 实例ID (db_instance_id) | 指标名称 (metric_name) | 告警时间 (alert_time) |\n|------|-------------|-------------------------|------------------------|------------------------|\n| 1 | 9777976 | rr-bp15y9mb09arb224v | IOPSUsage | 2022-07-12 23:36:42 |\n| 2 | 9777957 | rr-bp15y9mb09arb224v | IOPSUsage | 2022-07-12 23:36:42 |\n| 3 | 9777938 | rr-bp15y9mb09arb224v | IOPSUsage | 2022-07-12 23:36:42 |\n| ... | ... | ... | ... | ... |\n| 200 | 9774195 | rr-bp15y9mb09arb224v | IOPSUsage | 2022-07-12 23:36:42 |\n\n> 共返回 **200 条**记录（结果可能被截断）。\n\n## 数据概览\n\n- **告警级别**：`critical`（严重）\n- **涉及实例**：`rr-bp15y9mb09arb224v`（所有记录均为同一实例）\n- **告警指标**：`IOPSUsage`（IOPS 使用率）\n- **告警时间**：集中在 `2022-07-12 23:36:42`\n- **数据来源表**：`dw_onedba_cs.db_alert_history`\n\n从结果来看，这批 critical 级别告警全部是同一个只读实例（`rr-bp15y9mb09arb224v`）在 2022年7月12日 晚间的 IOPS 使用率告警。如果需要进一步分析（如按实例聚合、按时间段筛选、或查看更多字段），请告诉我。",
+      "generated_sqls": [
+        "SELECT id, db_instance_id, metric_name, alert_time FROM db_alert_history WHERE level = 'critical' ORDER BY alert_time DESC"
+      ],
+      "tool_calls": [
+        {
+          "tool": "query_database",
+          "args": {}
+        },
+        {
+          "tool": "query_database",
+          "args": {}
+        }
+      ],
+      "sql_judge": {
+        "tier": 1,
+        "passed": true,
+        "score": 1.0,
+        "generated_sql": "SELECT id, db_instance_id, metric_name, alert_time FROM db_alert_history WHERE level = 'critical' ORDER BY alert_time DESC",
+        "reference_sql": "SELECT id, db_instance_id, metric_name, alert_time\nFROM db_alert_history\nWHERE level = 'critical'\nORDER BY alert_time DESC;",
+        "generated_row_count": null,
+        "reference_row_count": null,
+        "diff_summary": "SQL 结构与参考完全一致",
+        "llm_judge_explanation": null,
+        "syntax_ok": true,
+        "table_match": 1.0,
+        "column_match": 1.0
+      },
+      "quality_judge": {
+        "score": 0.0,
+        "completeness": 0.0,
+        "accuracy": 0.0,
+        "clarity": 0.0,
+        "sql_transparency": 0.0,
+        "explanation": "LLM 评判失败: Error code: 503 - {'error': {'code': 503, 'type': 'scheduler.select_failed', 'message': 'No available model.', 'Dw-Gateway-Request-Id': 'dw-059698f17c776df8-f1e9fda5'}}"
+      },
+      "efficiency": {
+        "tool_call_count": 1,
+        "tool_call_details": {
+          "query_database": 1
+        },
+        "turns": 2,
+        "total_tokens": 18397,
+        "latency_ms": 60952,
+        "score": 0.8923
+      },
+      "dimensions": {
+        "sql_syntax": 1.0,
+        "table_column": 1.0,
+        "filter_condition": 1.0,
+        "result_data": 1.0,
+        "sql_standard": 0.7
+      },
+      "overall_score": 0.97,
+      "passed": true,
+      "error": null,
+      "repeat_count": 3,
+      "run_details": [
+        {
+          "duration_ms": 64900,
+          "tool_call_count": 1,
+          "tool_call_details": {
+            "query_database": 1
+          },
+          "turns": 2,
+          "total_tokens": 16967,
+          "generated_sqls": [
+            "SELECT id AS alert_id, db_instance_id AS instance_id, metric_name, alert_time FROM db_alert_history WHERE level = 'critical' ORDER BY alert_time DESC"
+          ],
+          "error": null
+        },
+        {
+          "duration_ms": 39812,
+          "tool_call_count": 1,
+          "tool_call_details": {
+            "query_database": 1
+          },
+          "turns": 2,
+          "total_tokens": 17089,
+          "generated_sqls": [
+            "SELECT id AS 告警ID, db_instance_id AS 实例ID, metric_name AS 指标名称, alert_time AS 告警时间 FROM db_alert_history WHERE level = 'critical' ORDER BY alert_time DESC"
+          ],
+          "error": null
+        },
+        {
+          "duration_ms": 78145,
+          "tool_call_count": 2,
+          "tool_call_details": {
+            "query_database": 2
+          },
+          "turns": 3,
+          "total_tokens": 21135,
+          "generated_sqls": [
+            "SELECT id, db_instance_id, metric_name, alert_time FROM db_alert_history WHERE level = 'critical' ORDER BY alert_time DESC"
+          ],
+          "error": null
+        }
+      ],
+      "std_tool_calls": 0.58,
+      "std_tokens": 2371.96,
+      "std_latency_ms": 19469.02,
+      "std_turns": 0.58
+    },
+    {
+      "test_case": {
+        "case_id": "CS-002",
+        "difficulty": "Easy",
+        "question": "告警系统：查询 send_message=1 的告警数量。",
+        "reference_sql": "SELECT COUNT(*) AS sent_count\nFROM db_alert_history\nWHERE send_message = 1;",
+        "expected_row_count": null,
+        "category": "单表过滤",
+        "tables": [
+          "db_alert_history"
+        ],
+        "judging_criteria": [
+          "必须使用 `send_message = 1`（INT 类型，不要用字符串）",
+          "结果为 8192"
+        ]
+      },
+      "started_at": "2026-07-21T20:43:38.745424",
+      "completed_at": "2026-07-21T20:44:00.145000",
+      "duration_ms": 21399,
+      "agent_response": "## 查询结果\n\n在 `db_alert_history` 表中，**已发送消息（send_message=1）的告警数量**为：\n\n| 指标 | 数值 |\n|------|------|\n| 已发送消息的告警数 | **8,192** |\n\n**执行的 SQL**：\n\n```sql\nSELECT COUNT(*) AS alert_count \nFROM db_alert_history \nWHERE send_message = 1\n```\n\n> 说明：`send_message` 字段含义为消息发送状态（0=未发送，1=已发送），当前共有 8,192 条告警记录已成功发送消息。",
+      "generated_sqls": [
+        "SELECT COUNT(*) AS alert_count FROM db_alert_history WHERE send_message = 1"
+      ],
+      "tool_calls": [
+        {
+          "tool": "query_database",
+          "args": {}
+        }
+      ],
+      "sql_judge": {
+        "tier": 2,
+        "passed": true,
+        "score": 1.0,
+        "generated_sql": "SELECT COUNT(*) AS alert_count FROM db_alert_history WHERE send_message = 1",
+        "reference_sql": "SELECT COUNT(*) AS sent_count\nFROM db_alert_history\nWHERE send_message = 1;",
+        "generated_row_count": 1,
+        "reference_row_count": 1,
+        "diff_summary": "结果数据完全一致",
+        "llm_judge_explanation": null,
+        "syntax_ok": true,
+        "table_match": 1.0,
+        "column_match": 1.0
+      },
+      "quality_judge": {
+        "score": 0.0,
+        "completeness": 0.0,
+        "accuracy": 0.0,
+        "clarity": 0.0,
+        "sql_transparency": 0.0,
+        "explanation": "LLM 评判失败: Error code: 503 - {'error': {'code': 503, 'type': 'scheduler.select_failed', 'message': 'No available model.', 'Dw-Gateway-Request-Id': 'dw-2e2bfa13e11bb20c-a1be342d'}}"
+      },
+      "efficiency": {
+        "tool_call_count": 1,
+        "tool_call_details": {
+          "query_database": 1
+        },
+        "turns": 2,
+        "total_tokens": 8219,
+        "latency_ms": 19014,
+        "score": 0.9411
+      },
+      "dimensions": {
+        "sql_syntax": 1.0,
+        "table_column": 1.0,
+        "filter_condition": 1.0,
+        "result_data": 1.0,
+        "sql_standard": 0.7
+      },
+      "overall_score": 0.97,
+      "passed": true,
+      "error": null,
+      "repeat_count": 3,
+      "run_details": [
+        {
+          "duration_ms": 18858,
+          "tool_call_count": 1,
+          "tool_call_details": {
+            "query_database": 1
+          },
+          "turns": 2,
+          "total_tokens": 8243,
+          "generated_sqls": [
+            "SELECT COUNT(*) AS alert_count FROM db_alert_history WHERE send_message = 1"
+          ],
+          "error": null
+        },
+        {
+          "duration_ms": 19799,
+          "tool_call_count": 1,
+          "tool_call_details": {
+            "query_database": 1
+          },
+          "turns": 2,
+          "total_tokens": 8208,
+          "generated_sqls": [
+            "SELECT COUNT(*) AS alert_count FROM db_alert_history WHERE send_message = 1"
+          ],
+          "error": null
+        },
+        {
+          "duration_ms": 18386,
+          "tool_call_count": 1,
+          "tool_call_details": {
+            "query_database": 1
+          },
+          "turns": 2,
+          "total_tokens": 8207,
+          "generated_sqls": [
+            "SELECT COUNT(*) AS alert_count FROM db_alert_history WHERE send_message = 1"
+          ],
+          "error": null
+        }
+      ],
+      "std_tool_calls": 0.0,
+      "std_tokens": 20.5,
+      "std_latency_ms": 719.36,
+      "std_turns": 0.0
+    },
+    {
+      "test_case": {
+        "case_id": "CS-003",
+        "difficulty": "Easy",
+        "question": "告警系统：统计每种告警级别的数量，按数量降序排列。",
+        "reference_sql": "SELECT level, COUNT(*) AS alert_count\nFROM db_alert_history\nGROUP BY level\nORDER BY alert_count DESC;",
+        "expected_row_count": null,
+        "category": "聚合",
+        "tables": [
+          "db_alert_history"
+        ],
+        "judging_criteria": [
+          "必须使用 `GROUP BY` 和 `COUNT`",
+          "排序方向为 DESC",
+          "总计 155648 条告警"
+        ]
+      },
+      "started_at": "2026-07-21T20:44:02.061025",
+      "completed_at": "2026-07-21T20:44:25.749461",
+      "duration_ms": 23688,
+      "agent_response": "查询完成！以下是 `db_alert_history` 表中各告警级别的统计结果：\n\n**执行的 SQL：**\n```sql\nSELECT level, COUNT(*) AS alert_count \nFROM db_alert_history \nGROUP BY level \nORDER BY alert_count DESC\n```\n\n**查询结果：**\n\n| 序号 | 告警级别 | 数量 |\n|------|----------|------|\n| 1 | ok | 65,536 |\n| 2 | info | 57,344 |\n| 3 | critical | 24,576 |\n| 4 | warn | 8,192 |\n\n**汇总：**\n- 共 4 种告警级别，总计 **155,648** 条告警记录\n- **ok** 级别占比最高（约 42%），其次是 **info**（约 37%）\n- **critical**（严重）级别有 24,576 条，**warn**（警告）级别最少，为 8,192 条",
+      "generated_sqls": [
+        "SELECT level, COUNT(*) AS alert_count FROM db_alert_history GROUP BY level ORDER BY alert_count DESC"
+      ],
+      "tool_calls": [
+        {
+          "tool": "query_database",
+          "args": {}
+        }
+      ],
+      "sql_judge": {
+        "tier": 1,
+        "passed": true,
+        "score": 1.0,
+        "generated_sql": "SELECT level, COUNT(*) AS alert_count FROM db_alert_history GROUP BY level ORDER BY alert_count DESC",
+        "reference_sql": "SELECT level, COUNT(*) AS alert_count\nFROM db_alert_history\nGROUP BY level\nORDER BY alert_count DESC;",
+        "generated_row_count": null,
+        "reference_row_count": null,
+        "diff_summary": "SQL 结构与参考完全一致",
+        "llm_judge_explanation": null,
+        "syntax_ok": true,
+        "table_match": 1.0,
+        "column_match": 1.0
+      },
+      "quality_judge": {
+        "score": 0.0,
+        "completeness": 0.0,
+        "accuracy": 0.0,
+        "clarity": 0.0,
+        "sql_transparency": 0.0,
+        "explanation": "LLM 评判失败: Error code: 503 - {'error': {'code': 503, 'type': 'scheduler.select_failed', 'message': 'No available model.', 'Dw-Gateway-Request-Id': 'dw-49810b63062a75f6-24597795'}}"
+      },
+      "efficiency": {
+        "tool_call_count": 1,
+        "tool_call_details": {
+          "query_database": 1
+        },
+        "turns": 2,
+        "total_tokens": 8384,
+        "latency_ms": 21676,
+        "score": 0.9382
+      },
+      "dimensions": {
+        "sql_syntax": 1.0,
+        "table_column": 1.0,
+        "filter_condition": 1.0,
+        "result_data": 1.0,
+        "sql_standard": 0.7
+      },
+      "overall_score": 0.97,
+      "passed": true,
+      "error": null,
+      "repeat_count": 3,
+      "run_details": [
+        {
+          "duration_ms": 22215,
+          "tool_call_count": 1,
+          "tool_call_details": {
+            "query_database": 1
+          },
+          "turns": 2,
+          "total_tokens": 8366,
+          "generated_sqls": [
+            "SELECT level, COUNT(*) AS cnt FROM db_alert_history GROUP BY level ORDER BY cnt DESC, level ASC"
+          ],
+          "error": null
+        },
+        {
+          "duration_ms": 21572,
+          "tool_call_count": 1,
+          "tool_call_details": {
+            "query_database": 1
+          },
+          "turns": 2,
+          "total_tokens": 8364,
+          "generated_sqls": [
+            "SELECT level, COUNT(*) AS cnt FROM db_alert_history GROUP BY level ORDER BY cnt DESC, level ASC"
+          ],
+          "error": null
+        },
+        {
+          "duration_ms": 21242,
+          "tool_call_count": 1,
+          "tool_call_details": {
+            "query_database": 1
+          },
+          "turns": 2,
+          "total_tokens": 8422,
+          "generated_sqls": [
+            "SELECT level, COUNT(*) AS alert_count FROM db_alert_history GROUP BY level ORDER BY alert_count DESC"
+          ],
+          "error": null
+        }
+      ],
+      "std_tool_calls": 0.0,
+      "std_tokens": 32.92,
+      "std_latency_ms": 494.82,
+      "std_turns": 0.0
+    },
+    {
+      "test_case": {
+        "case_id": "CS-004",
+        "difficulty": "Easy",
+        "question": "告警系统：统计每种告警指标的数量，按数量降序排列前 10 名。",
+        "reference_sql": "SELECT metric_name, COUNT(*) AS alert_count\nFROM db_alert_history\nGROUP BY metric_name\nORDER BY alert_count DESC\nLIMIT 10;",
+        "expected_row_count": null,
+        "category": "聚合",
+        "tables": [
+          "db_alert_history"
+        ],
+        "judging_criteria": [
+          "必须使用 `GROUP BY` 和 `COUNT`",
+          "必须有 `LIMIT 10`",
+          "排序方向为 DESC"
+        ]
+      },
+      "started_at": "2026-07-21T20:44:27.326792",
+      "completed_at": "2026-07-21T20:45:28.747828",
+      "duration_ms": 61421,
+      "agent_response": "根据 HDC 数据底座匹配到的两张告警表（`db_alert_history` 和 `tp_1234567_del_db_alert_history`），合并统计了每种告警指标的数量，结果如下：\n\n## 告警指标数量统计 TOP 10\n\n**执行的 SQL：**\n```sql\nSELECT metric_name, COUNT(*) AS cnt \nFROM (\n    SELECT metric_name FROM db_alert_history \n    UNION ALL \n    SELECT metric_name FROM tp_1234567_del_db_alert_history\n) t \nGROUP BY metric_name \nORDER BY cnt DESC, metric_name ASC \nLIMIT 10\n```\n\n| 排名 | 告警指标 (metric_name) | 告警数量 |\n|------|------------------------|----------|\n| 1 | **DiskUsage** | 131,072 |\n| 2 | **IOPSUsage** | 98,304 |\n| 3 | **NodeCPUUtilization** | 32,768 |\n| 4 | **CpuUsage** | 16,384 |\n| 5 | **rds001_cpu_util** | 16,384 |\n| 6 | **ShardingMemoryUsage** | 16,384 |\n\n---\n\n### 📊 分析小结\n\n- **磁盘使用率（DiskUsage）** 告警数量遥遥领先，达到 13 万+，是第二名的 1.3 倍，说明磁盘空间是当前最突出的问题。\n- **IOPS 使用率（IOPSUsage）** 紧随其后，约 9.8 万条，与磁盘问题高度相关。\n- **CPU 相关告警** 分散在三个不同指标（NodeCPUUtilization、CpuUsage、rds001_cpu_util），合计约 6.5 万条，也值得关注。\n- 当前数据库共涉及 **6 种**告警指标，不足 10 种，因此全部展示。",
+      "generated_sqls": [
+        "SELECT metric_name, COUNT(*) AS cnt FROM (SELECT metric_name FROM db_alert_history UNION ALL SELECT metric_name FROM tp_1234567_del_db_alert_history) t GROUP BY metric_name ORDER BY cnt DESC, metric_name ASC LIMIT 10"
+      ],
+      "tool_calls": [
+        {
+          "tool": "query_database",
+          "args": {}
+        }
+      ],
+      "sql_judge": {
+        "tier": 3,
+        "passed": false,
+        "score": 1.0,
+        "generated_sql": "SELECT metric_name, COUNT(*) AS cnt FROM (SELECT metric_name FROM db_alert_history UNION ALL SELECT metric_name FROM tp_1234567_del_db_alert_history) t GROUP BY metric_name ORDER BY cnt DESC, metric_name ASC LIMIT 10",
+        "reference_sql": "SELECT metric_name, COUNT(*) AS alert_count\nFROM db_alert_history\nGROUP BY metric_name\nORDER BY alert_count DESC\nLIMIT 10;",
+        "generated_row_count": null,
+        "reference_row_count": null,
+        "diff_summary": "数据内容不一致：12 行不匹配 (LLM 评判失败: Error code: 503 - {'error': {'code': 503, 'type': 'scheduler.select_failed', 'message': 'No available model.', 'Dw-Gateway-Request-Id': 'dw-76f70f0e1f5622de-cd1f441c'}})",
+        "llm_judge_explanation": null,
+        "syntax_ok": false,
+        "table_match": 1.0,
+        "column_match": 0.5
+      },
+      "quality_judge": {
+        "score": 0.0,
+        "completeness": 0.0,
+        "accuracy": 0.0,
+        "clarity": 0.0,
+        "sql_transparency": 0.0,
+        "explanation": "LLM 评判失败: Error code: 503 - {'error': {'code': 503, 'type': 'scheduler.select_failed', 'message': 'No available model.', 'Dw-Gateway-Request-Id': 'dw-5b26fd533d21a686-e6079bfe'}}"
+      },
+      "efficiency": {
+        "tool_call_count": 1,
+        "tool_call_details": {
+          "query_database": 1
+        },
+        "turns": 2,
+        "total_tokens": 8936,
+        "latency_ms": 54519,
+        "score": 0.9037
+      },
+      "dimensions": {
+        "sql_syntax": 0.0,
+        "table_column": 0.75,
+        "filter_condition": 0.875,
+        "result_data": 1.0,
+        "sql_standard": 1.0
+      },
+      "overall_score": 0.8625,
+      "passed": true,
+      "error": null,
+      "repeat_count": 3,
+      "run_details": [
+        {
+          "duration_ms": 59889,
+          "tool_call_count": 1,
+          "tool_call_details": {
+            "query_database": 1
+          },
+          "turns": 2,
+          "total_tokens": 8819,
+          "generated_sqls": [
+            "SELECT metric_name, COUNT(*) AS alert_count FROM db_alert_history GROUP BY metric_name ORDER BY alert_count DESC, metric_name ASC LIMIT 10"
+          ],
+          "error": null
+        },
+        {
+          "duration_ms": 51040,
+          "tool_call_count": 1,
+          "tool_call_details": {
+            "query_database": 1
+          },
+          "turns": 2,
+          "total_tokens": 9027,
+          "generated_sqls": [
+            "SELECT metric_name, COUNT(*) AS cnt FROM (SELECT metric_name FROM tp_1234567_del_db_alert_history UNION ALL SELECT metric_name FROM db_alert_history) AS combined GROUP BY metric_name ORDER BY cnt DESC, metric_name ASC LIMIT 10"
+          ],
+          "error": null
+        },
+        {
+          "duration_ms": 52628,
+          "tool_call_count": 1,
+          "tool_call_details": {
+            "query_database": 1
+          },
+          "turns": 2,
+          "total_tokens": 8963,
+          "generated_sqls": [
+            "SELECT metric_name, COUNT(*) AS cnt FROM (SELECT metric_name FROM db_alert_history UNION ALL SELECT metric_name FROM tp_1234567_del_db_alert_history) t GROUP BY metric_name ORDER BY cnt DESC, metric_name ASC LIMIT 10"
+          ],
+          "error": null
+        }
+      ],
+      "std_tool_calls": 0.0,
+      "std_tokens": 106.53,
+      "std_latency_ms": 4717.85,
+      "std_turns": 0.0
+    },
+    {
+      "test_case": {
+        "case_id": "CS-005",
+        "difficulty": "Easy",
+        "question": "告警系统：统计每种 namespace（数据库产品类型）的告警数量，按数量降序排列。",
+        "reference_sql": "SELECT namespace, COUNT(*) AS alert_count\nFROM db_alert_history\nGROUP BY namespace\nORDER BY alert_count DESC;",
+        "expected_row_count": null,
+        "category": "聚合",
+        "tables": [
+          "db_alert_history"
+        ],
+        "judging_criteria": [
+          "必须使用 `GROUP BY` 和 `COUNT`",
+          "排序方向为 DESC"
+        ]
+      },
+      "started_at": "2026-07-21T20:45:32.644921",
+      "completed_at": "2026-07-21T20:45:54.067696",
+      "duration_ms": 21422,
+      "agent_response": "## 告警系统：各 namespace 告警数量统计\n\n**查询表**：`db_alert_history`（告警历史明细表）\n\n**SQL 语句**：\n```sql\nSELECT namespace, COUNT(*) AS alert_count \nFROM db_alert_history \nGROUP BY namespace \nORDER BY alert_count DESC, namespace ASC\n```\n\n### 查询结果\n\n| 序号 | namespace（数据库产品类型） | 告警数量 |\n|------|---------------------------|----------|\n| 1 | 云数据库RDS版（RDS） | 131,072 |\n| 2 | ElasticSearch | 16,384 |\n| 3 | Redis集群版 | 8,192 |\n\n共 **3** 种 namespace，总计 **155,648** 条告警记录。\n\n### 分析小结\n\n- **云数据库RDS版（RDS）** 告警数量遥遥领先，占总量的 **84.2%**，是告警最集中的数据库产品类型。\n- **ElasticSearch** 和 **Redis集群版** 告警数量相对较少，分别占 10.5% 和 5.3%。\n- 如需进一步分析（如按告警级别、时间范围筛选），请告诉我。",
+      "generated_sqls": [
+        "SELECT namespace, COUNT(*) AS alert_count FROM db_alert_history GROUP BY namespace ORDER BY alert_count DESC, namespace ASC"
+      ],
+      "tool_calls": [
+        {
+          "tool": "query_database",
+          "args": {}
+        }
+      ],
+      "sql_judge": {
+        "tier": 2,
+        "passed": true,
+        "score": 1.0,
+        "generated_sql": "SELECT namespace, COUNT(*) AS alert_count FROM db_alert_history GROUP BY namespace ORDER BY alert_count DESC, namespace ASC",
+        "reference_sql": "SELECT namespace, COUNT(*) AS alert_count\nFROM db_alert_history\nGROUP BY namespace\nORDER BY alert_count DESC;",
+        "generated_row_count": 3,
+        "reference_row_count": 3,
+        "diff_summary": "结果数据完全一致",
+        "llm_judge_explanation": null,
+        "syntax_ok": true,
+        "table_match": 1.0,
+        "column_match": 1.0
+      },
+      "quality_judge": {
+        "score": 0.0,
+        "completeness": 0.0,
+        "accuracy": 0.0,
+        "clarity": 0.0,
+        "sql_transparency": 0.0,
+        "explanation": "LLM 评判失败: Error code: 503 - {'error': {'code': 503, 'type': 'scheduler.select_failed', 'message': 'No available model.', 'Dw-Gateway-Request-Id': 'dw-5a4d0969017dbef1-6039f0ee'}}"
+      },
+      "efficiency": {
+        "tool_call_count": 1,
+        "tool_call_details": {
+          "query_database": 1
+        },
+        "turns": 2,
+        "total_tokens": 8299,
+        "latency_ms": 18803,
+        "score": 0.9413
+      },
+      "dimensions": {
+        "sql_syntax": 1.0,
+        "table_column": 1.0,
+        "filter_condition": 1.0,
+        "result_data": 1.0,
+        "sql_standard": 0.7
+      },
+      "overall_score": 0.97,
+      "passed": true,
+      "error": null,
+      "repeat_count": 3,
+      "run_details": [
+        {
+          "duration_ms": 18188,
+          "tool_call_count": 1,
+          "tool_call_details": {
+            "query_database": 1
+          },
+          "turns": 2,
+          "total_tokens": 8249,
+          "generated_sqls": [
+            "SELECT namespace, COUNT(*) AS alert_count FROM db_alert_history GROUP BY namespace ORDER BY alert_count DESC, namespace ASC"
+          ],
+          "error": null
+        },
+        {
+          "duration_ms": 18706,
+          "tool_call_count": 1,
+          "tool_call_details": {
+            "query_database": 1
+          },
+          "turns": 2,
+          "total_tokens": 8276,
+          "generated_sqls": [
+            "SELECT namespace, COUNT(*) AS alert_count FROM db_alert_history GROUP BY namespace ORDER BY alert_count DESC"
+          ],
+          "error": null
+        },
+        {
+          "duration_ms": 19517,
+          "tool_call_count": 1,
+          "tool_call_details": {
+            "query_database": 1
+          },
+          "turns": 2,
+          "total_tokens": 8374,
+          "generated_sqls": [
+            "SELECT namespace, COUNT(*) AS alert_count FROM db_alert_history GROUP BY namespace ORDER BY alert_count DESC, namespace ASC"
+          ],
+          "error": null
+        }
+      ],
+      "std_tool_calls": 0.0,
+      "std_tokens": 65.77,
+      "std_latency_ms": 669.86,
+      "std_turns": 0.0
+    },
+    {
+      "test_case": {
+        "case_id": "CS-006",
+        "difficulty": "Easy",
+        "question": "告警系统：统计每个业务子域（business_subdomain）的告警数量，按数量降序排列。",
+        "reference_sql": "SELECT business_subdomain, COUNT(*) AS alert_count\nFROM db_alert_history\nGROUP BY business_subdomain\nORDER BY alert_count DESC;",
+        "expected_row_count": null,
+        "category": "聚合",
+        "tables": [
+          "db_alert_history"
+        ],
+        "judging_criteria": [
+          "必须使用 `GROUP BY` 和 `COUNT`",
+          "排序方向为 DESC",
+          "总计 7 个业务域"
+        ]
+      },
+      "started_at": "2026-07-21T20:45:56.011246",
+      "completed_at": "2026-07-21T20:46:21.188553",
+      "duration_ms": 25177,
+      "agent_response": "## 告警系统 — 业务子域告警数量统计\n\n基于 `db_alert_history` 表，按 `business_subdomain` 分组统计告警数量，结果如下：\n\n**执行的 SQL：**\n```sql\nSELECT business_subdomain, COUNT(*) AS alert_count \nFROM db_alert_history \nGROUP BY business_subdomain \nORDER BY alert_count DESC\n```\n\n**查询结果：**\n\n| 序号 | 业务子域 | 告警数量 |\n|------|----------|----------|\n| 1 | 社区后端 | 57,344 |\n| 2 | 财务结算 | 32,768 |\n| 3 | 大数据 | 24,576 |\n| 4 | 商品 | 16,384 |\n| 5 | 效率后端 | 8,192 |\n| 6 | 仓储域 | 8,192 |\n| 7 | 基础架构 | 8,192 |\n\n共 7 个业务子域，总计 **155,648** 条告警记录。\n\n**关键发现：**\n- **社区后端** 告警数量最高，占总量约 36.8%，远超其他子域\n- **财务结算** 和大数据紧随其后，分别占 21.1% 和 15.8%\n- 效率后端、仓储域、基础架构三个子域告警量相同，并列最低",
+      "generated_sqls": [
+        "SELECT business_subdomain, COUNT(*) AS alert_count FROM db_alert_history GROUP BY business_subdomain ORDER BY alert_count DESC"
+      ],
+      "tool_calls": [
+        {
+          "tool": "query_database",
+          "args": {}
+        }
+      ],
+      "sql_judge": {
+        "tier": 1,
+        "passed": true,
+        "score": 1.0,
+        "generated_sql": "SELECT business_subdomain, COUNT(*) AS alert_count FROM db_alert_history GROUP BY business_subdomain ORDER BY alert_count DESC",
+        "reference_sql": "SELECT business_subdomain, COUNT(*) AS alert_count\nFROM db_alert_history\nGROUP BY business_subdomain\nORDER BY alert_count DESC;",
+        "generated_row_count": null,
+        "reference_row_count": null,
+        "diff_summary": "SQL 结构与参考完全一致",
+        "llm_judge_explanation": null,
+        "syntax_ok": true,
+        "table_match": 1.0,
+        "column_match": 1.0
+      },
+      "quality_judge": {
+        "score": 0.0,
+        "completeness": 0.0,
+        "accuracy": 0.0,
+        "clarity": 0.0,
+        "sql_transparency": 0.0,
+        "explanation": "LLM 评判失败: Error code: 503 - {'error': {'code': 503, 'type': 'scheduler.select_failed', 'message': 'No available model.', 'Dw-Gateway-Request-Id': 'dw-12dc76a965e19f49-cd1c58e7'}}"
+      },
+      "efficiency": {
+        "tool_call_count": 1,
+        "tool_call_details": {
+          "query_database": 1
+        },
+        "turns": 2,
+        "total_tokens": 8501,
+        "latency_ms": 22094,
+        "score": 0.9377
+      },
+      "dimensions": {
+        "sql_syntax": 1.0,
+        "table_column": 1.0,
+        "filter_condition": 1.0,
+        "result_data": 1.0,
+        "sql_standard": 0.7
+      },
+      "overall_score": 0.97,
+      "passed": true,
+      "error": null,
+      "repeat_count": 3,
+      "run_details": [
+        {
+          "duration_ms": 22850,
+          "tool_call_count": 1,
+          "tool_call_details": {
+            "query_database": 1
+          },
+          "turns": 2,
+          "total_tokens": 8534,
+          "generated_sqls": [
+            "SELECT business_subdomain, COUNT(*) AS alert_count FROM db_alert_history GROUP BY business_subdomain ORDER BY alert_count DESC, business_subdomain ASC"
+          ],
+          "error": null
+        },
+        {
+          "duration_ms": 22702,
+          "tool_call_count": 1,
+          "tool_call_details": {
+            "query_database": 1
+          },
+          "turns": 2,
+          "total_tokens": 8508,
+          "generated_sqls": [
+            "SELECT business_subdomain, COUNT(*) AS alert_count FROM db_alert_history GROUP BY business_subdomain ORDER BY alert_count DESC, business_subdomain ASC"
+          ],
+          "error": null
+        },
+        {
+          "duration_ms": 20730,
+          "tool_call_count": 1,
+          "tool_call_details": {
+            "query_database": 1
+          },
+          "turns": 2,
+          "total_tokens": 8461,
+          "generated_sqls": [
+            "SELECT business_subdomain, COUNT(*) AS alert_count FROM db_alert_history GROUP BY business_subdomain ORDER BY alert_count DESC"
+          ],
+          "error": null
+        }
+      ],
+      "std_tool_calls": 0.0,
+      "std_tokens": 37.0,
+      "std_latency_ms": 1183.57,
+      "std_turns": 0.0
+    },
+    {
+      "test_case": {
+        "case_id": "CS-007",
+        "difficulty": "Medium",
+        "question": "告警系统：查询 namespace='云数据库RDS版（RDS）' 且 level='critical' 的告警，返回实例ID、指标名称、当前值和告警时间，按告警时间降序。",
+        "reference_sql": "SELECT db_instance_id, metric_name, cur_value, alert_time\nFROM db_alert_history\nWHERE namespace = '云数据库RDS版（RDS）'\n  AND level = 'critical'\nORDER BY alert_time DESC;",
+        "expected_row_count": null,
+        "category": "多条件过滤",
+        "tables": [
+          "db_alert_history"
+        ],
+        "judging_criteria": [
+          "必须同时满足两个 WHERE 条件",
+          "排序方向为 DESC"
+        ]
+      },
+      "started_at": "2026-07-21T20:46:22.761132",
+      "completed_at": "2026-07-21T20:47:03.332522",
+      "duration_ms": 40571,
+      "agent_response": "## 查询结果\n\n**数据库**: `dw_onedba_cs` → 表 `db_alert_history`\n\n**执行 SQL**:\n```sql\nSELECT db_instance_id, metric_name, cur_value, alert_time \nFROM db_alert_history \nWHERE namespace = '云数据库RDS版（RDS）' \n  AND level = 'critical' \nORDER BY alert_time DESC\n```\n\n### 结果摘要\n\n查询返回 **200 条**记录（可能还有更多被截断），所有记录特征高度一致：\n\n| 字段 | 值 |\n|------|-----|\n| **实例ID** | `rr-bp15y9mb09arb224v` |\n| **指标名称** | `IOPSUsage` |\n| **当前值** | `100.00` |\n| **告警时间** | `2022-07-12 23:36:42` |\n\n### 分析\n\n- 符合条件的 critical 级别告警全部来自 **同一个 RDS 只读实例** `rr-bp15y9mb09arb224v`\n- 告警指标均为 **IOPSUsage（IOPS 使用率）**，当前值达到 **100%**，说明该实例的 IOPS 已打满\n- 所有告警集中在 **2022-07-12 23:36:42** 这一时刻，且存在大量重复记录（200条完全相同），可能是该时间点触发了多次重复告警或数据采集重复写入\n- 数据时间较早（2022年7月），建议关注该表的数据时效性\n\n> 💡 如果需要进一步分析（如按实例去重、统计不同指标分布、查看其他 namespace 的告警等），请告诉我。",
+      "generated_sqls": [
+        "SELECT db_instance_id, metric_name, cur_value, alert_time FROM db_alert_history WHERE namespace = '云数据库RDS版（RDS）' AND level = 'critical' ORDER BY alert_time DESC"
+      ],
+      "tool_calls": [
+        {
+          "tool": "query_database",
+          "args": {}
+        }
+      ],
+      "sql_judge": {
+        "tier": 1,
+        "passed": true,
+        "score": 1.0,
+        "generated_sql": "SELECT db_instance_id, metric_name, cur_value, alert_time FROM db_alert_history WHERE namespace = '云数据库RDS版（RDS）' AND level = 'critical' ORDER BY alert_time DESC",
+        "reference_sql": "SELECT db_instance_id, metric_name, cur_value, alert_time\nFROM db_alert_history\nWHERE namespace = '云数据库RDS版（RDS）'\n  AND level = 'critical'\nORDER BY alert_time DESC;",
+        "generated_row_count": null,
+        "reference_row_count": null,
+        "diff_summary": "SQL 结构与参考完全一致",
+        "llm_judge_explanation": null,
+        "syntax_ok": true,
+        "table_match": 1.0,
+        "column_match": 1.0
+      },
+      "quality_judge": {
+        "score": 0.0,
+        "completeness": 0.0,
+        "accuracy": 0.0,
+        "clarity": 0.0,
+        "sql_transparency": 0.0,
+        "explanation": "LLM 评判失败: Error code: 503 - {'error': {'code': 503, 'type': 'scheduler.select_failed', 'message': 'No available model.', 'Dw-Gateway-Request-Id': 'dw-77e458e8f7833b8b-f73c19d6'}}"
+      },
+      "efficiency": {
+        "tool_call_count": 1,
+        "tool_call_details": {
+          "query_database": 1
+        },
+        "turns": 2,
+        "total_tokens": 16695,
+        "latency_ms": 35214,
+        "score": 0.92
+      },
+      "dimensions": {
+        "sql_syntax": 1.0,
+        "table_column": 1.0,
+        "filter_condition": 1.0,
+        "result_data": 1.0,
+        "sql_standard": 0.7
+      },
+      "overall_score": 0.97,
+      "passed": true,
+      "error": null,
+      "repeat_count": 3,
+      "run_details": [
+        {
+          "duration_ms": 32103,
+          "tool_call_count": 1,
+          "tool_call_details": {
+            "query_database": 1
+          },
+          "turns": 2,
+          "total_tokens": 16584,
+          "generated_sqls": [
+            "SELECT db_instance_id, metric_name, cur_value, alert_time FROM db_alert_history WHERE namespace = '云数据库RDS版（RDS）' AND level = 'critical' ORDER BY alert_time DESC"
+          ],
+          "error": null
+        },
+        {
+          "duration_ms": 34664,
+          "tool_call_count": 1,
+          "tool_call_details": {
+            "query_database": 1
+          },
+          "turns": 2,
+          "total_tokens": 16667,
+          "generated_sqls": [
+            "SELECT db_instance_id, metric_name, cur_value, alert_time FROM db_alert_history WHERE namespace = '云数据库RDS版（RDS）' AND level = 'critical' ORDER BY alert_time DESC"
+          ],
+          "error": null
+        },
+        {
+          "duration_ms": 38877,
+          "tool_call_count": 1,
+          "tool_call_details": {
+            "query_database": 1
+          },
+          "turns": 2,
+          "total_tokens": 16834,
+          "generated_sqls": [
+            "SELECT db_instance_id, metric_name, cur_value, alert_time FROM db_alert_history WHERE namespace = '云数据库RDS版（RDS）' AND level = 'critical' ORDER BY alert_time DESC"
+          ],
+          "error": null
+        }
+      ],
+      "std_tool_calls": 0.0,
+      "std_tokens": 127.33,
+      "std_latency_ms": 3420.41,
+      "std_turns": 0.0
+    },
+    {
+      "test_case": {
+        "case_id": "CS-008",
+        "difficulty": "Medium",
+        "question": "告警系统：统计 2022-07-12 当天每小时的告警数量，按小时升序排列。",
+        "reference_sql": "SELECT DATE_FORMAT(alert_time, '%Y-%m-%d %H:00') AS hour,\n       COUNT(*) AS alert_count\nFROM db_alert_history\nWHERE alert_time >= '2022-07-12'\n  AND alert_time < '2022-07-13'\nGROUP BY DATE_FORMAT(alert_time, '%Y-%m-%d %H:00')\nORDER BY hour ASC;",
+        "expected_row_count": 1,
+        "category": "时间窗口",
+        "tables": [
+          "db_alert_history"
+        ],
+        "judging_criteria": [
+          "必须使用 `DATE_FORMAT` 提取小时",
+          "时间范围过滤使用 `>=` 和 `<` 模式",
+          "排序方向为 ASC"
+        ]
+      },
+      "started_at": "2026-07-21T20:47:04.926587",
+      "completed_at": "2026-07-21T20:47:40.067941",
+      "duration_ms": 35141,
+      "agent_response": "## 查询结果\n\n**执行 SQL：**\n```sql\nSELECT HOUR(alert_time) AS hour, COUNT(*) AS alert_count \nFROM db_alert_history \nWHERE alert_time >= '2022-07-12 00:00:00' \n  AND alert_time < '2022-07-13 00:00:00' \nGROUP BY HOUR(alert_time) \nORDER BY hour\n```\n\n**数据表：** `db_alert_history`\n\n| 序号 | 小时 | 告警数量 |\n|------|------|----------|\n| 1    | 23   | 155,648  |\n\n---\n\n### 📊 结果分析\n\n2022-07-12 当天仅 **23 时（晚上 11 点）** 有告警记录，共 **155,648** 条，其余 0~22 时均无告警数据。\n\n这个结果比较特殊——全天告警集中在最后一个小时，可能存在以下情况：\n\n- **时区偏移**：`alert_time` 字段存储的时间可能与预期时区不一致，导致数据被归入 23 点\n- **数据写入延迟**：告警数据可能是批量写入，集中在某个时段入库\n- **实际业务情况**：当天确实只有该时段触发了大量告警（如批量巡检或故障爆发）\n\n如需进一步排查，可以：\n- 查看前后几天的告警分布，确认是否为孤立现象\n- 检查 `alert_time` 字段的时区设置\n- 按分钟粒度查看 23 点的分布情况",
+      "generated_sqls": [
+        "SELECT HOUR(alert_time) AS hour, COUNT(*) AS alert_count FROM db_alert_history WHERE alert_time >= '2022-07-12 00:00:00' AND alert_time < '2022-07-13 00:00:00' GROUP BY HOUR(alert_time) ORDER BY hour"
+      ],
+      "tool_calls": [
+        {
+          "tool": "query_database",
+          "args": {}
+        }
+      ],
+      "sql_judge": {
+        "tier": 3,
+        "passed": false,
+        "score": 1.0,
+        "generated_sql": "SELECT HOUR(alert_time) AS hour, COUNT(*) AS alert_count FROM db_alert_history WHERE alert_time >= '2022-07-12 00:00:00' AND alert_time < '2022-07-13 00:00:00' GROUP BY HOUR(alert_time) ORDER BY hour",
+        "reference_sql": "SELECT DATE_FORMAT(alert_time, '%Y-%m-%d %H:00') AS hour,\n       COUNT(*) AS alert_count\nFROM db_alert_history\nWHERE alert_time >= '2022-07-12'\n  AND alert_time < '2022-07-13'\nGROUP BY DATE_FORMAT(alert_time, '%Y-%m-%d %H:00')\nORDER BY hour ASC;",
+        "generated_row_count": null,
+        "reference_row_count": null,
+        "diff_summary": "数据内容不一致：2 行不匹配 (LLM 评判失败: Error code: 503 - {'error': {'code': 503, 'type': 'scheduler.select_failed', 'message': 'No available model.', 'Dw-Gateway-Request-Id': 'dw-0fe7c2b45fa01d35-14ad07c9'}})",
+        "llm_judge_explanation": null,
+        "syntax_ok": false,
+        "table_match": 1.0,
+        "column_match": 0.375
+      },
+      "quality_judge": {
+        "score": 0.0,
+        "completeness": 0.0,
+        "accuracy": 0.0,
+        "clarity": 0.0,
+        "sql_transparency": 0.0,
+        "explanation": "LLM 评判失败: Error code: 503 - {'error': {'code': 503, 'type': 'scheduler.select_failed', 'message': 'No available model.', 'Dw-Gateway-Request-Id': 'dw-12c5eb44df673677-6187c3db'}}"
+      },
+      "efficiency": {
+        "tool_call_count": 1,
+        "tool_call_details": {
+          "query_database": 1
+        },
+        "turns": 2,
+        "total_tokens": 8592,
+        "latency_ms": 29178,
+        "score": 0.9303
+      },
+      "dimensions": {
+        "sql_syntax": 0.0,
+        "table_column": 0.6875,
+        "filter_condition": 0.84375,
+        "result_data": 1.0,
+        "sql_standard": 0.7
+      },
+      "overall_score": 0.8231,
+      "passed": true,
+      "error": null,
+      "repeat_count": 3,
+      "run_details": [
+        {
+          "duration_ms": 26617,
+          "tool_call_count": 1,
+          "tool_call_details": {
+            "query_database": 1
+          },
+          "turns": 2,
+          "total_tokens": 8540,
+          "generated_sqls": [
+            "SELECT HOUR(alert_time) AS hour, COUNT(*) AS alert_count FROM db_alert_history WHERE alert_time >= '2022-07-12' AND alert_time < '2022-07-13' GROUP BY HOUR(alert_time) ORDER BY hour ASC"
+          ],
+          "error": null
+        },
+        {
+          "duration_ms": 27438,
+          "tool_call_count": 1,
+          "tool_call_details": {
+            "query_database": 1
+          },
+          "turns": 2,
+          "total_tokens": 8563,
+          "generated_sqls": [
+            "SELECT HOUR(alert_time) AS hour, COUNT(*) AS alert_count FROM db_alert_history WHERE alert_time >= '2022-07-12 00:00:00' AND alert_time < '2022-07-13 00:00:00' GROUP BY HOUR(alert_time) ORDER BY hour ASC"
+          ],
+          "error": null
+        },
+        {
+          "duration_ms": 33480,
+          "tool_call_count": 1,
+          "tool_call_details": {
+            "query_database": 1
+          },
+          "turns": 2,
+          "total_tokens": 8673,
+          "generated_sqls": [
+            "SELECT HOUR(alert_time) AS hour, COUNT(*) AS alert_count FROM db_alert_history WHERE alert_time >= '2022-07-12 00:00:00' AND alert_time < '2022-07-13 00:00:00' GROUP BY HOUR(alert_time) ORDER BY hour"
+          ],
+          "error": null
+        }
+      ],
+      "std_tool_calls": 0.0,
+      "std_tokens": 71.08,
+      "std_latency_ms": 3747.9,
+      "std_turns": 0.0
+    },
+    {
+      "test_case": {
+        "case_id": "CS-009",
+        "difficulty": "Medium",
+        "question": "告警系统：查询 level='critical' 的告警涉及的所有 db_instance_id，去重，按实例ID升序排列。",
+        "reference_sql": "SELECT DISTINCT db_instance_id\nFROM db_alert_history\nWHERE level = 'critical'\nORDER BY db_instance_id ASC;",
+        "expected_row_count": 1,
+        "category": "去重查询",
+        "tables": [
+          "db_alert_history"
+        ],
+        "judging_criteria": [
+          "必须使用 `DISTINCT`",
+          "必须使用 `level = 'critical'`",
+          "排序方向为 ASC"
+        ]
+      },
+      "started_at": "2026-07-21T20:47:43.936737",
+      "completed_at": "2026-07-21T20:48:08.877661",
+      "duration_ms": 24940,
+      "agent_response": "## 查询结果\n\n根据 `db_alert_history` 表，查询 `level='critical'` 的告警涉及的 `db_instance_id`，去重并按实例 ID 升序排列：\n\n**执行的 SQL：**\n```sql\nSELECT DISTINCT db_instance_id \nFROM db_alert_history \nWHERE level = 'critical' \nORDER BY db_instance_id ASC\n```\n\n**结果：**\n\n| 序号 | db_instance_id |\n|------|----------------|\n| 1    | rr-bp15y9mb09arb224v |\n\n共 **1** 条记录。当前 `dw_onedca_cs` 库中，触发过 `critical` 级别告警的数据库实例仅有 `rr-bp15y9mb09arb224v`。",
+      "generated_sqls": [
+        "SELECT DISTINCT db_instance_id FROM db_alert_history WHERE level = 'critical' ORDER BY db_instance_id ASC"
+      ],
+      "tool_calls": [
+        {
+          "tool": "query_database",
+          "args": {}
+        }
+      ],
+      "sql_judge": {
+        "tier": 1,
+        "passed": true,
+        "score": 1.0,
+        "generated_sql": "SELECT DISTINCT db_instance_id FROM db_alert_history WHERE level = 'critical' ORDER BY db_instance_id ASC",
+        "reference_sql": "SELECT DISTINCT db_instance_id\nFROM db_alert_history\nWHERE level = 'critical'\nORDER BY db_instance_id ASC;",
+        "generated_row_count": null,
+        "reference_row_count": null,
+        "diff_summary": "SQL 结构与参考完全一致",
+        "llm_judge_explanation": null,
+        "syntax_ok": true,
+        "table_match": 1.0,
+        "column_match": 1.0
+      },
+      "quality_judge": {
+        "score": 0.0,
+        "completeness": 0.0,
+        "accuracy": 0.0,
+        "clarity": 0.0,
+        "sql_transparency": 0.0,
+        "explanation": "LLM 评判失败: Error code: 503 - {'error': {'code': 503, 'type': 'scheduler.select_failed', 'message': 'No available model.', 'Dw-Gateway-Request-Id': 'dw-0af1962474febf83-d1f92cd3'}}"
+      },
+      "efficiency": {
+        "tool_call_count": 1,
+        "tool_call_details": {
+          "query_database": 1
+        },
+        "turns": 2,
+        "total_tokens": 8378,
+        "latency_ms": 22016,
+        "score": 0.9379
+      },
+      "dimensions": {
+        "sql_syntax": 1.0,
+        "table_column": 1.0,
+        "filter_condition": 1.0,
+        "result_data": 1.0,
+        "sql_standard": 0.7
+      },
+      "overall_score": 0.97,
+      "passed": true,
+      "error": null,
+      "repeat_count": 3,
+      "run_details": [
+        {
+          "duration_ms": 22877,
+          "tool_call_count": 1,
+          "tool_call_details": {
+            "query_database": 1
+          },
+          "turns": 2,
+          "total_tokens": 8356,
+          "generated_sqls": [
+            "SELECT DISTINCT db_instance_id FROM db_alert_history WHERE level = 'critical' ORDER BY db_instance_id ASC"
+          ],
+          "error": null
+        },
+        {
+          "duration_ms": 19778,
+          "tool_call_count": 1,
+          "tool_call_details": {
+            "query_database": 1
+          },
+          "turns": 2,
+          "total_tokens": 8353,
+          "generated_sqls": [
+            "SELECT DISTINCT db_instance_id FROM db_alert_history WHERE level = 'critical' ORDER BY db_instance_id ASC"
+          ],
+          "error": null
+        },
+        {
+          "duration_ms": 23393,
+          "tool_call_count": 1,
+          "tool_call_details": {
+            "query_database": 1
+          },
+          "turns": 2,
+          "total_tokens": 8427,
+          "generated_sqls": [
+            "SELECT DISTINCT db_instance_id FROM db_alert_history WHERE level = 'critical' ORDER BY db_instance_id ASC"
+          ],
+          "error": null
+        }
+      ],
+      "std_tool_calls": 0.0,
+      "std_tokens": 41.88,
+      "std_latency_ms": 1955.26,
+      "std_turns": 0.0
+    },
+    {
+      "test_case": {
+        "case_id": "CS-010",
+        "difficulty": "Hard",
+        "question": "告警系统：查询每个业务域内各告警指标的告警数量，按业务域分组并按告警数量降序排名，返回业务域、指标名、告警数量、排名。",
+        "reference_sql": "SELECT business_subdomain, metric_name, alert_count, rn FROM (SELECT business_subdomain, metric_name, alert_count, @rn := IF(@prev_domain = business_subdomain, @rn + 1, 1) AS rn, @prev_domain := business_subdomain FROM (SELECT business_subdomain, metric_name, COUNT(*) AS alert_count FROM db_alert_history GROUP BY business_subdomain, metric_name ORDER BY business_subdomain, alert_count DESC) AS t, (SELECT @rn := 0, @prev_domain := '') AS init) AS ranked ORDER BY business_subdomain, rn;",
+        "expected_row_count": null,
+        "category": "窗口函数",
+        "tables": [
+          "db_alert_history"
+        ],
+        "judging_criteria": [
+          "排名结果正确（同一业务域内 alert_count 最大 → rn=1，其次 rn=2，依此类推）",
+          "不可使用 ROW_NUMBER() OVER() — 当前 MySQL 5.7 不支持"
+        ]
+      },
+      "started_at": "2026-07-21T20:48:10.337576",
+      "completed_at": "2026-07-21T20:50:11.959145",
+      "duration_ms": 121621,
+      "agent_response": "查询成功！由于数据库不支持窗口函数，我基于查询结果手动计算了排名。以下是完整结果：\n\n## 查询结果：各业务域告警指标排名\n\n```sql\nSELECT \n    namespace,\n    metric_name,\n    COUNT(*) AS cnt\nFROM db_alert_history\nGROUP BY namespace, metric_name\nORDER BY namespace, cnt DESC\nLIMIT 500\n```\n\n| 排名 | 业务域 | 指标名 | 告警数量 |\n|:---:|------|------|------:|\n| 1 | **ElasticSearch** | NodeCPUUtilization | 16,384 |\n| 1 | **Redis集群版** | ShardingMemoryUsage | 8,192 |\n| 1 | **云数据库RDS版（RDS）** | DiskUsage | 65,536 |\n| 2 | **云数据库RDS版（RDS）** | IOPSUsage | 49,152 |\n| 3 | **云数据库RDS版（RDS）** | CpuUsage | 8,192 |\n| 3 | **云数据库RDS版（RDS）** | rds001_cpu_util | 8,192 |\n\n---\n\n### 📊 关键发现\n\n- **云数据库RDS版（RDS）** 是告警最多的业务域，共 4 个指标，其中 **DiskUsage（磁盘使用率）** 告警量高达 **65,536** 条，远超其他指标\n- **ElasticSearch** 域仅 1 个指标 `NodeCPUUtilization`，告警量 16,384\n- **Redis集群版** 域仅 1 个指标 `ShardingMemoryUsage`，告警量 8,192\n- RDS 域中 `CpuUsage` 和 `rds001_cpu_util` 告警数相同（均为 8,192），并列第 3 名",
+      "generated_sqls": [
+        "SELECT \n    namespace AS 业务域,\n    metric_name AS 指标名,\n    COUNT(*) AS 告警数量,\n    RANK() OVER (PARTITION BY namespace ORDER BY COUNT(*) DESC) AS 排名\nFROM db_alert_history\nGROUP BY namespace, metric_name\nORDER BY namespace, 告警数量 DESC\nLIMIT 500",
+        "SELECT \n    namespace,\n    metric_name,\n    COUNT(*) AS cnt\nFROM db_alert_history\nGROUP BY namespace, metric_name\nORDER BY namespace, cnt DESC\nLIMIT 500"
+      ],
+      "tool_calls": [
+        {
+          "tool": "query_database",
+          "args": {}
+        },
+        {
+          "tool": "describe_table",
+          "args": {}
+        },
+        {
+          "tool": "execute_sql",
+          "args": {}
+        },
+        {
+          "tool": "execute_sql",
+          "args": {}
+        }
+      ],
+      "sql_judge": {
+        "tier": 3,
+        "passed": false,
+        "score": 0.775,
+        "generated_sql": "SELECT \n    namespace,\n    metric_name,\n    COUNT(*) AS cnt\nFROM db_alert_history\nGROUP BY namespace, metric_name\nORDER BY namespace, cnt DESC\nLIMIT 500",
+        "reference_sql": "SELECT business_subdomain, metric_name, alert_count, rn FROM (SELECT business_subdomain, metric_name, alert_count, @rn := IF(@prev_domain = business_subdomain, @rn + 1, 1) AS rn, @prev_domain := business_subdomain FROM (SELECT business_subdomain, metric_name, COUNT(*) AS alert_count FROM db_alert_history GROUP BY business_subdomain, metric_name ORDER BY business_subdomain, alert_count DESC) AS t, (SELECT @rn := 0, @prev_domain := '') AS init) AS ranked ORDER BY business_subdomain, rn;",
+        "generated_row_count": null,
+        "reference_row_count": null,
+        "diff_summary": "行数不一致：生成=6, 参考=8 (LLM 评判失败: Error code: 503 - {'error': {'code': 503, 'type': 'scheduler.select_failed', 'message': 'No available model.', 'Dw-Gateway-Request-Id': 'dw-5b38723fbeebc49a-be0fb8ab'}})",
+        "llm_judge_explanation": null,
+        "syntax_ok": false,
+        "table_match": 1.0,
+        "column_match": 0.25
+      },
+      "quality_judge": {
+        "score": 0.0,
+        "completeness": 0.0,
+        "accuracy": 0.0,
+        "clarity": 0.0,
+        "sql_transparency": 0.0,
+        "explanation": "LLM 评判失败: Error code: 503 - {'error': {'code': 503, 'type': 'scheduler.select_failed', 'message': 'No available model.', 'Dw-Gateway-Request-Id': 'dw-747093115c7ccd6c-078475b4'}}"
+      },
+      "efficiency": {
+        "tool_call_count": 4,
+        "tool_call_details": {
+          "query_database": 2,
+          "describe_table": 1,
+          "execute_sql": 2
+        },
+        "turns": 1,
+        "total_tokens": 8115,
+        "latency_ms": 103539,
+        "score": 0.8356
+      },
+      "dimensions": {
+        "sql_syntax": 0.0,
+        "table_column": 0.625,
+        "filter_condition": 0.5875,
+        "result_data": 0.775,
+        "sql_standard": 1.0
+      },
+      "overall_score": 0.6862,
+      "passed": false,
+      "error": null,
+      "repeat_count": 3,
+      "run_details": [
+        {
+          "duration_ms": 120002,
+          "tool_call_count": 5,
+          "tool_call_details": {
+            "query_database": 2,
+            "describe_table": 1,
+            "execute_sql": 2
+          },
+          "turns": 0,
+          "total_tokens": 0,
+          "generated_sqls": [
+            "SELECT \n    namespace AS 业务域,\n    metric_name AS 指标名,\n    COUNT(*) AS 告警数量,\n    ROW_NUMBER() OVER (PARTITION BY namespace ORDER BY COUNT(*) DESC) AS 排名\nFROM tp_1234567_del_db_alert_history\nGROUP BY namespace, metric_name\nORDER BY namespace, 告警数量 DESC\nLIMIT 500",
+            "SELECT \n    namespace AS 业务域,\n    metric_name AS 指标名,\n    COUNT(*) AS 告警数量\nFROM tp_1234567_del_db_alert_history\nGROUP BY namespace, metric_name\nORDER BY namespace, 告警数量 DESC\nLIMIT 500"
+          ],
+          "error": "执行超时（120.0秒）"
+        },
+        {
+          "duration_ms": 120002,
+          "tool_call_count": 5,
+          "tool_call_details": {
+            "query_database": 2,
+            "describe_table": 1,
+            "execute_sql": 2
+          },
+          "turns": 0,
+          "total_tokens": 0,
+          "generated_sqls": [
+            "SELECT \n    namespace AS 业务域,\n    metric_name AS 指标名,\n    cnt AS 告警数量,\n    ROW_NUMBER() OVER (PARTITION BY namespace ORDER BY cnt DESC) AS 排名\nFROM (\n    SELECT namespace, metric_name, COUNT(*) AS cnt\n    FROM db_alert_history\n    GROUP BY namespace, metric_name\n) t\nORDER BY namespace, 排名\nLIMIT 500",
+            "SELECT \n    namespace AS 业务域,\n    metric_name AS 指标名,\n    COUNT(*) AS 告警数量\nFROM db_alert_history\nGROUP BY namespace, metric_name\nORDER BY namespace, 告警数量 DESC\nLIMIT 500"
+          ],
+          "error": "执行超时（120.0秒）"
+        },
+        {
+          "duration_ms": 70614,
+          "tool_call_count": 4,
+          "tool_call_details": {
+            "query_database": 1,
+            "describe_table": 1,
+            "execute_sql": 2
+          },
+          "turns": 5,
+          "total_tokens": 24347,
+          "generated_sqls": [
+            "SELECT \n    namespace AS 业务域,\n    metric_name AS 指标名,\n    COUNT(*) AS 告警数量,\n    RANK() OVER (PARTITION BY namespace ORDER BY COUNT(*) DESC) AS 排名\nFROM db_alert_history\nGROUP BY namespace, metric_name\nORDER BY namespace, 告警数量 DESC\nLIMIT 500",
+            "SELECT \n    namespace,\n    metric_name,\n    COUNT(*) AS cnt\nFROM db_alert_history\nGROUP BY namespace, metric_name\nORDER BY namespace, cnt DESC\nLIMIT 500"
+          ],
+          "error": null
+        }
+      ],
+      "std_tool_calls": 0.58,
+      "std_tokens": 14056.75,
+      "std_latency_ms": 28514.18,
+      "std_turns": 2.89
+    },
+    {
+      "test_case": {
+        "case_id": "CS-011",
+        "difficulty": "Hard",
+        "question": "告警系统：统计每种告警级别的数量及占比（该级别告警数 / 总告警数），返回告警级别、数量和百分比，按数量降序排列。",
+        "reference_sql": "SELECT level,\n       COUNT(*) AS alert_count,\n       ROUND(COUNT(*) * 100.0 / (SELECT COUNT(*) FROM db_alert_history), 2) AS percentage\nFROM db_alert_history\nGROUP BY level\nORDER BY alert_count DESC;",
+        "expected_row_count": 4,
+        "category": "派生指标",
+        "tables": [
+          "db_alert_history"
+        ],
+        "judging_criteria": [
+          "必须使用子查询计算总行数进行占比运算",
+          "必须正确计算百分比"
+        ]
+      },
+      "started_at": "2026-07-21T20:50:16.218709",
+      "completed_at": "2026-07-21T20:51:05.249082",
+      "duration_ms": 49030,
+      "agent_response": "## 告警级别统计\n\n基于 `db_alert_history` 表，统计每种告警级别的数量及占比，结果如下：\n\n| 告警级别 | 数量 | 占比 |\n| :--- | ---: | ---: |\n| **ok** | 65,536 | 42.11% |\n| **info** | 57,344 | 36.84% |\n| **critical** | 24,576 | 15.79% |\n| **warn** | 8,192 | 5.26% |\n\n> **总告警数**：155,648 条\n\n**执行的 SQL**：\n```sql\nSELECT \n    level AS alert_level, \n    COUNT(*) AS count, \n    ROUND(COUNT(*) * 100.0 / (SELECT COUNT(*) FROM db_alert_history), 2) AS percentage \nFROM db_alert_history \nGROUP BY level \nORDER BY count DESC, level\n```\n\n---\n\n### 简要分析\n\n- **ok 级别**占比最高（42.11%），超过 4 成，说明大量告警最终恢复为正常状态。\n- **info 级别**紧随其后（36.84%），两者合计占比近 79%，表明大部分告警属于信息通知或已恢复类型。\n- **critical 严重告警**占 15.79%，约 2.4 万条，是需要重点关注的部分。\n- **warn 警告级别**最少，仅占 5.26%。\n\n如果需要进一步分析（如按时间范围过滤、按 namespace 分组等），请告诉我。",
+      "generated_sqls": [
+        "SELECT level AS alert_level, COUNT(*) AS count, ROUND(COUNT(*) * 100.0 / (SELECT COUNT(*) FROM db_alert_history), 2) AS percentage FROM db_alert_history GROUP BY level ORDER BY count DESC, level"
+      ],
+      "tool_calls": [
+        {
+          "tool": "query_database",
+          "args": {}
+        }
+      ],
+      "sql_judge": {
+        "tier": 2,
+        "passed": true,
+        "score": 1.0,
+        "generated_sql": "SELECT level AS alert_level, COUNT(*) AS count, ROUND(COUNT(*) * 100.0 / (SELECT COUNT(*) FROM db_alert_history), 2) AS percentage FROM db_alert_history GROUP BY level ORDER BY count DESC, level",
+        "reference_sql": "SELECT level,\n       COUNT(*) AS alert_count,\n       ROUND(COUNT(*) * 100.0 / (SELECT COUNT(*) FROM db_alert_history), 2) AS percentage\nFROM db_alert_history\nGROUP BY level\nORDER BY alert_count DESC;",
+        "generated_row_count": 4,
+        "reference_row_count": 4,
+        "diff_summary": "结果数据完全一致",
+        "llm_judge_explanation": null,
+        "syntax_ok": true,
+        "table_match": 1.0,
+        "column_match": 1.0
+      },
+      "quality_judge": {
+        "score": 0.0,
+        "completeness": 0.0,
+        "accuracy": 0.0,
+        "clarity": 0.0,
+        "sql_transparency": 0.0,
+        "explanation": "LLM 评判失败: Error code: 503 - {'error': {'code': 503, 'type': 'scheduler.select_failed', 'message': 'No available model.', 'Dw-Gateway-Request-Id': 'dw-2b09e93df3715f0b-6497e908'}}"
+      },
+      "efficiency": {
+        "tool_call_count": 1,
+        "tool_call_details": {
+          "query_database": 1,
+          "execute_sql": 0
+        },
+        "turns": 2,
+        "total_tokens": 10161,
+        "latency_ms": 41715,
+        "score": 0.9165
+      },
+      "dimensions": {
+        "sql_syntax": 1.0,
+        "table_column": 1.0,
+        "filter_condition": 1.0,
+        "result_data": 1.0,
+        "sql_standard": 0.7
+      },
+      "overall_score": 0.97,
+      "passed": true,
+      "error": null,
+      "repeat_count": 3,
+      "run_details": [
+        {
+          "duration_ms": 47465,
+          "tool_call_count": 2,
+          "tool_call_details": {
+            "query_database": 1,
+            "execute_sql": 1
+          },
+          "turns": 3,
+          "total_tokens": 13159,
+          "generated_sqls": [
+            "SELECT \n    level AS 告警级别,\n    COUNT(*) AS 数量,\n    ROUND(COUNT(*) * 100.0 / (SELECT COUNT(*) FROM db_alert_history), 2) AS 占比百分比\nFROM db_alert_history\nGROUP BY level\nORDER BY 数量 DESC"
+          ],
+          "error": null
+        },
+        {
+          "duration_ms": 41420,
+          "tool_call_count": 1,
+          "tool_call_details": {
+            "query_database": 1
+          },
+          "turns": 2,
+          "total_tokens": 8564,
+          "generated_sqls": [
+            "SELECT level AS 告警级别, COUNT(*) AS 数量, ROUND(COUNT(*) / (SELECT COUNT(*) FROM db_alert_history) * 100, 2) AS 百分比 FROM db_alert_history GROUP BY level ORDER BY 数量 DESC, level ASC"
+          ],
+          "error": null
+        },
+        {
+          "duration_ms": 36262,
+          "tool_call_count": 1,
+          "tool_call_details": {
+            "query_database": 1
+          },
+          "turns": 2,
+          "total_tokens": 8761,
+          "generated_sqls": [
+            "SELECT level AS alert_level, COUNT(*) AS count, ROUND(COUNT(*) * 100.0 / (SELECT COUNT(*) FROM db_alert_history), 2) AS percentage FROM db_alert_history GROUP BY level ORDER BY count DESC, level"
+          ],
+          "error": null
+        }
+      ],
+      "std_tool_calls": 0.58,
+      "std_tokens": 2597.92,
+      "std_latency_ms": 5607.35,
+      "std_turns": 0.58
+    },
+    {
+      "test_case": {
+        "case_id": "CS-012",
+        "difficulty": "Medium",
+        "question": "告警系统：统计每个业务子域下每种告警指标的数量，按业务域和告警数量降序排列，返回业务域、指标名、告警数量。",
+        "reference_sql": "SELECT business_subdomain,\n       metric_name,\n       COUNT(*) AS alert_count\nFROM db_alert_history\nGROUP BY business_subdomain, metric_name\nORDER BY business_subdomain, alert_count DESC;",
+        "expected_row_count": null,
+        "category": "复合查询",
+        "tables": [
+          "db_alert_history"
+        ],
+        "judging_criteria": [
+          "必须使用 `GROUP BY` 和 `COUNT`",
+          "排序方向正确"
+        ]
+      },
+      "started_at": "2026-07-21T20:51:07.321687",
+      "completed_at": "2026-07-21T20:52:30.424325",
+      "duration_ms": 83102,
+      "agent_response": "## 查询结果\n\n根据 `tp_1234567_del_db_alert_history` 表，按业务子域和告警指标统计告警数量，结果如下：\n\n| 序号 | 业务子域 | 告警指标 | 告警数量 |\n|------|----------|----------|----------|\n| 1 | 仓储域 | DiskUsage | 8,192 |\n| 2 | 商品 | NodeCPUUtilization | 16,384 |\n| 3 | 基础架构 | CpuUsage | 8,192 |\n| 4 | 大数据 | DiskUsage | 24,576 |\n| 5 | 效率后端 | rds001_cpu_util | 8,192 |\n| 6 | 社区后端 | IOPSUsage | 49,152 |\n| 7 | 社区后端 | ShardingMemoryUsage | 8,192 |\n| 8 | 财务结算 | DiskUsage | 32,768 |\n\n**执行的 SQL**：\n```sql\nSELECT \n    business_subdomain, \n    metric_name, \n    COUNT(*) AS alert_count \nFROM tp_1234567_del_db_alert_history \nGROUP BY business_subdomain, metric_name \nORDER BY business_subdomain, alert_count DESC\n```\n\n### 关键发现\n\n- **社区后端** 告警最为突出，其中 **IOPSUsage** 指标告警高达 **49,152** 次，远超其他业务域\n- **DiskUsage** 是出现频率最高的告警指标，覆盖了仓储域、大数据、财务结算三个业务域\n- **大数据** 域的 DiskUsage 告警（24,576）和 **财务结算** 域的 DiskUsage 告警（32,768）也较为显著\n- 共涉及 **6 个业务子域**、**6 种告警指标**，总计 **155,648** 条告警记录",
+      "generated_sqls": [
+        "SELECT business_subdomain, metric_name, COUNT(*) AS alert_count FROM tp_1234567_del_db_alert_history GROUP BY business_subdomain, metric_name ORDER BY business_subdomain, alert_count DESC"
+      ],
+      "tool_calls": [
+        {
+          "tool": "query_database",
+          "args": {}
+        }
+      ],
+      "sql_judge": {
+        "tier": 2,
+        "passed": true,
+        "score": 1.0,
+        "generated_sql": "SELECT business_subdomain, metric_name, COUNT(*) AS alert_count FROM tp_1234567_del_db_alert_history GROUP BY business_subdomain, metric_name ORDER BY business_subdomain, alert_count DESC",
+        "reference_sql": "SELECT business_subdomain,\n       metric_name,\n       COUNT(*) AS alert_count\nFROM db_alert_history\nGROUP BY business_subdomain, metric_name\nORDER BY business_subdomain, alert_count DESC;",
+        "generated_row_count": 8,
+        "reference_row_count": 8,
+        "diff_summary": "结果数据完全一致",
+        "llm_judge_explanation": null,
+        "syntax_ok": true,
+        "table_match": 1.0,
+        "column_match": 1.0
+      },
+      "quality_judge": {
+        "score": 0.0,
+        "completeness": 0.0,
+        "accuracy": 0.0,
+        "clarity": 0.0,
+        "sql_transparency": 0.0,
+        "explanation": "LLM 评判失败: Error code: 503 - {'error': {'code': 503, 'type': 'scheduler.select_failed', 'message': 'No available model.', 'Dw-Gateway-Request-Id': 'dw-10db29335f3b0af7-f76e6a56'}}"
+      },
+      "efficiency": {
+        "tool_call_count": 1,
+        "tool_call_details": {
+          "query_database": 1
+        },
+        "turns": 2,
+        "total_tokens": 10655,
+        "latency_ms": 68087,
+        "score": 0.8887
+      },
+      "dimensions": {
+        "sql_syntax": 1.0,
+        "table_column": 1.0,
+        "filter_condition": 1.0,
+        "result_data": 1.0,
+        "sql_standard": 0.7
+      },
+      "overall_score": 0.97,
+      "passed": true,
+      "error": null,
+      "repeat_count": 3,
+      "run_details": [
+        {
+          "duration_ms": 81357,
+          "tool_call_count": 2,
+          "tool_call_details": {
+            "query_database": 2
+          },
+          "turns": 3,
+          "total_tokens": 13757,
+          "generated_sqls": [
+            "SELECT business_subdomain, metric_name, COUNT(*) AS alert_count FROM tp_1234567_del_db_alert_history GROUP BY business_subdomain, metric_name ORDER BY business_subdomain, alert_count DESC"
+          ],
+          "error": null
+        },
+        {
+          "duration_ms": 80164,
+          "tool_call_count": 1,
+          "tool_call_details": {
+            "query_database": 1
+          },
+          "turns": 2,
+          "total_tokens": 9107,
+          "generated_sqls": [
+            "SELECT business_subdomain, metric_name, COUNT(*) AS alert_count FROM (SELECT business_subdomain, metric_name FROM tp_1234567_del_db_alert_history UNION ALL SELECT business_subdomain, metric_name FROM db_alert_history) t GROUP BY business_subdomain, metric_name ORDER BY business_subdomain DESC, alert_count DESC, metric_name"
+          ],
+          "error": null
+        },
+        {
+          "duration_ms": 42742,
+          "tool_call_count": 1,
+          "tool_call_details": {
+            "query_database": 1
+          },
+          "turns": 2,
+          "total_tokens": 9103,
+          "generated_sqls": [
+            "SELECT business_subdomain, metric_name, COUNT(*) AS alert_count FROM tp_1234567_del_db_alert_history GROUP BY business_subdomain, metric_name ORDER BY business_subdomain, alert_count DESC"
+          ],
+          "error": null
+        }
+      ],
+      "std_tool_calls": 0.58,
+      "std_tokens": 2685.83,
+      "std_latency_ms": 21958.09,
+      "std_turns": 0.58
+    },
+    {
+      "test_case": {
+        "case_id": "CS-013",
+        "difficulty": "Easy",
+        "question": "待办系统：查询 is_finished=1 的待办记录，返回记录ID、待办ID、用户名、状态描述和创建时间，按创建时间降序。",
+        "reference_sql": "SELECT id, todo_id, username, status_desc, create_time\nFROM todo_record_detail\nWHERE is_finished = 1\nORDER BY create_time DESC;",
+        "expected_row_count": null,
+        "category": "单表过滤",
+        "tables": [
+          "todo_record_detail"
+        ],
+        "judging_criteria": [
+          "必须使用 `is_finished = 1`（INT 类型）",
+          "排序方向为 DESC",
+          "不能出现 `SELECT *`"
+        ]
+      },
+      "started_at": "2026-07-21T20:52:33.001339",
+      "completed_at": "2026-07-21T20:53:04.132438",
+      "duration_ms": 31131,
+      "agent_response": "## 查询结果\n\n**数据库**: `dw_onedba_cs` | **表**: `todo_record_detail`\n\n**执行 SQL**:\n```sql\nSELECT id, todo_id, username, status_desc, create_time \nFROM todo_record_detail \nWHERE is_finished = 1 \nORDER BY create_time DESC\n```\n\n共返回 **54 条**已完成（`is_finished=1`）的待办记录，按创建时间降序排列：\n\n| 记录ID | 待办ID | 用户名 | 状态描述 | 创建时间 |\n|--------|--------|--------|----------|----------|\n| 52394 | 26679 | 谷风(Aldor) | 已完成 | 2025-04-09 11:38:54 |\n| 52393 | 26700 | 谷风(Aldor) | 添加评论 | 2025-04-09 11:38:01 |\n| 52391 | 26684 | 谷风(Aldor) | 已完成 | 2025-04-09 11:21:28 |\n| 52388 | 26696 | 谷风(Aldor) | 已完成 | 2025-04-09 10:47:46 |\n| 52387 | 26685 | 东青(dongwen)｜彭东稳 | 已完成 | 2025-04-09 10:31:11 |\n| 52386 | 26691 | 东青(dongwen)｜彭东稳 | 已完成 | 2025-04-09 10:31:07 |\n| 52385 | 26694 | 东青(dongwen)｜彭东稳 | 已完成 | 2025-04-09 10:31:01 |\n| 52384 | 26670 | 呆呆(daidai)｜陈浩 | 已完成 | 2025-04-09 09:43:45 |\n| 52383 | 26680 | 呆呆(daidai)｜陈浩 | 已完成 | 2025-04-09 09:43:28 |\n| 52382 | 26688 | 呆呆(daidai)｜陈浩 | 已完成 | 2025-04-09 09:43:06 |\n| ... | ... | ... | ... | ... |\n\n> **说明**: 结果中 `status_desc` 包含\"已完成\"、\"已确认\"、\"添加评论\"等多种状态，这是因为 `is_finished=1` 标记的是该待办事项整体已完成，但每条操作记录的类型（`record_type`）可能不同。涉及的主要用户包括：**岱影(Win)｜王文**（最多）、**呆呆(daidai)｜陈浩**、**谷风(Aldor)**、**东青(dongwen)｜彭东稳**、**北洛(Zevin)｜袁泽文**、**未文(Untextured)** 等。",
+      "generated_sqls": [
+        "SELECT id, todo_id, username, status_desc, create_time FROM todo_record_detail WHERE is_finished = 1 ORDER BY create_time DESC"
+      ],
+      "tool_calls": [
+        {
+          "tool": "query_database",
+          "args": {}
+        }
+      ],
+      "sql_judge": {
+        "tier": 1,
+        "passed": true,
+        "score": 1.0,
+        "generated_sql": "SELECT id, todo_id, username, status_desc, create_time FROM todo_record_detail WHERE is_finished = 1 ORDER BY create_time DESC",
+        "reference_sql": "SELECT id, todo_id, username, status_desc, create_time\nFROM todo_record_detail\nWHERE is_finished = 1\nORDER BY create_time DESC;",
+        "generated_row_count": null,
+        "reference_row_count": null,
+        "diff_summary": "SQL 结构与参考完全一致",
+        "llm_judge_explanation": null,
+        "syntax_ok": true,
+        "table_match": 1.0,
+        "column_match": 1.0
+      },
+      "quality_judge": {
+        "score": 0.0,
+        "completeness": 0.0,
+        "accuracy": 0.0,
+        "clarity": 0.0,
+        "sql_transparency": 0.0,
+        "explanation": "LLM 评判失败: Error code: 503 - {'error': {'code': 503, 'type': 'scheduler.select_failed', 'message': 'No available model.', 'Dw-Gateway-Request-Id': 'dw-7e9bac770e740510-303c92a2'}}"
+      },
+      "efficiency": {
+        "tool_call_count": 1,
+        "tool_call_details": {
+          "query_database": 1
+        },
+        "turns": 2,
+        "total_tokens": 10907,
+        "latency_ms": 28037,
+        "score": 0.9303
+      },
+      "dimensions": {
+        "sql_syntax": 1.0,
+        "table_column": 1.0,
+        "filter_condition": 1.0,
+        "result_data": 1.0,
+        "sql_standard": 0.7
+      },
+      "overall_score": 0.97,
+      "passed": true,
+      "error": null,
+      "repeat_count": 3,
+      "run_details": [
+        {
+          "duration_ms": 28131,
+          "tool_call_count": 1,
+          "tool_call_details": {
+            "query_database": 1
+          },
+          "turns": 2,
+          "total_tokens": 10791,
+          "generated_sqls": [
+            "SELECT id, todo_id, username, status_desc, create_time FROM todo_record_detail WHERE is_finished = 1 ORDER BY create_time DESC"
+          ],
+          "error": null
+        },
+        {
+          "duration_ms": 26555,
+          "tool_call_count": 1,
+          "tool_call_details": {
+            "query_database": 1
+          },
+          "turns": 2,
+          "total_tokens": 10937,
+          "generated_sqls": [
+            "SELECT id, todo_id, username, status_desc, create_time FROM todo_record_detail WHERE is_finished = 1 ORDER BY create_time DESC"
+          ],
+          "error": null
+        },
+        {
+          "duration_ms": 29426,
+          "tool_call_count": 1,
+          "tool_call_details": {
+            "query_database": 1
+          },
+          "turns": 2,
+          "total_tokens": 10994,
+          "generated_sqls": [
+            "SELECT id, todo_id, username, status_desc, create_time FROM todo_record_detail WHERE is_finished = 1 ORDER BY create_time DESC"
+          ],
+          "error": null
+        }
+      ],
+      "std_tool_calls": 0.0,
+      "std_tokens": 104.7,
+      "std_latency_ms": 1437.79,
+      "std_turns": 0.0
+    },
+    {
+      "test_case": {
+        "case_id": "CS-014",
+        "difficulty": "Easy",
+        "question": "待办系统：查询 record_type='handler' 的待办记录数量。",
+        "reference_sql": "SELECT COUNT(*) AS handler_count\nFROM todo_record_detail\nWHERE record_type = 'handler';",
+        "expected_row_count": 58,
+        "category": "单表过滤",
+        "tables": [
+          "todo_record_detail"
+        ],
+        "judging_criteria": [
+          "必须使用 `record_type = 'handler'`",
+          "结果是单个数值"
+        ]
+      },
+      "started_at": "2026-07-21T20:53:05.668060",
+      "completed_at": "2026-07-21T20:53:23.972055",
+      "duration_ms": 18303,
+      "agent_response": "查询结果如下：\n\n**表**：`todo_record_detail`（待办事项操作详情表）\n\n**执行的 SQL**：\n```sql\nSELECT COUNT(*) AS handler_record_count \nFROM todo_record_detail \nWHERE record_type = 'handler'\n```\n\n| 指标 | 数量 |\n|------|------|\n| record_type='handler' 的记录数 | **58** |\n\n`todo_record_detail` 表中 `record_type` 为 `'handler'`（处理操作）的待办记录共有 **58 条**。",
+      "generated_sqls": [
+        "SELECT COUNT(*) AS handler_record_count FROM todo_record_detail WHERE record_type = 'handler'"
+      ],
+      "tool_calls": [
+        {
+          "tool": "query_database",
+          "args": {}
+        }
+      ],
+      "sql_judge": {
+        "tier": 2,
+        "passed": true,
+        "score": 1.0,
+        "generated_sql": "SELECT COUNT(*) AS handler_record_count FROM todo_record_detail WHERE record_type = 'handler'",
+        "reference_sql": "SELECT COUNT(*) AS handler_count\nFROM todo_record_detail\nWHERE record_type = 'handler';",
+        "generated_row_count": 1,
+        "reference_row_count": 1,
+        "diff_summary": "结果数据完全一致",
+        "llm_judge_explanation": null,
+        "syntax_ok": true,
+        "table_match": 1.0,
+        "column_match": 1.0
+      },
+      "quality_judge": {
+        "score": 0.0,
+        "completeness": 0.0,
+        "accuracy": 0.0,
+        "clarity": 0.0,
+        "sql_transparency": 0.0,
+        "explanation": "LLM 评判失败: Error code: 503 - {'error': {'code': 503, 'type': 'scheduler.select_failed', 'message': 'No available model.', 'Dw-Gateway-Request-Id': 'dw-1fd02a11f499b906-ddeb231d'}}"
+      },
+      "efficiency": {
+        "tool_call_count": 1,
+        "tool_call_details": {
+          "query_database": 1
+        },
+        "turns": 2,
+        "total_tokens": 8056,
+        "latency_ms": 15595,
+        "score": 0.9447
+      },
+      "dimensions": {
+        "sql_syntax": 1.0,
+        "table_column": 1.0,
+        "filter_condition": 1.0,
+        "result_data": 1.0,
+        "sql_standard": 0.7
+      },
+      "overall_score": 0.97,
+      "passed": true,
+      "error": null,
+      "repeat_count": 3,
+      "run_details": [
+        {
+          "duration_ms": 14896,
+          "tool_call_count": 1,
+          "tool_call_details": {
+            "query_database": 1
+          },
+          "turns": 2,
+          "total_tokens": 8046,
+          "generated_sqls": [
+            "SELECT COUNT(*) AS handler_record_count FROM todo_record_detail WHERE record_type = 'handler'"
+          ],
+          "error": null
+        },
+        {
+          "duration_ms": 15199,
+          "tool_call_count": 1,
+          "tool_call_details": {
+            "query_database": 1
+          },
+          "turns": 2,
+          "total_tokens": 8048,
+          "generated_sqls": [
+            "SELECT COUNT(*) AS handler_count FROM todo_record_detail WHERE record_type = 'handler'"
+          ],
+          "error": null
+        },
+        {
+          "duration_ms": 16690,
+          "tool_call_count": 1,
+          "tool_call_details": {
+            "query_database": 1
+          },
+          "turns": 2,
+          "total_tokens": 8075,
+          "generated_sqls": [
+            "SELECT COUNT(*) AS handler_record_count FROM todo_record_detail WHERE record_type = 'handler'"
+          ],
+          "error": null
+        }
+      ],
+      "std_tool_calls": 0.0,
+      "std_tokens": 16.2,
+      "std_latency_ms": 960.32,
+      "std_turns": 0.0
+    },
+    {
+      "test_case": {
+        "case_id": "CS-015",
+        "difficulty": "Easy",
+        "question": "待办系统：统计每种状态（status_code 和 status_desc）的待办记录数量，按数量降序排列。",
+        "reference_sql": "SELECT status_code, status_desc, COUNT(*) AS record_count\nFROM todo_record_detail\nGROUP BY status_code, status_desc\nORDER BY record_count DESC;",
+        "expected_row_count": null,
+        "category": "聚合",
+        "tables": [
+          "todo_record_detail"
+        ],
+        "judging_criteria": [
+          "必须使用 `GROUP BY` 和 `COUNT`",
+          "注意 status_code 和 status_desc 需要一起 GROUP BY"
+        ]
+      },
+      "started_at": "2026-07-21T20:53:25.936519",
+      "completed_at": "2026-07-21T20:53:50.456980",
+      "duration_ms": 24520,
+      "agent_response": "## 查询结果\n\n根据 `todo_record_detail` 表，按 `status_code` 和 `status_desc` 分组统计待办记录数量，结果如下：\n\n| 序号 | status_code | status_desc | 记录数 |\n| --- | --- | --- | --- |\n| 1 | accepted | 已确认 | 29 |\n| 2 | completed | 已完成 | 24 |\n| 3 | waitingProcess | 待处理 | 4 |\n| 4 | completed | 添加评论 | 1 |\n| 5 | processing | 处理中 | 1 |\n\n**执行的 SQL**：\n```sql\nSELECT status_code, status_desc, COUNT(*) AS cnt \nFROM todo_record_detail \nGROUP BY status_code, status_desc \nORDER BY cnt DESC, status_code, status_desc\n```\n\n### 简要分析\n\n- **已确认（accepted）** 状态的记录最多，共 29 条，占比约 49%\n- **已完成（completed）** 紧随其后，共 24 条，占比约 41%\n- **待处理（waitingProcess）** 仅 4 条，**处理中（processing）** 仅 1 条，说明大部分待办已进入确认或完成阶段\n- 值得注意的是 `completed` 状态码下出现了两种描述：**\"已完成\"**（24条）和 **\"添加评论\"**（1条），可能存在状态描述不一致的情况",
+      "generated_sqls": [
+        "SELECT status_code, status_desc, COUNT(*) AS cnt FROM todo_record_detail GROUP BY status_code, status_desc ORDER BY cnt DESC, status_code, status_desc"
+      ],
+      "tool_calls": [
+        {
+          "tool": "query_database",
+          "args": {}
+        }
+      ],
+      "sql_judge": {
+        "tier": 3,
+        "passed": false,
+        "score": 1.0,
+        "generated_sql": "SELECT status_code, status_desc, COUNT(*) AS cnt FROM todo_record_detail GROUP BY status_code, status_desc ORDER BY cnt DESC, status_code, status_desc",
+        "reference_sql": "SELECT status_code, status_desc, COUNT(*) AS record_count\nFROM todo_record_detail\nGROUP BY status_code, status_desc\nORDER BY record_count DESC;",
+        "generated_row_count": null,
+        "reference_row_count": null,
+        "diff_summary": "数据内容不一致：4 行不匹配 (LLM 评判失败: Error code: 503 - {'error': {'code': 503, 'type': 'scheduler.select_failed', 'message': 'No available model.', 'Dw-Gateway-Request-Id': 'dw-463f42e9ef22c570-90370cb0'}})",
+        "llm_judge_explanation": null,
+        "syntax_ok": false,
+        "table_match": 1.0,
+        "column_match": 0.6666666666666666
+      },
+      "quality_judge": {
+        "score": 0.0,
+        "completeness": 0.0,
+        "accuracy": 0.0,
+        "clarity": 0.0,
+        "sql_transparency": 0.0,
+        "explanation": "LLM 评判失败: Error code: 503 - {'error': {'code': 503, 'type': 'scheduler.select_failed', 'message': 'No available model.', 'Dw-Gateway-Request-Id': 'dw-4b7e17401219cb0d-157bbb20'}}"
+      },
+      "efficiency": {
+        "tool_call_count": 1,
+        "tool_call_details": {
+          "query_database": 1
+        },
+        "turns": 2,
+        "total_tokens": 8428,
+        "latency_ms": 21269,
+        "score": 0.9386
+      },
+      "dimensions": {
+        "sql_syntax": 0.0,
+        "table_column": 0.8333333333333333,
+        "filter_condition": 0.9166666666666666,
+        "result_data": 1.0,
+        "sql_standard": 0.7
+      },
+      "overall_score": 0.845,
+      "passed": true,
+      "error": null,
+      "repeat_count": 3,
+      "run_details": [
+        {
+          "duration_ms": 18715,
+          "tool_call_count": 1,
+          "tool_call_details": {
+            "query_database": 1
+          },
+          "turns": 2,
+          "total_tokens": 8412,
+          "generated_sqls": [
+            "SELECT status_code, status_desc, COUNT(*) AS record_count FROM todo_record_detail GROUP BY status_code, status_desc ORDER BY record_count DESC"
+          ],
+          "error": null
+        },
+        {
+          "duration_ms": 22120,
+          "tool_call_count": 1,
+          "tool_call_details": {
+            "query_database": 1
+          },
+          "turns": 2,
+          "total_tokens": 8431,
+          "generated_sqls": [
+            "SELECT status_code, status_desc, COUNT(*) AS cnt FROM todo_record_detail GROUP BY status_code, status_desc ORDER BY cnt DESC, status_code ASC"
+          ],
+          "error": null
+        },
+        {
+          "duration_ms": 22973,
+          "tool_call_count": 1,
+          "tool_call_details": {
+            "query_database": 1
+          },
+          "turns": 2,
+          "total_tokens": 8441,
+          "generated_sqls": [
+            "SELECT status_code, status_desc, COUNT(*) AS cnt FROM todo_record_detail GROUP BY status_code, status_desc ORDER BY cnt DESC, status_code, status_desc"
+          ],
+          "error": null
+        }
+      ],
+      "std_tool_calls": 0.0,
+      "std_tokens": 14.73,
+      "std_latency_ms": 2252.86,
+      "std_turns": 0.0
+    },
+    {
+      "test_case": {
+        "case_id": "CS-016",
+        "difficulty": "Medium",
+        "question": "待办系统：统计每位用户的待办记录数量，按数量降序排列前 5 名。",
+        "reference_sql": "SELECT username, COUNT(*) AS record_count\nFROM todo_record_detail\nGROUP BY username\nORDER BY record_count DESC\nLIMIT 5;",
+        "expected_row_count": 5,
+        "category": "聚合",
+        "tables": [
+          "todo_record_detail"
+        ],
+        "judging_criteria": [
+          "必须使用 `GROUP BY` 和 `COUNT`",
+          "必须有 `LIMIT 5`",
+          "排序方向为 DESC"
+        ]
+      },
+      "started_at": "2026-07-21T20:53:53.716777",
+      "completed_at": "2026-07-21T20:54:54.156234",
+      "duration_ms": 60439,
+      "agent_response": "## 待办记录数量统计 — 前 5 名\n\n根据 `todo_record_detail` 表统计每位用户的待办记录数量，按数量降序排列，取前 5 名：\n\n| 排名 | 用户 ID | 用户名 | 待办记录数 |\n| --- | --- | --- | --- |\n| 🥇 1 | 10016529 | 岱影(Win)｜王文 | 26 |\n| 🥈 2 | 10046675 | 呆呆(daidai)｜陈浩 | 10 |\n| 🥉 3 | 10093786 | 谷风(Aldor) | 8 |\n| 4 | 10006019 | 东青(dongwen)｜彭东稳 | 6 |\n| 5 | 10058467 | 北洛(Zevin)｜袁泽文 | 3 |\n\n**执行的 SQL：**\n\n```sql\nSELECT user_id, username, COUNT(*) AS record_count \nFROM todo_record_detail \nGROUP BY user_id, username \nORDER BY record_count DESC, user_id ASC \nLIMIT 5\n```\n\n**说明：** 统计的是 `todo_record_detail` 表中所有待办记录（未按状态过滤），按用户 ID 和用户名分组，`user_id` 作为排序 tie-breaker。岱影(Win) 以 26 条待办记录遥遥领先，是第二名的 2.6 倍。",
+      "generated_sqls": [
+        "SELECT user_id, username, COUNT(*) AS record_count FROM todo_record_detail GROUP BY user_id, username ORDER BY record_count DESC, user_id ASC LIMIT 5"
+      ],
+      "tool_calls": [
+        {
+          "tool": "query_database",
+          "args": {}
+        }
+      ],
+      "sql_judge": {
+        "tier": 3,
+        "passed": false,
+        "score": 1.0,
+        "generated_sql": "SELECT user_id, username, COUNT(*) AS record_count FROM todo_record_detail GROUP BY user_id, username ORDER BY record_count DESC, user_id ASC LIMIT 5",
+        "reference_sql": "SELECT username, COUNT(*) AS record_count\nFROM todo_record_detail\nGROUP BY username\nORDER BY record_count DESC\nLIMIT 5;",
+        "generated_row_count": null,
+        "reference_row_count": null,
+        "diff_summary": "仅生成结果有: {'col_3'} (LLM 评判失败: Error code: 503 - {'error': {'code': 503, 'type': 'scheduler.select_failed', 'message': 'No available model.', 'Dw-Gateway-Request-Id': 'dw-7a502c00f8579b23-e82425c5'}})",
+        "llm_judge_explanation": null,
+        "syntax_ok": false,
+        "table_match": 1.0,
+        "column_match": 1.0
+      },
+      "quality_judge": {
+        "score": 0.0,
+        "completeness": 0.0,
+        "accuracy": 0.0,
+        "clarity": 0.0,
+        "sql_transparency": 0.0,
+        "explanation": "LLM 评判失败: Error code: 503 - {'error': {'code': 503, 'type': 'scheduler.select_failed', 'message': 'No available model.', 'Dw-Gateway-Request-Id': 'dw-416c5b8b5415a93e-3f3a8ef3'}}"
+      },
+      "efficiency": {
+        "tool_call_count": 1,
+        "tool_call_details": {
+          "query_database": 1,
+          "describe_table": 0
+        },
+        "turns": 2,
+        "total_tokens": 11660,
+        "latency_ms": 39670,
+        "score": 0.9178
+      },
+      "dimensions": {
+        "sql_syntax": 0.0,
+        "table_column": 1.0,
+        "filter_condition": 1.0,
+        "result_data": 1.0,
+        "sql_standard": 1.0
+      },
+      "overall_score": 0.9,
+      "passed": true,
+      "error": null,
+      "repeat_count": 3,
+      "run_details": [
+        {
+          "duration_ms": 31071,
+          "tool_call_count": 1,
+          "tool_call_details": {
+            "query_database": 1
+          },
+          "turns": 2,
+          "total_tokens": 8606,
+          "generated_sqls": [
+            "SELECT user_id, COUNT(*) AS todo_count FROM todo_record_detail GROUP BY user_id ORDER BY todo_count DESC, user_id ASC LIMIT 5"
+          ],
+          "error": null
+        },
+        {
+          "duration_ms": 58948,
+          "tool_call_count": 3,
+          "tool_call_details": {
+            "query_database": 2,
+            "describe_table": 1
+          },
+          "turns": 4,
+          "total_tokens": 17793,
+          "generated_sqls": [
+            "SELECT username, COUNT(*) AS record_count FROM todo_record_detail GROUP BY username ORDER BY record_count DESC, username ASC LIMIT 5"
+          ],
+          "error": null
+        },
+        {
+          "duration_ms": 28992,
+          "tool_call_count": 1,
+          "tool_call_details": {
+            "query_database": 1
+          },
+          "turns": 2,
+          "total_tokens": 8583,
+          "generated_sqls": [
+            "SELECT user_id, username, COUNT(*) AS record_count FROM todo_record_detail GROUP BY user_id, username ORDER BY record_count DESC, user_id ASC LIMIT 5"
+          ],
+          "error": null
+        }
+      ],
+      "std_tool_calls": 1.15,
+      "std_tokens": 5310.77,
+      "std_latency_ms": 16727.28,
+      "std_turns": 1.15
+    },
+    {
+      "test_case": {
+        "case_id": "CS-017",
+        "difficulty": "Medium",
+        "question": "待办系统：查询 username='岱影(Win)｜王文' 且 is_finished=1 的待办记录，返回记录ID、待办ID、状态描述和创建时间，按创建时间降序。",
+        "reference_sql": "SELECT id, todo_id, status_desc, create_time\nFROM todo_record_detail\nWHERE username = '岱影(Win)｜王文'\n  AND is_finished = 1\nORDER BY create_time DESC;",
+        "expected_row_count": null,
+        "category": "多条件过滤",
+        "tables": [
+          "todo_record_detail"
+        ],
+        "judging_criteria": [
+          "必须同时满足两个 WHERE 条件",
+          "排序方向为 DESC"
+        ]
+      },
+      "started_at": "2026-07-21T20:54:57.696484",
+      "completed_at": "2026-07-21T20:55:39.580469",
+      "duration_ms": 41883,
+      "agent_response": "查询完成！以下是 `todo_record_detail` 表中 `username='岱影(Win)｜王文'` 且 `is_finished=1` 的待办记录：\n\n**执行的 SQL：**\n```sql\nSELECT id, todo_id, status_desc, create_time \nFROM todo_record_detail \nWHERE username = '岱影(Win)｜王文' AND is_finished = 1 \nORDER BY create_time DESC\n```\n\n**查询结果（共 26 条）：**\n\n| 序号 | 记录ID (id) | 待办ID (todo_id) | 状态描述 | 创建时间 |\n|------|------------|-----------------|----------|-------------------|\n| 1 | 52379 | 26671 | 已完成 | 2025-04-09 09:38:40 |\n| 2 | 52378 | 26674 | 已完成 | 2025-04-09 09:38:37 |\n| 3 | 52377 | 26677 | 已完成 | 2025-04-09 09:38:33 |\n| 4 | 52376 | 26681 | 已完成 | 2025-04-09 09:38:25 |\n| 5 | 52375 | 26682 | 已完成 | 2025-04-09 09:38:22 |\n| 6 | 52374 | 26686 | 已完成 | 2025-04-09 09:38:07 |\n| 7 | 52373 | 26668 | 已完成 | 2025-04-09 09:37:59 |\n| 8 | 52372 | 26669 | 已完成 | 2025-04-09 09:37:56 |\n| 9 | 52371 | 26676 | 已完成 | 2025-04-09 09:37:50 |\n| 10 | 52370 | 26678 | 已完成 | 2025-04-09 09:37:46 |\n| 11 | 52369 | 26683 | 已完成 | 2025-04-09 09:37:40 |\n| 12 | 52368 | 26689 | 已完成 | 2025-04-09 09:37:30 |\n| 13 | 52367 | 26697 | 已完成 | 2025-04-09 09:37:21 |\n| 14 | 52354 | 26686 | 已确认 | 2025-04-09 09:05:00 |\n| 15 | 52357 | 26689 | 已确认 | 2025-04-09 09:05:00 |\n| 16 | 52365 | 26697 | 已确认 | 2025-04-09 09:05:00 |\n| 17 | 52336 | 26668 | 已确认 | 2025-04-09 09:01:00 |\n| 18 | 52337 | 26669 | 已确认 | 2025-04-09 09:01:00 |\n| 19 | 52339 | 26671 | 已确认 | 2025-04-09 09:01:00 |\n| 20 | 52342 | 26674 | 已确认 | 2025-04-09 09:01:00 |\n| 21 | 52344 | 26676 | 已确认 | 2025-04-09 09:01:00 |\n| 22 | 52345 | 26677 | 已确认 | 2025-04-09 09:01:00 |\n| 23 | 52346 | 26678 | 已确认 | 2025-04-09 09:01:00 |\n| 24 | 52349 | 26681 | 已确认 | 2025-04-09 09:01:00 |\n| 25 | 52350 | 26682 | 已确认 | 2025-04-09 09:01:00 |\n| 26 | 52351 | 26683 | 已确认 | 2025-04-09 09:01:00 |\n\n---\n\n**数据概览：**\n- 共 **26 条**已完成（`is_finished=1`）的待办记录\n- 涉及 **13 个不同的待办ID**（26668~26697），每个待办ID有两条记录：一条\"已确认\"（约 09:01~09:05）和一条\"已完成\"（约 09:37~09:38）\n- 所有记录均集中在 **2025-04-09** 这一天，时间跨度约 37 分钟",
+      "generated_sqls": [
+        "SELECT id, todo_id, status_desc, create_time FROM todo_record_detail WHERE username = '岱影(Win)｜王文' AND is_finished = 1 ORDER BY create_time DESC"
+      ],
+      "tool_calls": [
+        {
+          "tool": "query_database",
+          "args": {}
+        }
+      ],
+      "sql_judge": {
+        "tier": 1,
+        "passed": true,
+        "score": 1.0,
+        "generated_sql": "SELECT id, todo_id, status_desc, create_time FROM todo_record_detail WHERE username = '岱影(Win)｜王文' AND is_finished = 1 ORDER BY create_time DESC",
+        "reference_sql": "SELECT id, todo_id, status_desc, create_time\nFROM todo_record_detail\nWHERE username = '岱影(Win)｜王文'\n  AND is_finished = 1\nORDER BY create_time DESC;",
+        "generated_row_count": null,
+        "reference_row_count": null,
+        "diff_summary": "SQL 结构与参考完全一致",
+        "llm_judge_explanation": null,
+        "syntax_ok": true,
+        "table_match": 1.0,
+        "column_match": 1.0
+      },
+      "quality_judge": {
+        "score": 0.0,
+        "completeness": 0.0,
+        "accuracy": 0.0,
+        "clarity": 0.0,
+        "sql_transparency": 0.0,
+        "explanation": "LLM 评判失败: Error code: 503 - {'error': {'code': 503, 'type': 'scheduler.select_failed', 'message': 'No available model.', 'Dw-Gateway-Request-Id': 'dw-20ca8ac3bcff88bb-1cb5d2b4'}}"
+      },
+      "efficiency": {
+        "tool_call_count": 1,
+        "tool_call_details": {
+          "query_database": 1
+        },
+        "turns": 2,
+        "total_tokens": 10097,
+        "latency_ms": 37535,
+        "score": 0.9209
+      },
+      "dimensions": {
+        "sql_syntax": 1.0,
+        "table_column": 1.0,
+        "filter_condition": 1.0,
+        "result_data": 1.0,
+        "sql_standard": 0.7
+      },
+      "overall_score": 0.97,
+      "passed": true,
+      "error": null,
+      "repeat_count": 3,
+      "run_details": [
+        {
+          "duration_ms": 36665,
+          "tool_call_count": 1,
+          "tool_call_details": {
+            "query_database": 1
+          },
+          "turns": 2,
+          "total_tokens": 10081,
+          "generated_sqls": [
+            "SELECT id, todo_id, status_desc, create_time FROM todo_record_detail WHERE username = '岱影(Win)｜王文' AND is_finished = 1 ORDER BY create_time DESC"
+          ],
+          "error": null
+        },
+        {
+          "duration_ms": 35648,
+          "tool_call_count": 1,
+          "tool_call_details": {
+            "query_database": 1
+          },
+          "turns": 2,
+          "total_tokens": 10056,
+          "generated_sqls": [
+            "SELECT id, todo_id, status_desc, create_time FROM todo_record_detail WHERE username = '岱影(Win)｜王文' AND is_finished = 1 ORDER BY create_time DESC"
+          ],
+          "error": null
+        },
+        {
+          "duration_ms": 40294,
+          "tool_call_count": 1,
+          "tool_call_details": {
+            "query_database": 1
+          },
+          "turns": 2,
+          "total_tokens": 10154,
+          "generated_sqls": [
+            "SELECT id, todo_id, status_desc, create_time FROM todo_record_detail WHERE username = '岱影(Win)｜王文' AND is_finished = 1 ORDER BY create_time DESC"
+          ],
+          "error": null
+        }
+      ],
+      "std_tool_calls": 0.0,
+      "std_tokens": 50.92,
+      "std_latency_ms": 2442.31,
+      "std_turns": 0.0
+    },
+    {
+      "test_case": {
+        "case_id": "CS-018",
+        "difficulty": "Hard",
+        "question": "待办系统：统计每位用户的待办完成率（is_finished=1 的记录数 / 总记录数），返回用户名、总记录数、完成数和完成率，按完成率降序排列。",
+        "reference_sql": "SELECT username,\n       COUNT(*) AS total_count,\n       SUM(CASE WHEN is_finished = 1 THEN 1 ELSE 0 END) AS finished_count,\n       ROUND(SUM(CASE WHEN is_finished = 1 THEN 1 ELSE 0 END) * 100.0 / COUNT(*), 2) AS finish_rate\nFROM todo_record_detail\nGROUP BY username\nORDER BY finish_rate DESC;",
+        "expected_row_count": null,
+        "category": "派生指标",
+        "tables": [
+          "todo_record_detail"
+        ],
+        "judging_criteria": [
+          "必须使用 `CASE WHEN` 进行条件聚合",
+          "必须正确计算完成率"
+        ]
+      },
+      "started_at": "2026-07-21T20:55:41.054934",
+      "completed_at": "2026-07-21T20:56:19.860686",
+      "duration_ms": 38805,
+      "agent_response": "查询完成，以下是待办系统中每位用户的待办完成率统计：\n\n```sql\nSELECT \n    username, \n    COUNT(*) AS total_count, \n    SUM(is_finished = 1) AS finished_count, \n    ROUND(SUM(is_finished = 1) / COUNT(*), 4) AS completion_rate \nFROM todo_record_detail \nGROUP BY username \nORDER BY completion_rate DESC, username ASC\n```\n\n| 序号 | 用户名 | 总记录数 | 完成数 | 完成率 |\n| --- | --- | --- | --- | --- |\n| 1 | 东青(dongwen)｜彭东稳 | 6 | 6 | 100.00% |\n| 2 | 北洛(Zevin)｜袁泽文 | 3 | 3 | 100.00% |\n| 3 | 呆呆(daidai)｜陈浩 | 10 | 10 | 100.00% |\n| 4 | 岱影(Win)｜王文 | 26 | 26 | 100.00% |\n| 5 | 谷风(Aldor) | 8 | 8 | 100.00% |\n| 6 | 未文(Untextured) | 2 | 1 | 50.00% |\n| 7 | 惊蛰(Austin)｜牛亚 | 1 | 0 | 0.00% |\n| 8 | 新木匠(MJ)｜谢生翔 | 1 | 0 | 0.00% |\n| 9 | 管虎(Tiger)｜易坤 | 2 | 0 | 0.00% |\n\n### 分析小结\n\n- **共 9 位用户**，总记录数 59 条，完成数 54 条，整体完成率约 **91.5%**。\n- **5 位用户完成率 100%**：岱影(Win) 记录最多（26条全部完成），其次是呆呆(daidai)（10条）、谷风(Aldor)（8条）、东青(dongwen)（6条）、北洛(Zevin)（3条）。\n- **1 位用户完成率 50%**：未文(Untextured)，2 条记录中完成 1 条。\n- **3 位用户完成率 0%**：惊蛰(Austin)、新木匠(MJ)、管虎(Tiger)，均只有 1-2 条记录且均未完成。",
+      "generated_sqls": [
+        "SELECT username, COUNT(*) AS total_count, SUM(is_finished = 1) AS finished_count, ROUND(SUM(is_finished = 1) / COUNT(*), 4) AS completion_rate FROM todo_record_detail GROUP BY username ORDER BY completion_rate DESC, username ASC"
+      ],
+      "tool_calls": [
+        {
+          "tool": "query_database",
+          "args": {}
+        }
+      ],
+      "sql_judge": {
+        "tier": 3,
+        "passed": false,
+        "score": 1.0,
+        "generated_sql": "SELECT username, COUNT(*) AS total_count, SUM(is_finished = 1) AS finished_count, ROUND(SUM(is_finished = 1) / COUNT(*), 4) AS completion_rate FROM todo_record_detail GROUP BY username ORDER BY completion_rate DESC, username ASC",
+        "reference_sql": "SELECT username,\n       COUNT(*) AS total_count,\n       SUM(CASE WHEN is_finished = 1 THEN 1 ELSE 0 END) AS finished_count,\n       ROUND(SUM(CASE WHEN is_finished = 1 THEN 1 ELSE 0 END) * 100.0 / COUNT(*), 2) AS finish_rate\nFROM todo_record_detail\nGROUP BY username\nORDER BY finish_rate DESC;",
+        "generated_row_count": null,
+        "reference_row_count": null,
+        "diff_summary": "数据内容不一致：18 行不匹配 (LLM 评判失败: Error code: 503 - {'error': {'code': 503, 'type': 'scheduler.select_failed', 'message': 'No available model.', 'Dw-Gateway-Request-Id': 'dw-1ac46be494dafcfa-3d040fd3'}})",
+        "llm_judge_explanation": null,
+        "syntax_ok": false,
+        "table_match": 1.0,
+        "column_match": 0.45454545454545453
+      },
+      "quality_judge": {
+        "score": 0.0,
+        "completeness": 0.0,
+        "accuracy": 0.0,
+        "clarity": 0.0,
+        "sql_transparency": 0.0,
+        "explanation": "LLM 评判失败: Error code: 503 - {'error': {'code': 503, 'type': 'scheduler.select_failed', 'message': 'No available model.', 'Dw-Gateway-Request-Id': 'dw-222fa79eae5b500c-d5f5962a'}}"
+      },
+      "efficiency": {
+        "tool_call_count": 1,
+        "tool_call_details": {
+          "query_database": 1
+        },
+        "turns": 2,
+        "total_tokens": 9226,
+        "latency_ms": 33909,
+        "score": 0.9251
+      },
+      "dimensions": {
+        "sql_syntax": 0.0,
+        "table_column": 0.7272727272727273,
+        "filter_condition": 0.8636363636363636,
+        "result_data": 1.0,
+        "sql_standard": 0.7
+      },
+      "overall_score": 0.8291,
+      "passed": true,
+      "error": null,
+      "repeat_count": 3,
+      "run_details": [
+        {
+          "duration_ms": 30993,
+          "tool_call_count": 1,
+          "tool_call_details": {
+            "query_database": 1
+          },
+          "turns": 2,
+          "total_tokens": 9200,
+          "generated_sqls": [
+            "SELECT username AS 用户名, COUNT(*) AS 总记录数, SUM(is_finished) AS 完成数, ROUND(SUM(is_finished) / COUNT(*), 4) AS 完成率 FROM todo_record_detail GROUP BY username ORDER BY 完成率 DESC, username ASC"
+          ],
+          "error": null
+        },
+        {
+          "duration_ms": 37130,
+          "tool_call_count": 1,
+          "tool_call_details": {
+            "query_database": 1
+          },
+          "turns": 2,
+          "total_tokens": 9196,
+          "generated_sqls": [
+            "SELECT username, COUNT(*) AS total_count, SUM(is_finished) AS finished_count, SUM(is_finished) / COUNT(*) AS completion_rate FROM todo_record_detail GROUP BY username ORDER BY completion_rate DESC, username ASC"
+          ],
+          "error": null
+        },
+        {
+          "duration_ms": 33605,
+          "tool_call_count": 1,
+          "tool_call_details": {
+            "query_database": 1
+          },
+          "turns": 2,
+          "total_tokens": 9283,
+          "generated_sqls": [
+            "SELECT username, COUNT(*) AS total_count, SUM(is_finished = 1) AS finished_count, ROUND(SUM(is_finished = 1) / COUNT(*), 4) AS completion_rate FROM todo_record_detail GROUP BY username ORDER BY completion_rate DESC, username ASC"
+          ],
+          "error": null
+        }
+      ],
+      "std_tool_calls": 0.0,
+      "std_tokens": 49.12,
+      "std_latency_ms": 3079.8,
+      "std_turns": 0.0
+    },
+    {
+      "test_case": {
+        "case_id": "CS-019",
+        "difficulty": "Medium",
+        "question": "待办系统：统计 2025-04-09 当天每小时的待办记录创建数量，按小时升序排列。",
+        "reference_sql": "SELECT DATE_FORMAT(create_time, '%Y-%m-%d %H:00') AS hour,\n       COUNT(*) AS record_count\nFROM todo_record_detail\nWHERE create_time >= '2025-04-09'\n  AND create_time < '2025-04-10'\nGROUP BY DATE_FORMAT(create_time, '%Y-%m-%d %H:00')\nORDER BY hour ASC;",
+        "expected_row_count": null,
+        "category": "时间窗口",
+        "tables": [
+          "todo_record_detail"
+        ],
+        "judging_criteria": [
+          "必须使用 `DATE_FORMAT` 提取小时",
+          "时间范围过滤使用 `>=` 和 `<` 模式",
+          "排序方向为 ASC"
+        ]
+      },
+      "started_at": "2026-07-21T20:56:23.103003",
+      "completed_at": "2026-07-21T20:56:54.466519",
+      "duration_ms": 31363,
+      "agent_response": "## 查询结果\n\n**表**: `todo_record_detail`（待办事项操作详情表）\n\n**SQL**:\n```sql\nSELECT HOUR(create_time) AS hour, \n       COUNT(*) AS cnt \nFROM todo_record_detail \nWHERE create_time >= '2025-04-09 00:00:00' \n  AND create_time < '2025-04-10 00:00:00' \nGROUP BY HOUR(create_time) \nORDER BY hour\n```\n\n**统计结果**:\n\n| 小时 | 创建数量 |\n|------|----------|\n| 9    | 49       |\n| 10   | 4        |\n| 11   | 6        |\n\n---\n\n📊 **小结**：2025-04-09 当天待办记录创建集中在 **9:00-11:00** 时段，共 59 条记录。其中 **9 点** 是创建高峰，达到 49 条，占当天总量的 **83%**。其余时段（0-8 点、12-23 点）无创建记录。",
+      "generated_sqls": [
+        "SELECT HOUR(create_time) AS hour, COUNT(*) AS cnt FROM todo_record_detail WHERE create_time >= '2025-04-09 00:00:00' AND create_time < '2025-04-10 00:00:00' GROUP BY HOUR(create_time) ORDER BY hour"
+      ],
+      "tool_calls": [
+        {
+          "tool": "query_database",
+          "args": {}
+        }
+      ],
+      "sql_judge": {
+        "tier": 3,
+        "passed": false,
+        "score": 1.0,
+        "generated_sql": "SELECT HOUR(create_time) AS hour, COUNT(*) AS cnt FROM todo_record_detail WHERE create_time >= '2025-04-09 00:00:00' AND create_time < '2025-04-10 00:00:00' GROUP BY HOUR(create_time) ORDER BY hour",
+        "reference_sql": "SELECT DATE_FORMAT(create_time, '%Y-%m-%d %H:00') AS hour,\n       COUNT(*) AS record_count\nFROM todo_record_detail\nWHERE create_time >= '2025-04-09'\n  AND create_time < '2025-04-10'\nGROUP BY DATE_FORMAT(create_time, '%Y-%m-%d %H:00')\nORDER BY hour ASC;",
+        "generated_row_count": null,
+        "reference_row_count": null,
+        "diff_summary": "数据内容不一致：6 行不匹配 (LLM 评判失败: Error code: 503 - {'error': {'code': 503, 'type': 'scheduler.select_failed', 'message': 'No available model.', 'Dw-Gateway-Request-Id': 'dw-55b1f6d805575611-7b8bf576'}})",
+        "llm_judge_explanation": null,
+        "syntax_ok": false,
+        "table_match": 1.0,
+        "column_match": 0.25
+      },
+      "quality_judge": {
+        "score": 0.0,
+        "completeness": 0.0,
+        "accuracy": 0.0,
+        "clarity": 0.0,
+        "sql_transparency": 0.0,
+        "explanation": "LLM 评判失败: Error code: 503 - {'error': {'code': 503, 'type': 'scheduler.select_failed', 'message': 'No available model.', 'Dw-Gateway-Request-Id': 'dw-2e25e29a615532b8-d57c49da'}}"
+      },
+      "efficiency": {
+        "tool_call_count": 1,
+        "tool_call_details": {
+          "query_database": 1
+        },
+        "turns": 2,
+        "total_tokens": 8512,
+        "latency_ms": 27152,
+        "score": 0.9325
+      },
+      "dimensions": {
+        "sql_syntax": 0.0,
+        "table_column": 0.625,
+        "filter_condition": 0.8125,
+        "result_data": 1.0,
+        "sql_standard": 0.7
+      },
+      "overall_score": 0.8137,
+      "passed": true,
+      "error": null,
+      "repeat_count": 3,
+      "run_details": [
+        {
+          "duration_ms": 24171,
+          "tool_call_count": 1,
+          "tool_call_details": {
+            "query_database": 1
+          },
+          "turns": 2,
+          "total_tokens": 8511,
+          "generated_sqls": [
+            "SELECT HOUR(create_time) AS hour, COUNT(*) AS record_count FROM todo_record_detail WHERE create_time >= '2025-04-09 00:00:00' AND create_time < '2025-04-10 00:00:00' GROUP BY HOUR(create_time) ORDER BY hour ASC"
+          ],
+          "error": null
+        },
+        {
+          "duration_ms": 29728,
+          "tool_call_count": 1,
+          "tool_call_details": {
+            "query_database": 1
+          },
+          "turns": 2,
+          "total_tokens": 8589,
+          "generated_sqls": [
+            "SELECT DATE_FORMAT(create_time, '%H') AS hour, COUNT(*) AS record_count FROM todo_record_detail WHERE create_time >= '2025-04-09 00:00:00' AND create_time < '2025-04-10 00:00:00' GROUP BY hour ORDER BY hour"
+          ],
+          "error": null
+        },
+        {
+          "duration_ms": 27558,
+          "tool_call_count": 1,
+          "tool_call_details": {
+            "query_database": 1
+          },
+          "turns": 2,
+          "total_tokens": 8437,
+          "generated_sqls": [
+            "SELECT HOUR(create_time) AS hour, COUNT(*) AS cnt FROM todo_record_detail WHERE create_time >= '2025-04-09 00:00:00' AND create_time < '2025-04-10 00:00:00' GROUP BY HOUR(create_time) ORDER BY hour"
+          ],
+          "error": null
+        }
+      ],
+      "std_tool_calls": 0.0,
+      "std_tokens": 76.01,
+      "std_latency_ms": 2800.62,
+      "std_turns": 0.0
+    },
+    {
+      "test_case": {
+        "case_id": "CS-020",
+        "difficulty": "Medium",
+        "question": "告警系统：统计每个业务子域下各告警级别的数量，返回业务域、告警级别、数量，按业务域和数量降序排列。",
+        "reference_sql": "SELECT business_subdomain,\n       level,\n       COUNT(*) AS alert_count\nFROM db_alert_history\nGROUP BY business_subdomain, level\nORDER BY business_subdomain, alert_count DESC;",
+        "expected_row_count": null,
+        "category": "复合查询",
+        "tables": [
+          "db_alert_history"
+        ],
+        "judging_criteria": [
+          "必须使用 `GROUP BY` 和 `COUNT`",
+          "排序方向正确"
+        ]
+      },
+      "started_at": "2026-07-21T20:56:57.854142",
+      "completed_at": "2026-07-21T20:57:38.945676",
+      "duration_ms": 41091,
+      "agent_response": "查询完成！以下是各业务子域下各告警级别的数量统计：\n\n| 序号 | 业务子域 | 告警级别 | 数量 |\n| --- | --- | --- | --- |\n| 1 | 财务结算 | ok | 24,576 |\n| 2 | 财务结算 | info | 8,192 |\n| 3 | 社区后端 | critical | 24,576 |\n| 4 | 社区后端 | ok | 16,384 |\n| 5 | 社区后端 | info | 8,192 |\n| 6 | 社区后端 | warn | 8,192 |\n| 7 | 效率后端 | ok | 8,192 |\n| 8 | 大数据 | info | 24,576 |\n| 9 | 基础架构 | info | 8,192 |\n| 10 | 商品 | ok | 16,384 |\n| 11 | 仓储域 | info | 8,192 |\n\n**执行的 SQL：**\n```sql\nSELECT business_subdomain, level, COUNT(*) AS cnt \nFROM db_alert_history \nGROUP BY business_subdomain, level \nORDER BY business_subdomain DESC, cnt DESC\n```\n\n**数据概览：**\n- 共覆盖 **7 个业务子域**：财务结算、社区后端、效率后端、大数据、基础架构、商品、仓储域\n- 告警级别包括：`critical`（严重）、`warn`（警告）、`info`（提示）、`ok`（正常）\n- **社区后端** 覆盖了全部 4 种告警级别，其中 `critical` 级别数量最高（24,576）\n- **财务结算** 和 **大数据** 的告警量也较大，分别集中在 `ok` 和 `info` 级别",
+      "generated_sqls": [
+        "SELECT business_subdomain, level, COUNT(*) AS cnt FROM db_alert_history GROUP BY business_subdomain, level ORDER BY business_subdomain DESC, cnt DESC"
+      ],
+      "tool_calls": [
+        {
+          "tool": "query_database",
+          "args": {}
+        }
+      ],
+      "sql_judge": {
+        "tier": 3,
+        "passed": false,
+        "score": 1.0,
+        "generated_sql": "SELECT business_subdomain, level, COUNT(*) AS cnt FROM db_alert_history GROUP BY business_subdomain, level ORDER BY business_subdomain DESC, cnt DESC",
+        "reference_sql": "SELECT business_subdomain,\n       level,\n       COUNT(*) AS alert_count\nFROM db_alert_history\nGROUP BY business_subdomain, level\nORDER BY business_subdomain, alert_count DESC;",
+        "generated_row_count": null,
+        "reference_row_count": null,
+        "diff_summary": "数据内容不一致：22 行不匹配 (LLM 评判失败: Error code: 503 - {'error': {'code': 503, 'type': 'scheduler.select_failed', 'message': 'No available model.', 'Dw-Gateway-Request-Id': 'dw-392e249badf5b0ee-8dddb2e7'}})",
+        "llm_judge_explanation": null,
+        "syntax_ok": false,
+        "table_match": 1.0,
+        "column_match": 0.6666666666666666
+      },
+      "quality_judge": {
+        "score": 0.0,
+        "completeness": 0.0,
+        "accuracy": 0.0,
+        "clarity": 0.0,
+        "sql_transparency": 0.0,
+        "explanation": "LLM 评判失败: Error code: 503 - {'error': {'code': 503, 'type': 'scheduler.select_failed', 'message': 'No available model.', 'Dw-Gateway-Request-Id': 'dw-4a39150de71d360b-9c44c1db'}}"
+      },
+      "efficiency": {
+        "tool_call_count": 1,
+        "tool_call_details": {
+          "query_database": 1
+        },
+        "turns": 2,
+        "total_tokens": 8825,
+        "latency_ms": 33536,
+        "score": 0.9257
+      },
+      "dimensions": {
+        "sql_syntax": 0.0,
+        "table_column": 0.8333333333333333,
+        "filter_condition": 0.9166666666666666,
+        "result_data": 1.0,
+        "sql_standard": 0.7
+      },
+      "overall_score": 0.845,
+      "passed": true,
+      "error": null,
+      "repeat_count": 3,
+      "run_details": [
+        {
+          "duration_ms": 31456,
+          "tool_call_count": 1,
+          "tool_call_details": {
+            "query_database": 1
+          },
+          "turns": 2,
+          "total_tokens": 8858,
+          "generated_sqls": [
+            "SELECT business_subdomain, level, COUNT(*) AS cnt FROM db_alert_history GROUP BY business_subdomain, level ORDER BY business_subdomain DESC, cnt DESC"
+          ],
+          "error": null
+        },
+        {
+          "duration_ms": 39388,
+          "tool_call_count": 1,
+          "tool_call_details": {
+            "query_database": 1
+          },
+          "turns": 2,
+          "total_tokens": 8829,
+          "generated_sqls": [
+            "SELECT business_subdomain, level, COUNT(*) AS cnt FROM db_alert_history GROUP BY business_subdomain, level ORDER BY business_subdomain ASC, cnt DESC"
+          ],
+          "error": null
+        },
+        {
+          "duration_ms": 29764,
+          "tool_call_count": 1,
+          "tool_call_details": {
+            "query_database": 1
+          },
+          "turns": 2,
+          "total_tokens": 8788,
+          "generated_sqls": [
+            "SELECT business_subdomain, level, COUNT(*) AS cnt FROM db_alert_history GROUP BY business_subdomain, level ORDER BY business_subdomain DESC, cnt DESC"
+          ],
+          "error": null
+        }
+      ],
+      "std_tool_calls": 0.0,
+      "std_tokens": 35.17,
+      "std_latency_ms": 5138.11,
+      "std_turns": 0.0
+    }
+  ],
+  "baseline_comparison": null
+}

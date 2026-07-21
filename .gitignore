@@ -28,6 +28,7 @@ htmlcov/
 # 数据
 data/
 data/*
+*.txt
 
 # Docker
 .docker/

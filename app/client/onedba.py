@@ -177,7 +177,16 @@ class OneDBAClient:
             response.raise_for_status()
             data = response.json()
             self._check_response(data)
-            return data.get("data") or {}
+            result = data.get("data") or {}
+
+            # 检查查询是否成功（hasSuccess 显式为 False 表示失败）
+            if result.get("hasSuccess") is False:
+                message = result.get("message") or "查询失败"
+                raise OneDBAError(
+                    f"OneDBA 查询失败 (schema_id={schema_id}): {message}"
+                )
+
+            return result
 
         return await self._retry_request("execute_sql", _do_request)
 

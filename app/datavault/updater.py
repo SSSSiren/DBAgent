@@ -22,6 +22,7 @@ from app.datavault.models import (
     TableDescription,
     TableDescriptionWithColumns,
 )
+from app.datavault.uploader import storage_key
 
 if TYPE_CHECKING:
     from app.datavault.collector import SchemaCollector
@@ -76,7 +77,7 @@ class HDCUpdater:
     # ── OpenViking state read/write ───────────────────────────────
 
     async def _get_stored_state(
-        self, database_name: str
+        self, key: str
     ) -> tuple[dict[str, str], set[str]]:
         """Read stored column hashes and existing table names from OpenViking.
 
@@ -91,7 +92,7 @@ class HDCUpdater:
         """
         from app.datavault.uploader import _table_dir_uri, _tables_dir_uri
 
-        tables_dir = _tables_dir_uri(database_name)
+        tables_dir = _tables_dir_uri(key)
 
         # List entries in the _tables directory
         try:
@@ -102,7 +103,7 @@ class HDCUpdater:
             log.debug(
                 "HDCUpdater: cannot list _tables directory for '%s' "
                 "(may not exist yet)",
-                database_name,
+                key,
             )
             return {}, set()
 
@@ -126,7 +127,7 @@ class HDCUpdater:
             existing_names.add(table_name)
 
             # Read the table directory's attributes to extract tags
-            table_dir = _table_dir_uri(database_name, table_name)
+            table_dir = _table_dir_uri(key, table_name)
             try:
                 detail = await self._uploader._ov._get_raw(
                     "/api/v1/fs/read", table_dir
@@ -152,7 +153,7 @@ class HDCUpdater:
         return stored_hashes, existing_names
 
     async def _store_hash(
-        self, database_name: str, table_name: str, hash_value: str
+        self, key: str, table_name: str, hash_value: str
     ) -> None:
         """Store the column hash as a ``columns_hash:...`` tag on the table directory.
 
@@ -161,7 +162,7 @@ class HDCUpdater:
         """
         from app.datavault.uploader import _table_dir_uri
 
-        table_dir = _table_dir_uri(database_name, table_name)
+        table_dir = _table_dir_uri(key, table_name)
         try:
             await self._uploader._ov.set_tags(
                 table_dir,
@@ -170,8 +171,8 @@ class HDCUpdater:
             )
         except Exception:
             log.warning(
-                "HDCUpdater: failed to store hash for %s.%s",
-                database_name,
+                "HDCUpdater: failed to store hash for %s/%s",
+                key,
                 table_name,
                 exc_info=True,
             )
@@ -196,7 +197,7 @@ class HDCUpdater:
 
         Args:
             schema_id: OneDBA schema ID.
-            database_name: Database name used in OpenViking URIs.
+            database_name: Database name.
 
         Returns:
             ``{"changed": False}`` when no schema changes are detected.
@@ -205,6 +206,8 @@ class HDCUpdater:
 
         Requirements: 3.1, 3.2, 3.3, 3.4, 3.5
         """
+        key = storage_key(schema_id, database_name)
+
         # ── 1. Collect current schema ──
         db_raw = await self._collector.collect_database(schema_id)
         current_tables: dict[str, Any] = {
@@ -217,9 +220,7 @@ class HDCUpdater:
             current_hashes[name] = self._compute_columns_hash(table.columns)
 
         # ── 3. Read stored state from OpenViking ──
-        stored_hashes, existing_tables = await self._get_stored_state(
-            database_name
-        )
+        stored_hashes, existing_tables = await self._get_stored_state(key)
 
         # ── 4. Compare: identify new, changed, deleted ──
         new_tables: list[str] = []
@@ -249,19 +250,19 @@ class HDCUpdater:
         # ── 5. No changes: return early (zero LLM calls) ──
         # Store hashes for any existing tables that lack them (no-op for change detection)
         for name in needs_hash_store:
-            await self._store_hash(database_name, name, current_hashes[name])
+            await self._store_hash(key, name, current_hashes[name])
 
         if not new_tables and not changed_tables and not deleted_tables:
             log.info(
                 "HDCUpdater: no schema changes detected for '%s'",
-                database_name,
+                key,
             )
             return {"changed": False}
 
         log.info(
             "HDCUpdater: detected changes for '%s' — "
             "new=%d, changed=%d, deleted=%d",
-            database_name,
+            key,
             len(new_tables),
             len(changed_tables),
             len(deleted_tables),
@@ -304,6 +305,7 @@ class HDCUpdater:
                     primary_key=desc.primary_key,
                     key_attributes=desc.key_attributes,
                     description=desc.description,
+                    usage_scenario=desc.usage_scenario,
                     row_count_estimate=desc.row_count_estimate,
                     columns=summaries,
                 )
@@ -311,16 +313,16 @@ class HDCUpdater:
                 all_column_summaries[table_name] = summaries
 
                 # Upload to OpenViking
-                await self._uploader.upload_table(database_name, twc)
+                await self._uploader.upload_table(key, twc)
 
                 # Store the new hash
                 await self._store_hash(
-                    database_name, table_name, current_hashes[table_name]
+                    key, table_name, current_hashes[table_name]
                 )
 
                 log.info(
-                    "HDCUpdater: regenerated table '%s.%s'",
-                    database_name,
+                    "HDCUpdater: regenerated table '%s/%s'",
+                    key,
                     table_name,
                 )
             except Exception as e:
@@ -331,10 +333,10 @@ class HDCUpdater:
         # ── 7. Delete removed tables ──
         for table_name in deleted_tables:
             try:
-                await self._uploader.delete_table(database_name, table_name)
+                await self._uploader.delete_table(key, table_name)
                 log.info(
-                    "HDCUpdater: deleted table '%s.%s'",
-                    database_name,
+                    "HDCUpdater: deleted table '%s/%s'",
+                    key,
                     table_name,
                 )
             except Exception as e:
@@ -361,6 +363,7 @@ class HDCUpdater:
                 primary_key="",
                 key_attributes=[],
                 description=table_raw.comment or "",
+                usage_scenario="",
                 row_count_estimate=table_raw.row_count_estimate,
             )
             all_descriptions.append(desc)
@@ -369,7 +372,7 @@ class HDCUpdater:
         relationships = []
         try:
             relationships = await self._generator.generate_relationships(
-                database_name, all_descriptions, all_column_summaries,
+                key, all_descriptions, all_column_summaries,
             )
         except Exception as e:
             error_msg = f"Relationship regeneration failed: {e}"
@@ -400,7 +403,7 @@ class HDCUpdater:
             try:
                 # Write database _INDEX.md
                 db_index_content = _format_database_index(db_summary)
-                db_index_uri = f"{_db_uri(database_name)}/_INDEX.md"
+                db_index_uri = f"{_db_uri(key)}/_INDEX.md"
                 await self._uploader._ov.write(
                     db_index_uri, db_index_content, mode="replace", wait=True
                 )
@@ -409,7 +412,7 @@ class HDCUpdater:
                 for rel in relationships:
                     rel_content = _format_relationship_md(rel)
                     rel_uri = (
-                        f"{_relations_dir_uri(database_name)}/"
+                        f"{_relations_dir_uri(key)}/"
                         f"{rel.source_table}__{rel.target_table}.md"
                     )
                     await self._uploader._ov.write(
@@ -424,7 +427,7 @@ class HDCUpdater:
             log.warning(
                 "HDCUpdater: update completed with %d error(s) for '%s'",
                 len(errors),
-                database_name,
+                key,
             )
 
         return {

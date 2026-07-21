@@ -260,6 +260,7 @@ async def _execute_agent_stream(
                     retriever = HDCRetriever(hdc_ov)
                     hdc_ctx = await retriever.retrieve(
                         initial_state["user_input"],
+                        selected_db.get("schemaId", 0),
                         selected_db.get("schemaName", ""),
                     )
                     if hdc_ctx:

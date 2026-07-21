@@ -43,7 +43,7 @@ SETTINGS = get_settings()
 TARGET_SCHEMA_ID = int(sys.argv[1]) if len(sys.argv) > 1 else 25800743
 TARGET_DB_NAME = sys.argv[2] if len(sys.argv) > 2 else "dw_onedba"
 
-HDC_RESOURCE_BASE = f"viking://resources/hdc/{TARGET_DB_NAME}"
+HDC_RESOURCE_BASE = f"viking://resources/hdc/{TARGET_SCHEMA_ID}/{TARGET_DB_NAME}"
 
 OV_HEADERS = {
     "Content-Type": "application/json",
@@ -120,7 +120,7 @@ async def hdc_retrieve(question: str) -> dict[str, Any]:
     ov = OpenVikingClient(OV_BASE_URL, TEST_USER)
     await ov.start()
     retriever = HDCRetriever(ov)
-    hdc_ctx = await retriever.retrieve(question, TARGET_DB_NAME)
+    hdc_ctx = await retriever.retrieve(question, TARGET_SCHEMA_ID, TARGET_DB_NAME)
     await ov.close()
 
     if not hdc_ctx:

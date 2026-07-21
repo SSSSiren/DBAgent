@@ -299,3 +299,324 @@ def _render_markdown(report: EvaluationReport) -> str:
         lines.append("")
 
     return "\n".join(lines)
+
+
+# ═══════════════════════════════════════════════════════════════
+# HDC 对比报告
+# ═══════════════════════════════════════════════════════════════
+
+
+def generate_hdc_comparison_report(
+    no_hdc: EvaluationReport,
+    with_hdc: EvaluationReport,
+    output_dir: str = "tests/evaluation/output",
+) -> tuple[str, str]:
+    """生成 HDC 对比报告（无 HDC vs 有 HDC）。
+
+    Args:
+        no_hdc: 无 HDC 基线的评测报告
+        with_hdc: 有 HDC 的评测报告
+        output_dir: 输出目录
+
+    Returns:
+        (json_path, markdown_path)
+    """
+    output_path = Path(output_dir)
+    output_path.mkdir(parents=True, exist_ok=True)
+
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+
+    json_path = str(output_path / f"hdc_comparison_{timestamp}.json")
+    md_path = str(output_path / f"hdc_comparison_{timestamp}.md")
+
+    # 计算逐维度差异
+    diff = _compute_hdc_diff(no_hdc, with_hdc)
+
+    # 写入 JSON
+    comparison_data = {
+        "generated_at": timestamp,
+        "no_hdc": no_hdc.model_dump(mode="json"),
+        "with_hdc": with_hdc.model_dump(mode="json"),
+        "diff": diff,
+    }
+    with open(json_path, "w", encoding="utf-8") as f:
+        json.dump(comparison_data, f, ensure_ascii=False, indent=2, default=str)
+
+    # 写入 Markdown
+    with open(md_path, "w", encoding="utf-8") as f:
+        f.write(_render_hdc_comparison_md(no_hdc, with_hdc, diff))
+
+    return json_path, md_path
+
+
+def _compute_hdc_diff(
+    no_hdc: EvaluationReport,
+    with_hdc: EvaluationReport,
+) -> dict:
+    """计算两轮评测之间的逐维度差异。"""
+    # 全局指标差异
+    global_diff = {
+        "pass_rate": round(with_hdc.overall_pass_rate - no_hdc.overall_pass_rate, 4),
+        "avg_score": round(with_hdc.average_score - no_hdc.average_score, 4),
+        "avg_latency_ms": round(with_hdc.average_latency_ms - no_hdc.average_latency_ms, 1),
+        "avg_tool_calls": round(with_hdc.average_tool_calls - no_hdc.average_tool_calls, 2),
+        "avg_turns": round(with_hdc.average_turns - no_hdc.average_turns, 2),
+        "avg_tokens": round(with_hdc.average_tokens - no_hdc.average_tokens, 1),
+        "passed_cases": with_hdc.passed_cases - no_hdc.passed_cases,
+    }
+
+    # 维度评分差异
+    dim_diff = {}
+    dim_labels = ["sql_syntax", "table_column", "filter_condition", "result_data", "sql_standard"]
+    for label in dim_labels:
+        no_val = getattr(no_hdc.dimension_averages, label, 0.0)
+        with_val = getattr(with_hdc.dimension_averages, label, 0.0)
+        dim_diff[label] = round(with_val - no_val, 4)
+
+    # 按难度分组差异
+    by_difficulty: dict[str, dict] = {}
+    for diff_level in ["Easy", "Medium", "Hard"]:
+        no_cases = [c for c in no_hdc.case_results if c.test_case.difficulty.value == diff_level]
+        with_cases = [c for c in with_hdc.case_results if c.test_case.difficulty.value == diff_level]
+        if no_cases and with_cases:
+            no_pass = sum(1 for c in no_cases if c.passed)
+            with_pass = sum(1 for c in with_cases if c.passed)
+            no_scores = [c.overall_score for c in no_cases]
+            with_scores = [c.overall_score for c in with_cases]
+            no_avg = sum(no_scores) / len(no_scores) if no_scores else 0
+            with_avg = sum(with_scores) / len(with_scores) if with_scores else 0
+            by_difficulty[diff_level] = {
+                "pass_rate_diff": round(with_pass / len(with_cases) - no_pass / len(no_cases), 4),
+                "avg_score_diff": round(with_avg - no_avg, 4),
+                "case_count": len(no_cases),
+            }
+
+    # 每条用例的差异
+    per_case_diff: list[dict] = []
+    no_by_id = {c.test_case.case_id: c for c in no_hdc.case_results}
+    with_by_id = {c.test_case.case_id: c for c in with_hdc.case_results}
+
+    for case_id in sorted(no_by_id.keys()):
+        no_c = no_by_id[case_id]
+        with_c = with_by_id.get(case_id)
+        if not with_c:
+            continue
+
+        no_tools = no_c.efficiency.tool_call_count if no_c.efficiency else 0
+        with_tools = with_c.efficiency.tool_call_count if with_c.efficiency else 0
+        no_tokens = no_c.efficiency.total_tokens if no_c.efficiency else 0
+        with_tokens = with_c.efficiency.total_tokens if with_c.efficiency else 0
+
+        per_case_diff.append({
+            "case_id": case_id,
+            "difficulty": no_c.test_case.difficulty.value,
+            "category": no_c.test_case.category,
+            "no_hdc_passed": no_c.passed,
+            "with_hdc_passed": with_c.passed,
+            "no_hdc_score": no_c.overall_score,
+            "with_hdc_score": with_c.overall_score,
+            "score_diff": round(with_c.overall_score - no_c.overall_score, 4),
+            "tool_call_diff": with_tools - no_tools,
+            "token_diff": with_tokens - no_tokens,
+            "latency_diff_ms": with_c.duration_ms - no_c.duration_ms,
+        })
+
+    return {
+        "global": global_diff,
+        "dimensions": dim_diff,
+        "by_difficulty": by_difficulty,
+        "per_case": per_case_diff,
+    }
+
+
+def _render_hdc_comparison_md(
+    no_hdc: EvaluationReport,
+    with_hdc: EvaluationReport,
+    diff: dict,
+) -> str:
+    """渲染 HDC 对比 Markdown 报告。"""
+    lines: list[str] = []
+
+    lines.append("# HDC 数据底座对比评测报告")
+    lines.append("")
+    lines.append(f"**生成时间**: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
+    lines.append(f"**测试数据库**: schemaId={no_hdc.schema_id}")
+    lines.append(f"**LLM 模型**: {no_hdc.llm_model}")
+    lines.append(f"**用例数**: {no_hdc.total_cases}")
+    lines.append("")
+
+    # 全局对比
+    g = diff["global"]
+    lines.append("## 📊 全局对比")
+    lines.append("")
+    lines.append("| 指标 | 无 HDC（基线） | 有 HDC | 变化 | 趋势 |")
+    lines.append("|------|---------------|--------|------|------|")
+
+    _add_metric_row(lines, "通过率", no_hdc.overall_pass_rate, with_hdc.overall_pass_rate, g["pass_rate"])
+    _add_metric_row(lines, "平均分", no_hdc.average_score, with_hdc.average_score, g["avg_score"], is_pct=True)
+    _add_metric_row(lines, "通过用例", no_hdc.passed_cases, with_hdc.passed_cases, g["passed_cases"], is_int=True)
+    _add_metric_row(lines, "平均延迟", no_hdc.average_latency_ms, with_hdc.average_latency_ms, g["avg_latency_ms"], unit="ms", lower_is_better=True)
+    _add_metric_row(lines, "平均工具调用", no_hdc.average_tool_calls, with_hdc.average_tool_calls, g["avg_tool_calls"], lower_is_better=True)
+    _add_metric_row(lines, "平均 Turns", no_hdc.average_turns, with_hdc.average_turns, g["avg_turns"], lower_is_better=True)
+    _add_metric_row(lines, "平均 Token", no_hdc.average_tokens, with_hdc.average_tokens, g["avg_tokens"], lower_is_better=True)
+    lines.append("")
+
+    # 维度对比
+    d = diff["dimensions"]
+    dim_weights = {"sql_syntax": "10%", "table_column": "10%", "filter_condition": "10%", "result_data": "60%", "sql_standard": "10%"}
+    dim_labels_cn = {"sql_syntax": "SQL 语法正确", "table_column": "表/列引用正确", "filter_condition": "过滤条件正确", "result_data": "结果数据正确", "sql_standard": "SQL 规范"}
+
+    lines.append("## 📐 维度评分对比")
+    lines.append("")
+    lines.append("| 维度 | 权重 | 无 HDC | 有 HDC | 变化 | 趋势 |")
+    lines.append("|------|------|--------|--------|------|------|")
+
+    for key in ["sql_syntax", "table_column", "filter_condition", "result_data", "sql_standard"]:
+        no_val = getattr(no_hdc.dimension_averages, key, 0.0)
+        with_val = getattr(with_hdc.dimension_averages, key, 0.0)
+        change = d.get(key, 0.0)
+        _add_metric_row(lines, dim_labels_cn[key], no_val, with_val, change, is_pct=True, weight=dim_weights[key])
+    lines.append("")
+
+    # 按难度对比
+    bd = diff.get("by_difficulty", {})
+    if bd:
+        lines.append("## 📋 按难度对比")
+        lines.append("")
+        lines.append("| 难度 | 用例数 | 无 HDC 通过率 | 有 HDC 通过率 | 通过率变化 | 平均分变化 |")
+        lines.append("|------|--------|-------------|-------------|-----------|-----------|")
+
+        for diff_level in ["Easy", "Medium", "Hard"]:
+            d_info = bd.get(diff_level)
+            if not d_info:
+                continue
+            no_cases = [c for c in no_hdc.case_results if c.test_case.difficulty.value == diff_level]
+            with_cases = [c for c in with_hdc.case_results if c.test_case.difficulty.value == diff_level]
+            no_pass = sum(1 for c in no_cases if c.passed)
+            with_pass = sum(1 for c in with_cases if c.passed)
+            no_rate = no_pass / len(no_cases) if no_cases else 0
+            with_rate = with_pass / len(with_cases) if with_cases else 0
+            lines.append(
+                f"| {diff_level} | {d_info['case_count']} | {no_rate:.1%} | {with_rate:.1%} | "
+                f"{d_info['pass_rate_diff']:+.1%} | {d_info['avg_score_diff']:+.2%} |"
+            )
+        lines.append("")
+
+    # 每条用例对比
+    per_case = diff.get("per_case", [])
+    if per_case:
+        lines.append("## 📝 逐用例对比")
+        lines.append("")
+        lines.append("| 用例 | 难度 | 类别 | 无 HDC | 有 HDC | 分数变化 | 工具调用变化 | Token 变化 |")
+        lines.append("|------|------|------|--------|--------|----------|-------------|-----------|")
+
+        for pc in per_case:
+            no_status = "✅" if pc["no_hdc_passed"] else "❌"
+            with_status = "✅" if pc["with_hdc_passed"] else "❌"
+            tool_arrow = f"{pc['tool_call_diff']:+d}" if pc["tool_call_diff"] != 0 else "0"
+            token_arrow = f"{pc['token_diff']:+d}" if pc["token_diff"] != 0 else "0"
+            lines.append(
+                f"| {pc['case_id']} | {pc['difficulty']} | {pc['category']} | "
+                f"{no_status} {pc['no_hdc_score']:.2%} | {with_status} {pc['with_hdc_score']:.2%} | "
+                f"{pc['score_diff']:+.2%} | {tool_arrow} | {token_arrow} |"
+            )
+        lines.append("")
+
+        # 改善/退化的用例
+        improved = [pc for pc in per_case if pc["score_diff"] > 0]
+        degraded = [pc for pc in per_case if pc["score_diff"] < 0]
+        unchanged = [pc for pc in per_case if pc["score_diff"] == 0]
+
+        if improved:
+            lines.append(f"**HDC 改善的用例 ({len(improved)} 条)**: " + ", ".join(f"{pc['case_id']}(+{pc['score_diff']:.0%})" for pc in improved))
+        if degraded:
+            lines.append(f"**HDC 退化的用例 ({len(degraded)} 条)**: " + ", ".join(f"{pc['case_id']}({pc['score_diff']:.0%})" for pc in degraded))
+        if unchanged:
+            lines.append(f"**无变化的用例 ({len(unchanged)} 条)**: " + ", ".join(pc["case_id"] for pc in unchanged))
+        lines.append("")
+
+    # 结论
+    lines.append("## 🏁 结论")
+    lines.append("")
+
+    # 判断 HDC 的净效果
+    score_delta = g["avg_score"]
+    pass_delta = g["pass_rate"]
+    latency_delta = g["avg_latency_ms"]
+    tools_delta = g["avg_tool_calls"]
+
+    conclusions: list[str] = []
+
+    if score_delta > 0.01:
+        conclusions.append(f"- **分数提升**: 平均分 +{score_delta:.2%}，HDC 有效提升了 SQL 生成质量")
+    elif score_delta < -0.01:
+        conclusions.append(f"- **分数下降**: 平均分 {score_delta:.2%}，HDC 可能引入了误导信息")
+    else:
+        conclusions.append(f"- **分数持平**: 平均分变化 {score_delta:+.2%}，HDC 对 SQL 质量影响不显著")
+
+    if pass_delta > 0:
+        conclusions.append(f"- **通过率提升**: +{pass_delta:.1%}（{g['passed_cases']:+d} 条用例）")
+    elif pass_delta < 0:
+        conclusions.append(f"- **通过率下降**: {pass_delta:.1%}（{g['passed_cases']:+d} 条用例）")
+
+    if tools_delta < -0.5:
+        conclusions.append(f"- **效率提升**: 平均工具调用减少 {abs(tools_delta):.1f} 次，HDC 帮助 Agent 更快定位目标表")
+    elif tools_delta > 0.5:
+        conclusions.append(f"- **效率下降**: 平均工具调用增加 +{tools_delta:.1f} 次")
+
+    if abs(latency_delta) > 100:
+        direction = "减少" if latency_delta < 0 else "增加"
+        conclusions.append(f"- **延迟{direction}**: {abs(latency_delta):.0f}ms")
+
+    for c in conclusions:
+        lines.append(c)
+
+    lines.append("")
+    lines.append("> 💡 **解读**: HDC 数据底座通过向 Agent 注入数据库 Schema 知识（表名、字段含义、业务实体），")
+    lines.append("> 减少了对 `list_tables` / `describe_table` 等探索性工具调用的依赖。")
+    lines.append("> 正收益体现在更快定位目标表和更准确的列引用；负收益可能来自过时或错误的 HDC 知识。")
+
+    return "\n".join(lines)
+
+
+def _add_metric_row(
+    lines: list[str],
+    label: str,
+    baseline: float,
+    current: float,
+    change: float,
+    is_pct: bool = False,
+    is_int: bool = False,
+    unit: str = "",
+    lower_is_better: bool = False,
+    weight: str = "",
+) -> None:
+    """向 Markdown 表格添加一行指标对比。"""
+    if is_int:
+        base_str = str(int(baseline))
+        curr_str = str(int(current))
+        change_str = f"{int(change):+d}"
+    elif is_pct:
+        base_str = f"{baseline:.2%}"
+        curr_str = f"{current:.2%}"
+        change_str = f"{change:+.2%}"
+    else:
+        base_str = f"{baseline:.1f}{unit}"
+        curr_str = f"{current:.1f}{unit}"
+        change_str = f"{change:+.1f}{unit}"
+
+    # 趋势判断
+    if abs(change) < 0.001:
+        trend = "➡️"
+    elif lower_is_better:
+        trend = "📈 改善" if change < 0 else "📉 退化"
+    else:
+        trend = "📈 改善" if change > 0 else "📉 退化"
+
+    if is_int and abs(change) < 0.5:
+        trend = "➡️"
+    if not is_int and not is_pct and abs(change) < 0.05:
+        trend = "➡️"
+
+    w = f" ({weight})" if weight else ""
+    lines.append(f"| {label}{w} | {base_str} | {curr_str} | {change_str} | {trend} |")

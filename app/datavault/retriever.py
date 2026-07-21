@@ -6,6 +6,9 @@ Two-stage retrieval:
   Stage 2: find relevant columns per table (level=[2], max 6 per table)
 
 Graceful degradation: OpenViking unavailable → log warning, return None.
+
+Storage key format: {schemaId}/{database_name}
+  e.g. viking://resources/hdc/65938636/dw_onedba/_tables
 """
 
 from __future__ import annotations
@@ -14,6 +17,7 @@ import logging
 from typing import Optional
 
 from app.datavault.models import HDCContext, TableMatch
+from app.datavault.uploader import storage_key
 from app.knowledge.openviking import OpenVikingClient
 
 log = logging.getLogger("vkdbagent.datavault")
@@ -37,19 +41,21 @@ class HDCRetriever:
     async def retrieve(
         self,
         user_input: str,
+        schema_id: int,
         database_name: str,
     ) -> Optional[HDCContext]:
         """两阶段 HDC 检索，返回 HDCContext 或 None（降级）。
 
-        Stage 1: find(query, target_uri=".../hdc/{db}/_tables",
+        Stage 1: find(query, target_uri=".../hdc/{schemaId}/{db}/_tables",
                        tags=["hdc_level=table"], level=[0,1], limit=10)
-        Stage 2: for top 5 tables, find(query, target_uri=".../hdc/{db}/_tables/{table}",
+        Stage 2: for top 5 tables, find(query, target_uri=".../hdc/{schemaId}/{db}/_tables/{table}",
                                        level=[2], limit=6)
 
         Returns:
             HDCContext with database_summary and matched_tables, or None on degradation.
         """
-        target_base = f"viking://resources/hdc/{database_name}"
+        key = storage_key(schema_id, database_name)
+        target_base = f"viking://resources/hdc/{key}"
 
         # ── Stage 1: find matching tables ──
         result = await self._ov.find(
@@ -61,10 +67,27 @@ class HDCRetriever:
         )
 
         matches = self._extract_matches(result)
+
+        # Fallback: if tagged search returns nothing, retry without tags.
+        # This handles the case where set_tags() failed silently during upload
+        # or the OpenViking tags index is not yet populated.
+        if not matches:
+            log.warning(
+                "HDC retrieval: tagged find returned 0 matches for key=%s. "
+                "Tags may not be set on table directories. Retrying without tags.",
+                key,
+            )
+            result = await self._ov.find(
+                query=user_input,
+                target_uri=f"{target_base}/_tables",
+                level=[0, 1],
+                limit=10,
+            )
+            matches = self._extract_matches(result)
         if not matches:
             log.info(
-                "HDC retrieval: no matching tables for database=%s query=%s",
-                database_name,
+                "HDC retrieval: no matching tables for key=%s query=%s",
+                key,
                 user_input[:80],
             )
             return None
@@ -81,6 +104,9 @@ class HDCRetriever:
         for match in matches:
             table_name = self._extract_table_name(match)
             if not table_name:
+                continue
+            # Skip non-table directories (like _tables, _relationships)
+            if table_name.startswith("_"):
                 continue
             score = match.get("score", 0.0)
             # Keep the highest score for each table
@@ -99,7 +125,7 @@ class HDCRetriever:
         for table_name, score in candidates[:5]:
             # Read _INDEX.md to get real metadata we wrote
             index_content = await self._read_index(target_base, table_name)
-            main_entity, table_type, description = self._parse_index(index_content)
+            main_entity, table_type, description, usage_scenario = self._parse_index(index_content)
 
             relevant_columns = await self._retrieve_columns(
                 user_input, target_base, table_name
@@ -110,6 +136,7 @@ class HDCRetriever:
                 main_entity=main_entity,
                 table_type=table_type,
                 description=description,
+                usage_scenario=usage_scenario,
                 relevant_columns=relevant_columns,
             ))
 
@@ -160,6 +187,8 @@ class HDCRetriever:
                 lines.append(" ".join(header_parts))
                 if tm.description:
                     lines.append(f"  {tm.description}")
+                if tm.usage_scenario:
+                    lines.append(f"  **使用场景**: {tm.usage_scenario}")
                 if tm.relevant_columns:
                     lines.append("  **相关列**：")
                     for col in tm.relevant_columns:
@@ -186,8 +215,8 @@ class HDCRetriever:
         return ""
 
     @staticmethod
-    def _parse_index(content: str) -> tuple[str, str, str]:
-        """Parse our _INDEX.md format to extract main_entity, table_type, description.
+    def _parse_index(content: str) -> tuple[str, str, str, str]:
+        """Parse our _INDEX.md format to extract main_entity, table_type, description, usage_scenario.
 
         Our format:
           <main_entity>                    ← Line 1: plain text entity name
@@ -196,10 +225,13 @@ class HDCRetriever:
           ...
           ## 详细描述
           description text
+          ## 使用场景
+          usage scenario text
         """
         main_entity = ""
         table_type = ""
         description = ""
+        usage_scenario = ""
         lines = content.split("\n")
 
         # Line 1: main_entity (plain text, not bold)
@@ -221,14 +253,24 @@ class HDCRetriever:
         # Description: after "## 详细描述"
         in_detail = False
         for line in lines:
-            if "详细描述" in line or "Detailed Description" in line:
-                in_detail = True
-                continue
+            if "使用场景" in line:
+                in_detail = False
             if in_detail and line.strip() and not line.strip().startswith("*"):
                 description = line.strip()
-                break
+                in_detail = False
+            if "详细描述" in line or "Detailed Description" in line:
+                in_detail = True
 
-        return main_entity, table_type, description
+        # Usage scenario: after "## 使用场景"
+        in_scenario = False
+        for line in lines:
+            if in_scenario and line.strip() and not line.strip().startswith("*") and not line.strip().startswith("#"):
+                usage_scenario = line.strip()
+                break
+            if "使用场景" in line:
+                in_scenario = True
+
+        return main_entity, table_type, description, usage_scenario
 
     async def _retrieve_columns(
         self,
@@ -298,10 +340,12 @@ class HDCRetriever:
                 stripped = line.strip()
                 if not stripped or stripped.startswith("# "):
                     continue
-                if "核心实体" in stripped:
-                    parts.append(stripped.strip("* "))
-                elif "表数量" in stripped:
-                    parts.append(stripped.strip("* "))
+                # Remove markdown bold markers
+                cleaned = stripped.replace("**", "")
+                if "核心实体" in cleaned:
+                    parts.append(cleaned.strip("* "))
+                elif "表数量" in cleaned:
+                    parts.append(cleaned.strip("* "))
                 elif not stripped.startswith("**") and len(stripped) > 20:
                     parts.append(stripped)
                     break  # got the description paragraph

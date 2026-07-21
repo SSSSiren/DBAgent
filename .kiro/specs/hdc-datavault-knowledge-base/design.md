@@ -59,7 +59,7 @@
 - OpenViking `find` API 的请求/响应格式变更
 - `build_context()` 函数签名变更
 - `session_state` 字典中 `_hdc_context` 键的命名或结构变更
-- HDC OpenViking 目录结构 `viking://resources/hdc/{db}/_tables/{table}/` 变更
+- HDC OpenViking 目录结构 `viking://resources/hdc/{schemaId}/{db}/_tables/{table}/` 变更
 - `Settings` 中 HDC 相关配置项命名或默认值变更
 
 ## 架构
@@ -115,7 +115,7 @@ graph TB
 | 后端 | Python 3.12 + FastAPI | HDC 管理 API 端点 | 已有 |
 | HTTP 客户端 | httpx | OpenViking API 调用 | 已有 |
 | LLM | OpenAI 兼容 API（deepseek-v4-flash） | HDC 生成时的描述生成 | 已有，复用 `Settings.llm_model` |
-| 存储 | OpenViking（viking://resources/hdc/） | HDC 知识库持久化 + 向量检索 | 已有 |
+| 存储 | OpenViking（viking://resources/hdc/{schemaId}/{db}/） | HDC 知识库持久化 + 向量检索 | 已有 |
 | Schema 源 | OneDBA 平台 | 数据库 schema 采集 | 已有 |
 | 异步 | asyncio | 生成管线并行调度 | 标准库 |
 
@@ -166,7 +166,7 @@ sequenceDiagram
     User->>API: POST /api/chat {message, session_id}
     API->>CB: build_context(session_state)
     CB->>CB: 组装 1-6 段上下文
-    CB->>Retriever: retrieve(user_input, database_name)
+    CB->>Retriever: retrieve(user_input, schema_id, database_name)
     Retriever->>OV: find(query, target_uri, tags, level=[0,1])
     OV-->>Retriever: 匹配的表列表
     Retriever->>Retriever: 格式化 HDC 段落
@@ -317,8 +317,9 @@ class SchemaCollector:
 
 **职责与约束**
 - 按自底向上顺序：列摘要 → 表描述 → 表关系 → 数据库摘要
-- 列摘要使用垂直分区策略：每 6 列一组，`asyncio.gather` 并行调用 LLM
-- 表描述每表一次 LLM 调用，表间并行
+- 列摘要使用垂直分区策略：每 6 列一组，`asyncio.gather` 并行调用 LLM，`asyncio.Semaphore` 限制并发数
+- 表描述采用逐表流式管线：列摘要完成后立即启动该表的描述生成（通过 `_pipeline_one_table`），表间并行但受信号量约束，避免 LLM 连接耗尽
+- 支持 LLM 调用超时重试（`max_retries=2`，60s 超时，线性退避）
 - 表关系使用两阶段检测：OpenViking `find` 粗筛 → LLM 细筛
 - 单表 LLM 调用失败时记录错误并继续，不中断整体流程
 - 返回生成统计（成功表数、失败表数、列数、关系数、耗时）
@@ -339,18 +340,33 @@ class HDCGenerator:
         collector: SchemaCollector,
         llm: LLMService,
         uploader: HDCUploader,
+        max_concurrency: int = 10,
     ): ...
 
-    async def generate(self, schema_id: int, database_name: str) -> dict: ...
+    async def generate(
+        self,
+        schema_id: int,
+        database_name: str,
+        progress_callback: Callable[[str, dict[str, Any]], None] | None = None,
+    ) -> dict[str, Any]: ...
     # 返回: {"status": "completed"|"partial"|"failed",
     #         "tables_total": int, "tables_succeeded": int,
     #         "columns": int, "relationships": int,
     #         "duration_seconds": float, "errors": list[str]}
+    # progress_callback: 可选，接收 (step_name, info_dict) 用于实时进度上报
 
     async def generate_table(
-        self, database_name: str, table: TableRaw
+        self, key: str, table: TableRaw
     ) -> TableDescription: ...
     # 单表生成（增量更新时使用）
+    # key = storage_key(schema_id, database_name)
+
+    # ── 内部管线 ──
+    async def _pipeline_one_table(
+        self, table: TableRaw,
+    ) -> tuple[TableDescription, list[ColumnSummary]] | None: ...
+    # 逐表流式管线：列摘要 → 表描述，信号量限流并发
+    # 返回 None 表示该表描述生成失败（列摘要失败可容忍）
 ```
 
 - 前置条件：`schema_id` 有效，`database_name` 非空
@@ -365,7 +381,7 @@ class HDCGenerator:
 | 需求 | 1.3, 1.4 |
 
 **职责与约束**
-- 创建目录结构：`viking://resources/hdc/{db}/_tables/{table}/`、`viking://resources/hdc/{db}/_relationships/`
+- 创建目录结构：`viking://resources/hdc/{schemaId}/{db}/_tables/{table}/`、`viking://resources/hdc/{schemaId}/{db}/_relationships/`
 - 写入 `_INDEX.md` 文件（表级 L2）和 `{column}.md` 文件（列级 L2）
 - 调用 `set_tags` 设置结构化元数据（main_entity、table_type、pk）
 - 写入操作触发 OpenViking SemanticProcessor 自动生成 L0/L1
@@ -383,20 +399,21 @@ class HDCUploader:
 
     async def upload_database(
         self,
-        database_name: str,
+        key: str,
         db_summary: DatabaseSummary,
         tables: list[TableDescriptionWithColumns],
         relationships: list[TableRelationship],
     ) -> None: ...
+    # key = storage_key(schema_id, database_name)，格式 "{schemaId}/{database_name}"
 
     async def upload_table(
         self,
-        database_name: str,
+        key: str,
         table_desc: TableDescriptionWithColumns,
     ) -> None: ...
 
-    async def delete_database(self, database_name: str) -> None: ...
-    async def delete_table(self, database_name: str, table_name: str) -> None: ...
+    async def delete_database(self, key: str) -> None: ...
+    async def delete_table(self, key: str, table_name: str) -> None: ...
 ```
 
 #### HDCRetriever
@@ -439,15 +456,17 @@ class HDCRetriever:
     async def retrieve(
         self,
         user_input: str,
+        schema_id: int,
         database_name: str,
     ) -> HDCContext | None: ...
     # 返回 None 表示降级（OpenViking 不可用或无匹配结果）
+    # schema_id + database_name 组成 storage_key，防止不同实例间数据库重名
 
     def format_context(self, hdc: HDCContext) -> str: ...
     # 返回格式化的 [数据底座] 上下文字符串
 ```
 
-- 前置条件：`user_input` 非空，`database_name` 非空
+- 前置条件：`user_input` 非空，`schema_id` 有效，`database_name` 非空
 - 后置条件：返回 `HDCContext` 或 `None`（降级）
 - 不变量：降级时不抛出异常，不阻塞 `build_context()`
 
@@ -498,7 +517,7 @@ class HDCRetriever:
 
 HDC 数据存储在 OpenViking 文件系统中，非关系型数据库。目录结构即数据模型：
 
-- **数据库** → `viking://resources/hdc/{database_name}/` 目录
+- **数据库** → `viking://resources/hdc/{schemaId}/{database_name}/` 目录
 - **表** → `_tables/{table_name}/` 子目录
 - **列** → `{column_name}.md` 文件
 - **关系** → `_relationships/{source}__{target}.md` 文件
@@ -558,6 +577,6 @@ HDC 数据存储在 OpenViking 文件系统中，非关系型数据库。目录�
 ## 安全考量
 
 - HDC 管理 API 端点无需额外认证（复用 OneDBA 平台已有的网络隔离）
-- HDC 数据存储在 `viking://resources/hdc/`，所有用户共享读取（HDC 是数据库 schema 描述，不包含敏感数据）
+- HDC 数据存储在 `viking://resources/hdc/{schemaId}/{db}/`，所有用户共享读取（HDC 是数据库 schema 描述，不包含敏感数据）
 - HDC 生成时的 LLM 调用复用项目已有的 API key 配置，不新增凭证
 - 不将用户查询数据发送到 HDC 生成管线（生成管线仅使用 OneDBA schema 元数据）

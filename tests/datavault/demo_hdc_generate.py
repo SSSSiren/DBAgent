@@ -39,7 +39,7 @@ SETTINGS = get_settings()
 TARGET_SCHEMA_ID = int(sys.argv[1]) if len(sys.argv) > 1 else 25800743
 TARGET_DB_NAME = sys.argv[2] if len(sys.argv) > 2 else "dw_onedba"
 
-HDC_RESOURCE_BASE = f"viking://resources/hdc/{TARGET_DB_NAME}"
+HDC_RESOURCE_BASE = f"viking://resources/hdc/{TARGET_SCHEMA_ID}/{TARGET_DB_NAME}"
 
 OV_HEADERS = {
     "Content-Type": "application/json",
@@ -158,7 +158,58 @@ async def generate_hdc():
     print(f"\n  正在生成 HDC（预计 1-3 分钟，取决于表数量和 LLM 速度）...")
     print(f"  管线: 采集 schema → 列摘要 → 表描述 → 表关系 → 数据库摘要 → 上传\n")
 
-    stats = await generator.generate(TARGET_SCHEMA_ID, TARGET_DB_NAME)
+    # ── 实时进度回调 ──
+    # 每个步骤开始时打印 "[INFO] 正在执行...", 完成时打印 "[OK] 完成"
+    _step_start_time: dict[str, float] = {}
+
+    def _on_progress(step: str, info: dict):
+        nonlocal _step_start_time
+        label = info.get("phase_label", step)
+        phase = info.get("phase", 0)
+        status = info.get("status", "")
+
+        if status == "running":
+            _step_start_time[step] = time.monotonic()
+            indicator = f"[{phase}/5]"
+            extra = ""
+            if "tables_total" in info:
+                extra = f" ({info['tables_total']} 张表)"
+            elif "tables_with_desc" in info:
+                extra = f" ({info['tables_with_desc']} 张表)"
+            elif "tables" in info:
+                extra = f" ({info['tables']} 张表, {info.get('relationships', 0)} 个关系)"
+            # 表流水线进度
+            if step == "table_pipeline" and "tables_done" in info:
+                done = info["tables_done"]
+                total = info.get("tables_total", 0)
+                pct = done / total * 100 if total else 0
+                extra = f" ({done}/{total} 张表, {pct:.0f}%)"
+            print(f"  {indicator} {label}...{extra}")
+
+        elif status == "done":
+            elapsed = time.monotonic() - _step_start_time.get(step, 0)
+            suffix = f" ({elapsed:.1f}s)"
+            if step == "collect_schema":
+                print(f"       [OK] 采集到 {info.get('tables_total', 0)} 张表{suffix}")
+            elif step == "table_pipeline":
+                ok = info.get("succeeded", 0)
+                total = info.get("tables_total", 0)
+                cols = info.get("total_columns", 0)
+                print(f"       [OK] {ok}/{total} 张表, {cols} 个列{suffix}")
+            elif step == "relationships":
+                print(f"       [OK] 检测到 {info.get('count', 0)} 个关系{suffix}")
+            elif step == "database_summary":
+                hint = info.get("domain_hint", "")
+                hint_str = f" — {hint}" if hint else ""
+                print(f"       [OK]{hint_str}{suffix}")
+            elif step == "upload":
+                ok = "✅" if info.get("success") else "❌"
+                print(f"       [{ok}] 上传{'成功' if info.get('success') else '失败'}{suffix}")
+
+    stats = await generator.generate(
+        TARGET_SCHEMA_ID, TARGET_DB_NAME,
+        progress_callback=_on_progress,
+    )
     elapsed = time.monotonic() - t0
 
     print(f"  ═══════════════════════════════════════════════════════════")
@@ -298,7 +349,7 @@ async def verify_retrieval():
     all_ok = True
     for query, expectation in test_queries:
         print_sub(f"查询: \"{query}\" — {expectation}")
-        hdc_ctx = await retriever.retrieve(query, TARGET_DB_NAME)
+        hdc_ctx = await retriever.retrieve(query, TARGET_SCHEMA_ID, TARGET_DB_NAME)
         if hdc_ctx and hdc_ctx.matched_tables:
             print(f"  ✅ 匹配 {len(hdc_ctx.matched_tables)} 张表:")
             for t in hdc_ctx.matched_tables:
@@ -351,8 +402,8 @@ async def main():
         print(f"\n  ⚠️  请先排查上述问题后再运行对比实验")
 
     print(f"\n  手动验证命令:")
-    print(f"     ov ls viking://resources/hdc/{TARGET_DB_NAME}")
-    print(f"     ov tree viking://resources/hdc/{TARGET_DB_NAME} -L 3")
+    print(f"     ov ls viking://resources/hdc/{TARGET_SCHEMA_ID}/{TARGET_DB_NAME}")
+    print(f"     ov tree viking://resources/hdc/{TARGET_SCHEMA_ID}/{TARGET_DB_NAME} -L 3")
 
 
 if __name__ == "__main__":

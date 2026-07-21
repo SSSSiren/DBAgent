@@ -73,6 +73,7 @@ class TableDescription:
     primary_key: str = ""
     key_attributes: list[str] = field(default_factory=list)  # top 5 关键业务属性
     description: str = ""     # 自然语言业务描述
+    usage_scenario: str = ""  # 使用场景：何时使用此表而非其他相似表
     row_count_estimate: int = 0
 
 
@@ -111,6 +112,7 @@ class TableDescriptionWithColumns:
     primary_key: str = ""
     key_attributes: list[str] = field(default_factory=list)
     description: str = ""
+    usage_scenario: str = ""  # 使用场景：何时使用此表而非其他相似表
     row_count_estimate: int = 0
     columns: list[ColumnSummary] = field(default_factory=list)
 
@@ -127,6 +129,8 @@ class TableMatch:
     main_entity: str
     table_type: str
     description: str
+    usage_scenario: str = ""  # 使用场景：何时使用此表而非其他相似表
+    row_count_estimate: int = 0
     relevant_columns: list[str] = field(default_factory=list)  # 列描述列表，最多 6 列
 
 

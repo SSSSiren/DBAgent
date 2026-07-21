@@ -2,12 +2,12 @@
 HDCUploader — 将 HDC 内容写入 OpenViking 资源目录结构并设置结构化 tags。
 
 目录结构：
-    viking://resources/hdc/{db}/                       # 数据库目录
-    viking://resources/hdc/{db}/_INDEX.md              # 数据库摘要
-    viking://resources/hdc/{db}/_tables/{table}/       # 表目录
-    viking://resources/hdc/{db}/_tables/{table}/_INDEX.md  # 表描述
-    viking://resources/hdc/{db}/_tables/{table}/{col}.md   # 列详情
-    viking://resources/hdc/{db}/_relationships/{a}__{b}.md # 关系
+    viking://resources/hdc/{schemaId}/{db}/                       # 数据库目录
+    viking://resources/hdc/{schemaId}/{db}/_INDEX.md              # 数据库摘要
+    viking://resources/hdc/{schemaId}/{db}/_tables/{table}/       # 表目录
+    viking://resources/hdc/{schemaId}/{db}/_tables/{table}/_INDEX.md  # 表描述
+    viking://resources/hdc/{schemaId}/{db}/_tables/{table}/{col}.md   # 列详情
+    viking://resources/hdc/{schemaId}/{db}/_relationships/{a}__{b}.md # 关系
 
 Tags（表目录级别）：
     hdc_level:table  main_entity:{value}  table_type:{value}  pk:{value}
@@ -35,24 +35,29 @@ log = logging.getLogger("vkdbagent.datavault.uploader")
 _HDC_ROOT = "viking://resources/hdc"
 
 
-def _db_uri(database_name: str) -> str:
-    """viking://resources/hdc/{db}/"""
-    return f"{_HDC_ROOT}/{database_name}"
+def storage_key(schema_id: int, database_name: str) -> str:
+    """{schemaId}/{database_name} — 唯一标识一个数据库实例，解决重名问题。"""
+    return f"{schema_id}/{database_name}"
 
 
-def _tables_dir_uri(database_name: str) -> str:
-    """viking://resources/hdc/{db}/_tables/"""
-    return f"{_db_uri(database_name)}/_tables"
+def _db_uri(key: str) -> str:
+    """viking://resources/hdc/{schemaId}/{db}/"""
+    return f"{_HDC_ROOT}/{key}"
 
 
-def _relations_dir_uri(database_name: str) -> str:
-    """viking://resources/hdc/{db}/_relationships/"""
-    return f"{_db_uri(database_name)}/_relationships"
+def _tables_dir_uri(key: str) -> str:
+    """viking://resources/hdc/{schemaId}/{db}/_tables/"""
+    return f"{_db_uri(key)}/_tables"
 
 
-def _table_dir_uri(database_name: str, table_name: str) -> str:
-    """viking://resources/hdc/{db}/_tables/{table}/"""
-    return f"{_tables_dir_uri(database_name)}/{table_name}"
+def _relations_dir_uri(key: str) -> str:
+    """viking://resources/hdc/{schemaId}/{db}/_relationships/"""
+    return f"{_db_uri(key)}/_relationships"
+
+
+def _table_dir_uri(key: str, table_name: str) -> str:
+    """viking://resources/hdc/{schemaId}/{db}/_tables/{table}/"""
+    return f"{_tables_dir_uri(key)}/{table_name}"
 
 
 def _format_table_index(table: "TableDescriptionWithColumns") -> str:
@@ -84,6 +89,12 @@ def _format_table_index(table: "TableDescriptionWithColumns") -> str:
         lines.append("## 详细描述")
         lines.append("")
         lines.append(table.description)
+        lines.append("")
+
+    if table.usage_scenario:
+        lines.append("## 使用场景")
+        lines.append("")
+        lines.append(table.usage_scenario)
         lines.append("")
 
     if table.row_count_estimate:
@@ -170,7 +181,7 @@ class HDCUploader:
 
     async def upload_database(
         self,
-        database_name: str,
+        key: str,
         db_summary: "DatabaseSummary",
         tables: list["TableDescriptionWithColumns"],
         relationships: list["TableRelationship"],
@@ -186,39 +197,40 @@ class HDCUploader:
         单表上传失败不中断整体流程，记录错误并继续。
         """
         # 1. 创建目录结构
-        await self._ov.mkdir(_db_uri(database_name))
-        await self._ov.mkdir(_tables_dir_uri(database_name))
-        await self._ov.mkdir(_relations_dir_uri(database_name))
+        await self._ov.mkdir(_db_uri(key))
+        await self._ov.mkdir(_tables_dir_uri(key))
+        await self._ov.mkdir(_relations_dir_uri(key))
 
         # 2. 逐表上传（单表失败不中断）
         for table in tables:
             try:
-                await self.upload_table(database_name, table)
+                await self.upload_table(key, table)
             except Exception:
                 log.warning(
-                    "HDCUploader: upload table failed for %s.%s",
-                    database_name, table.table_name, exc_info=True,
+                    "HDCUploader: upload table failed for %s/%s",
+                    key, table.table_name, exc_info=True,
                 )
 
         # 3. 写入数据库摘要（wait=True 触发 SemanticProcessor）
+        # 使用 mode="create" — 文件首次创建，避免 replace→create fallback
         db_index_content = _format_database_index(db_summary)
-        db_index_uri = f"{_db_uri(database_name)}/_INDEX.md"
-        await self._ov.write(db_index_uri, db_index_content, mode="replace", wait=True)
+        db_index_uri = f"{_db_uri(key)}/_INDEX.md"
+        await self._ov.write(db_index_uri, db_index_content, mode="create", wait=True)
 
         # 4. 写入关系文件
         for rel in relationships:
             rel_content = _format_relationship_md(rel)
-            rel_uri = f"{_relations_dir_uri(database_name)}/{rel.source_table}__{rel.target_table}.md"
-            await self._ov.write(rel_uri, rel_content, mode="replace", wait=False)
+            rel_uri = f"{_relations_dir_uri(key)}/{rel.source_table}__{rel.target_table}.md"
+            await self._ov.write(rel_uri, rel_content, mode="create", wait=False)
 
         log.info(
             "HDCUploader: uploaded database %s (%d tables, %d relationships)",
-            database_name, len(tables), len(relationships),
+            key, len(tables), len(relationships),
         )
 
     async def upload_table(
         self,
-        database_name: str,
+        key: str,
         table_desc: "TableDescriptionWithColumns",
     ) -> None:
         """上传单张表的 HDC 内容（用于增量更新）。
@@ -229,19 +241,20 @@ class HDCUploader:
         3. 写入 _INDEX.md（wait=True 触发 SemanticProcessor L0/L1 生成）
         4. 设置表目录 tags（hdc_level、main_entity、table_type、pk）
         """
-        table_dir = _table_dir_uri(database_name, table_desc.table_name)
+        table_dir = _table_dir_uri(key, table_desc.table_name)
         await self._ov.mkdir(table_dir)
 
         # 写入各列 .md 文件
         for col in table_desc.columns:
             col_content = _format_column_md(col)
             col_uri = f"{table_dir}/{col.column_name}.md"
-            await self._ov.write(col_uri, col_content, mode="replace", wait=False)
+            await self._ov.write(col_uri, col_content, mode="create", wait=False)
 
         # 写入 _INDEX.md（wait=True 触发 SemanticProcessor）
+        # 使用 mode="create" — 文件首次创建，避免 replace→create fallback
         index_content = _format_table_index(table_desc)
         index_uri = f"{table_dir}/_INDEX.md"
-        await self._ov.write(index_uri, index_content, mode="replace", wait=True)
+        await self._ov.write(index_uri, index_content, mode="create", wait=True)
 
         # 设置 tags（OpenViking 要求 k=v 格式）
         tags = [
@@ -250,27 +263,38 @@ class HDCUploader:
             f"table_type={table_desc.table_type}",
             f"pk={table_desc.primary_key}",
         ]
-        await self._ov.set_tags(table_dir, tags, mode="append")
+        result = await self._ov.set_tags(table_dir, tags, mode="replace")
+        if not result:
+            log.warning(
+                "HDCUploader: set_tags returned empty for table_dir=%s tags=%s. "
+                "Tags-based retrieval (hdc_level=table) will not work for this table.",
+                table_dir, tags,
+            )
+        else:
+            log.debug(
+                "HDCUploader: set_tags succeeded for table_dir=%s tags=%s",
+                table_dir, tags,
+            )
 
         log.info(
-            "HDCUploader: uploaded table %s.%s (%d columns)",
-            database_name, table_desc.table_name, len(table_desc.columns),
+            "HDCUploader: uploaded table %s/%s (%d columns)",
+            key, table_desc.table_name, len(table_desc.columns),
         )
 
-    async def delete_database(self, database_name: str) -> None:
+    async def delete_database(self, key: str) -> None:
         """递归删除整个数据库的 HDC 目录。
 
         需求 3.3：删除 table/database HDC 数据 via rm API。
         """
-        db_uri = _db_uri(database_name)
+        db_uri = _db_uri(key)
         await self._ov.rm(db_uri, recursive=True)
-        log.info("HDCUploader: deleted database %s", database_name)
+        log.info("HDCUploader: deleted database %s", key)
 
-    async def delete_table(self, database_name: str, table_name: str) -> None:
+    async def delete_table(self, key: str, table_name: str) -> None:
         """删除单张表的 HDC 目录。
 
         需求 3.3：删除 table/database HDC 数据 via rm API。
         """
-        table_dir = _table_dir_uri(database_name, table_name)
+        table_dir = _table_dir_uri(key, table_name)
         await self._ov.rm(table_dir, recursive=True)
-        log.info("HDCUploader: deleted table %s.%s", database_name, table_name)
+        log.info("HDCUploader: deleted table %s/%s", key, table_name)

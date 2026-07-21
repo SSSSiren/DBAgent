@@ -64,11 +64,11 @@ class OpenVikingClient:
             await self._client.aclose()
             self._client = None
 
-    async def _post(self, path: str, json_data: dict = None) -> dict:
-        """POST 请求，自动解包 result 字段"""
+    async def _post(self, path: str, json_data: dict = None, timeout: float | None = None) -> dict:
+        """POST 请求，自动解包 result 字段。可传入 timeout 覆盖客户端默认超时。"""
         if self._client is None:
             await self.start()
-        resp = await self._client.post(path, json=json_data or {})
+        resp = await self._client.post(path, json=json_data or {}, timeout=timeout)
         resp.raise_for_status()
         data = resp.json()
         if isinstance(data, dict) and data.get("status") == "ok" and "result" in data:
@@ -317,15 +317,25 @@ class OpenVikingClient:
             }
             if timeout is not None:
                 payload["timeout"] = timeout
-            return await self._post("/api/v1/content/write", payload)
+            # When wait=True, SemanticProcessor needs extra time for VLM + vector store
+            # Default httpx timeout (30s) is too short. Use caller-provided timeout
+            # or fall back to 120s for wait=True writes.
+            httpx_timeout: float | None = None
+            if wait and timeout is None:
+                httpx_timeout = 120.0
+            return await self._post("/api/v1/content/write", payload, timeout=httpx_timeout)
         except Exception:
             # mode="replace" 要求文件已存在；如果失败，回退到 create
             if mode == "replace":
                 try:
                     payload["mode"] = "create"
-                    return await self._post("/api/v1/content/write", payload)
+                    # wait=True is preserved from the original payload for SemanticProcessor
+                    return await self._post("/api/v1/content/write", payload, timeout=httpx_timeout)
                 except Exception:
-                    log.warning("OpenViking write (create fallback) failed: uri=%s", uri, exc_info=True)
+                    log.warning(
+                        "OpenViking write (create fallback) failed: uri=%s mode=%s wait=%s",
+                        uri, mode, payload.get("wait"), exc_info=True,
+                    )
                     return {}
             log.warning("OpenViking write failed: uri=%s", uri, exc_info=True)
             return {}
@@ -352,9 +362,18 @@ class OpenVikingClient:
                 "mode": mode,
                 "recursive": recursive,
             }
-            return await self._post("/api/v1/fs/attrs/set_tags", payload)
+            result = await self._post("/api/v1/fs/attrs/set_tags", payload)
+            if not result:
+                log.warning(
+                    "OpenViking set_tags returned empty result: uri=%s tags=%s mode=%s",
+                    uri, tags, mode,
+                )
+            return result
         except Exception:
-            log.warning("OpenViking set_tags failed: uri=%s", uri, exc_info=True)
+            log.warning(
+                "OpenViking set_tags failed: uri=%s tags=%s mode=%s",
+                uri, tags, mode, exc_info=True,
+            )
             return {}
 
     async def mkdir(

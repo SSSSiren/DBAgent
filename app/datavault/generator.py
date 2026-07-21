@@ -21,7 +21,7 @@ import json
 import logging
 import time
 from collections import defaultdict
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, Callable
 
 from openai import AsyncOpenAI
 
@@ -35,6 +35,7 @@ from app.datavault.models import (
     TableRaw,
     TableRelationship,
 )
+from app.datavault.uploader import storage_key
 
 if TYPE_CHECKING:
     from app.datavault.collector import SchemaCollector
@@ -62,11 +63,13 @@ class HDCGenerator:
         llm_client: AsyncOpenAI | None = None,
         collector: SchemaCollector | None = None,
         uploader: HDCUploader | None = None,
+        max_concurrency: int = 10,
     ) -> None:
         self._settings = get_settings()
         self._client = llm_client
         self._collector = collector
         self._uploader = uploader
+        self._semaphore = asyncio.Semaphore(max_concurrency)
 
     def _get_client(self) -> AsyncOpenAI:
         """Lazily create the AsyncOpenAI client if not injected."""
@@ -143,8 +146,11 @@ class HDCGenerator:
         self,
         table: TableRaw,
         column_group: list[ColumnRaw],
+        max_retries: int = 2,
     ) -> tuple[str, list[ColumnSummary]]:
         """Call LLM to generate column summaries for one group.
+
+        Uses semaphore to limit concurrency and retries on timeout.
 
         Returns:
             Tuple of (table_name, list[ColumnSummary]).
@@ -152,22 +158,34 @@ class HDCGenerator:
         client = self._get_client()
         prompt = self._build_column_summary_prompt(table, column_group)
 
-        try:
-            response = await client.chat.completions.create(
-                model=self._settings.llm_model,
-                messages=[{"role": "user", "content": prompt}],
-                temperature=0.1,
-            )
-            content = response.choices[0].message.content or ""
-            summaries = self._parse_column_summaries(content, column_group, table.name)
-            return (table.name, summaries)
-        except Exception as e:
-            logger.error(
-                "Column summary LLM call failed for table '%s', columns [%s]: %s",
-                table.name,
-                ", ".join(c.name for c in column_group),
-                e,
-            )
+        async with self._semaphore:
+            last_error = None
+            for attempt in range(max_retries + 1):
+                try:
+                    response = await client.chat.completions.create(
+                        model=self._settings.llm_model,
+                        messages=[{"role": "user", "content": prompt}],
+                        temperature=0.1,
+                        timeout=60.0,
+                    )
+                    content = response.choices[0].message.content or ""
+                    summaries = self._parse_column_summaries(content, column_group, table.name)
+                    return (table.name, summaries)
+                except Exception as e:
+                    last_error = e
+                    if attempt < max_retries:
+                        logger.warning(
+                            "Column summary LLM call failed for table '%s' (attempt %d/%d), retrying: %s",
+                            table.name, attempt + 1, max_retries + 1, e,
+                        )
+                        await asyncio.sleep(1.0 * (attempt + 1))  # backoff: 1s, 2s
+                    else:
+                        logger.error(
+                            "Column summary LLM call failed for table '%s', columns [%s]: %s",
+                            table.name,
+                            ", ".join(c.name for c in column_group),
+                            e,
+                        )
             return (table.name, [])
 
     @staticmethod
@@ -359,6 +377,9 @@ class HDCGenerator:
             '  "primary_key": 主键字段名，复合主键用逗号分隔',
             '  "key_attributes": 最重要的 5 个业务属性字段名（数组）',
             '  "description": 表的业务描述（中文，1-3 句话）',
+            '  "usage_scenario": 该表的使用场景，说明在什么情况下应选择此表'
+            '而非其他相似表（中文，1-2 句话）。例如 "用于历史告警追溯查询，'
+            '而非实时告警监控"',
             "",
             "示例:",
             "{",
@@ -368,6 +389,8 @@ class HDCGenerator:
             '  "key_attributes": ["order_id", "user_id", "refund_amount", "status", "created_at"],',
             '  "description": "记录所有售后订单信息，包括退货、退款和换货流程的核心数据，'
             '是客服分析和退款追踪的主要数据来源"',
+            '  "usage_scenario": "当需要分析售后订单明细、退款金额统计或退货原因时使用此表，'
+            '而非仅记录当前售后状态的简表"',
             "}",
         ])
 
@@ -377,8 +400,11 @@ class HDCGenerator:
         self,
         table: TableRaw,
         column_summaries: list[ColumnSummary],
+        max_retries: int = 2,
     ) -> TableDescription | None:
         """Call LLM to generate description for a single table.
+
+        Uses semaphore to limit concurrency and retries on timeout.
 
         Returns:
             TableDescription on success, or None if the LLM call fails.
@@ -387,19 +413,29 @@ class HDCGenerator:
         client = self._get_client()
         prompt = self._build_table_description_prompt(table, column_summaries)
 
-        try:
-            response = await client.chat.completions.create(
-                model=self._settings.llm_model,
-                messages=[{"role": "user", "content": prompt}],
-                temperature=0.1,
-            )
-            content = response.choices[0].message.content or ""
-            return self._parse_table_description(content, table)
-        except Exception as e:
-            logger.error(
-                "Table description LLM call failed for table '%s': %s",
-                table.name, e,
-            )
+        async with self._semaphore:
+            for attempt in range(max_retries + 1):
+                try:
+                    response = await client.chat.completions.create(
+                        model=self._settings.llm_model,
+                        messages=[{"role": "user", "content": prompt}],
+                        temperature=0.1,
+                        timeout=60.0,
+                    )
+                    content = response.choices[0].message.content or ""
+                    return self._parse_table_description(content, table)
+                except Exception as e:
+                    if attempt < max_retries:
+                        logger.warning(
+                            "Table description LLM call failed for table '%s' (attempt %d/%d), retrying: %s",
+                            table.name, attempt + 1, max_retries + 1, e,
+                        )
+                        await asyncio.sleep(1.0 * (attempt + 1))
+                    else:
+                        logger.error(
+                            "Table description LLM call failed for table '%s': %s",
+                            table.name, e,
+                        )
             return None
 
     @staticmethod
@@ -461,6 +497,7 @@ class HDCGenerator:
             primary_key=str(data.get("primary_key", "")),
             key_attributes=key_attrs,
             description=str(data.get("description", "") or table.comment or ""),
+            usage_scenario=str(data.get("usage_scenario", "")),
             row_count_estimate=table.row_count_estimate,
         )
 
@@ -474,6 +511,7 @@ class HDCGenerator:
             primary_key="",
             key_attributes=[],
             description=table.comment or "",
+            usage_scenario="",
             row_count_estimate=table.row_count_estimate,
         )
 
@@ -668,7 +706,7 @@ class HDCGenerator:
 
     async def _stage1_coarse_candidates(
         self,
-        database_name: str,
+        key: str,
         table_name: str,
         table_descriptions: list[TableDescription],
     ) -> list[str]:
@@ -688,7 +726,7 @@ class HDCGenerator:
             query_parts.append(desc.description)
         query = " ".join(query_parts)
 
-        target_uri = f"viking://resources/hdc/{database_name}/_tables"
+        target_uri = f"viking://resources/hdc/{key}/_tables"
 
         try:
             result = await self._uploader._ov.find(
@@ -724,7 +762,7 @@ class HDCGenerator:
 
     async def _stage2_llm_fine_screening(
         self,
-        database_name: str,
+        key: str,
         source_table: str,
         candidate_tables: list[str],
         table_descriptions: list[TableDescription],
@@ -854,7 +892,7 @@ class HDCGenerator:
 
     async def generate_relationships(
         self,
-        database_name: str,
+        key: str,
         table_descriptions: list[TableDescription],
         column_summaries: dict[str, list[ColumnSummary]] | None = None,
     ) -> list[TableRelationship]:
@@ -866,7 +904,7 @@ class HDCGenerator:
         and confidence for each candidate pair.
 
         Args:
-            database_name: Target database name for OpenViking URI construction.
+            key: storage key ({schemaId}/{database_name}) for OpenViking URI construction.
             table_descriptions: Pre-generated table descriptions.
             column_summaries: Pre-generated column summaries keyed by table name.
 
@@ -892,7 +930,7 @@ class HDCGenerator:
             if self._uploader:
                 # Try OpenViking find first
                 candidates = await self._stage1_coarse_candidates(
-                    database_name, source_table, table_descriptions,
+                    key, source_table, table_descriptions,
                 )
             if not candidates:
                 # Fallback: local column-name heuristic — find other tables
@@ -905,7 +943,7 @@ class HDCGenerator:
 
             # Stage 2: LLM fine screening
             return await self._stage2_llm_fine_screening(
-                database_name, source_table, candidates,
+                key, source_table, candidates,
                 table_descriptions, column_summaries,
             )
 
@@ -1060,6 +1098,37 @@ class HDCGenerator:
         )
 
     # ═══════════════════════════════════════════════════════════════
+    # Per-Table Pipeline (列摘要 → 表描述 → 上传)
+    # ═══════════════════════════════════════════════════════════════
+
+    async def _pipeline_one_table(
+        self,
+        table: TableRaw,
+    ) -> tuple[TableDescription, list[ColumnSummary]] | None:
+        """Run the full per-table pipeline: column summaries → table description.
+
+        The column summary generation already uses the semaphore internally.
+        Table description also uses the semaphore.
+
+        Returns:
+            (TableDescription, column_summaries) on success, None if the table
+            description generation fails (column summary failures are tolerated).
+        """
+        # Step 2: Column summaries for this table
+        col_map = await self.generate_column_summaries([table])
+        summaries = col_map.get(table.name, [])
+
+        # Step 3: Table description for this table
+        td = await self._generate_one_table_description(table, summaries)
+        if td is None:
+            logger.warning(
+                "_pipeline_one_table: table description failed for '%s'", table.name
+            )
+            return None
+
+        return (td, summaries)
+
+    # ═══════════════════════════════════════════════════════════════
     # Full Orchestration: generate()
     # ═══════════════════════════════════════════════════════════════
 
@@ -1067,25 +1136,32 @@ class HDCGenerator:
         self,
         schema_id: int,
         database_name: str,
+        progress_callback: Callable[[str, dict[str, Any]], None] | None = None,
     ) -> dict[str, Any]:
         """Orchestrate the full HDC generation pipeline.
 
-        Pipeline order:
-          1. collect_database → DatabaseRaw
-          2. generate_column_summaries → dict[table_name, list[ColumnSummary]]
-          3. generate_table_descriptions → list[TableDescription]
-          4. generate_relationships → list[TableRelationship]
-          5. generate_database_summary → DatabaseSummary
-          6. upload_database → write to OpenViking
+        Pipeline order (per-table streaming):
+          1. collect_database → list[TableRaw]
+          2. Per-table pipeline (parallel, semaphore-limited):
+             column summaries → table description, for each table
+          3. generate_relationships → list[TableRelationship]
+          4. generate_database_summary → DatabaseSummary
+          5. upload_database → write to OpenViking
+
+        Tables flow through the pipeline independently — table A's description
+        starts as soon as its column summaries finish, without waiting for
+        table B's column summaries.
 
         Single-table failures are tolerated throughout (Requirement 1.5).
         The uploader step is optional — if no uploader is configured the
-        pipeline completes up to step 5 and returns a stats dict without
+        pipeline completes up to step 4 and returns a stats dict without
         uploading.
 
         Args:
             schema_id: OneDBA schema ID.
-            database_name: Database name for OpenViking URI.
+            database_name: Database name.
+            progress_callback: Optional callback(step_name, info_dict) called at
+                each pipeline step boundary for real-time progress reporting.
 
         Returns:
             Stats dict:
@@ -1101,6 +1177,7 @@ class HDCGenerator:
         """
         start_time = time.time()
         errors: list[str] = []
+        key = storage_key(schema_id, database_name)
 
         # ── Step 1: Collect schema ──
         if not self._collector:
@@ -1114,9 +1191,21 @@ class HDCGenerator:
                 "errors": ["No SchemaCollector configured"],
             }
 
+        if progress_callback:
+            progress_callback("collect_schema", {
+                "phase": 1, "phase_label": "采集 Schema",
+                "status": "running",
+            })
+
         db_raw = await self._collector.collect_database(schema_id)
         tables = db_raw.tables
         tables_total = len(tables)
+        if progress_callback:
+            progress_callback("collect_schema", {
+                "phase": 1, "phase_label": "采集 Schema",
+                "status": "done",
+                "tables_total": tables_total,
+            })
         if tables_total == 0:
             logger.warning("generate: no tables collected for schema_id=%d", schema_id)
             return {
@@ -1129,44 +1218,92 @@ class HDCGenerator:
                 "errors": [],
             }
 
-        # ── Step 2: Column summaries ──
-        column_summaries: dict[str, list[ColumnSummary]] = {}
-        try:
-            column_summaries = await self.generate_column_summaries(tables)
-        except Exception as e:
-            error_msg = f"Column summary generation failed: {e}"
-            logger.error(error_msg)
-            errors.append(error_msg)
-            # Continue with whatever we have — some groups may have succeeded
+        # ── Step 2: Per-table pipeline (column summaries → table description) ──
+        if progress_callback:
+            progress_callback("table_pipeline", {
+                "phase": 2, "phase_label": "表流水线 (列摘要→表描述)",
+                "status": "running",
+                "tables_total": tables_total,
+            })
 
-        total_columns = sum(len(cs) for cs in column_summaries.values())
+        pipeline_done = 0
 
-        # ── Step 3: Table descriptions ──
+        async def _pipeline_with_progress(t: TableRaw):
+            nonlocal pipeline_done
+            result = await self._pipeline_one_table(t)
+            pipeline_done += 1
+            if progress_callback and pipeline_done % 50 == 0:
+                progress_callback("table_pipeline", {
+                    "phase": 2, "phase_label": "表流水线 (列摘要→表描述)",
+                    "status": "running",
+                    "tables_total": tables_total,
+                    "tables_done": pipeline_done,
+                })
+            return result
+
+        pipeline_results = await asyncio.gather(
+            *[_pipeline_with_progress(t) for t in tables],
+            return_exceptions=True,
+        )
+
+        # Collect results
         table_descriptions: list[TableDescription] = []
-        try:
-            table_descriptions = await self.generate_table_descriptions(
-                tables, column_summaries,
-            )
-        except Exception as e:
-            error_msg = f"Table description generation failed: {e}"
-            logger.error(error_msg)
-            errors.append(error_msg)
+        column_summaries: dict[str, list[ColumnSummary]] = {}
+        for i, result in enumerate(pipeline_results):
+            if isinstance(result, Exception):
+                error_msg = f"Pipeline failed for table '{tables[i].name}': {result}"
+                logger.error(error_msg)
+                errors.append(error_msg)
+                continue
+            if result is None:
+                continue
+            td, summaries = result
+            table_descriptions.append(td)
+            column_summaries[td.table_name] = summaries
 
         tables_succeeded = len(table_descriptions)
+        total_columns = sum(len(cs) for cs in column_summaries.values())
 
-        # ── Step 4: Table relationships ──
+        if progress_callback:
+            progress_callback("table_pipeline", {
+                "phase": 2, "phase_label": "表流水线 (列摘要→表描述)",
+                "status": "done",
+                "succeeded": tables_succeeded,
+                "tables_total": tables_total,
+                "total_columns": total_columns,
+            })
+
+        # ── Step 3: Table relationships (cross-table, needs all descriptions) ──
         relationships: list[TableRelationship] = []
+        if progress_callback:
+            progress_callback("relationships", {
+                "phase": 3, "phase_label": "检测表关系",
+                "status": "running",
+                "tables_with_desc": tables_succeeded,
+            })
         try:
             relationships = await self.generate_relationships(
-                database_name, table_descriptions, column_summaries,
+                key, table_descriptions, column_summaries,
             )
         except Exception as e:
             error_msg = f"Relationship generation failed: {e}"
             logger.error(error_msg)
             errors.append(error_msg)
 
-        # ── Step 5: Database summary ──
+        if progress_callback:
+            progress_callback("relationships", {
+                "phase": 3, "phase_label": "检测表关系",
+                "status": "done",
+                "count": len(relationships),
+            })
+
+        # ── Step 4: Database summary ──
         db_summary: DatabaseSummary | None = None
+        if progress_callback:
+            progress_callback("database_summary", {
+                "phase": 4, "phase_label": "生成数据库摘要",
+                "status": "running",
+            })
         try:
             db_summary = await self.generate_database_summary(
                 database_name, table_descriptions, relationships,
@@ -1176,8 +1313,22 @@ class HDCGenerator:
             logger.error(error_msg)
             errors.append(error_msg)
 
-        # ── Step 6: Upload to OpenViking ──
+        if progress_callback:
+            progress_callback("database_summary", {
+                "phase": 4, "phase_label": "生成数据库摘要",
+                "status": "done",
+                "domain_hint": db_summary.domain_hint if db_summary else "",
+            })
+
+        # ── Step 5: Upload to OpenViking ──
         if self._uploader and db_summary:
+            if progress_callback:
+                progress_callback("upload", {
+                    "phase": 5, "phase_label": "上传到 OpenViking",
+                    "status": "running",
+                    "tables": tables_succeeded,
+                    "relationships": len(relationships),
+                })
             # Build TableDescriptionWithColumns for upload
             tables_with_cols: list[TableDescriptionWithColumns] = []
             for td in table_descriptions:
@@ -1189,18 +1340,27 @@ class HDCGenerator:
                     primary_key=td.primary_key,
                     key_attributes=td.key_attributes,
                     description=td.description,
+                    usage_scenario=td.usage_scenario,
                     row_count_estimate=td.row_count_estimate,
                     columns=cols,
                 ))
 
             try:
                 await self._uploader.upload_database(
-                    database_name, db_summary, tables_with_cols, relationships,
+                    key, db_summary, tables_with_cols, relationships,
                 )
             except Exception as e:
                 error_msg = f"Upload failed: {e}"
                 logger.error(error_msg)
                 errors.append(error_msg)
+
+            if progress_callback:
+                upload_ok = not any("Upload failed" in e for e in errors)
+                progress_callback("upload", {
+                    "phase": 5, "phase_label": "上传到 OpenViking",
+                    "status": "done",
+                    "success": upload_ok,
+                })
 
         # ── Determine final status ──
         if tables_succeeded == 0 and tables_total > 0:

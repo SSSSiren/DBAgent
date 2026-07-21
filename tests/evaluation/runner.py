@@ -44,6 +44,8 @@ async def _execute_agent_once(
     session_state: dict[str, Any],
     timeout: float,
     trace_name: str = "DBAgent-Chat",
+    verbose: bool = False,
+    log_prefix: str = "",
 ) -> _AgentRunOutput:
     """
     执行 Agent 一次，返回原始指标（不做 Judge）。
@@ -66,15 +68,33 @@ async def _execute_agent_once(
                 if event_type == "step":
                     step = data.get("step", "")
                     status = data.get("status", "")
-                    if step.startswith("tool:"):
+                    if step == "thinking" and verbose:
+                        text = data.get("text", "")
+                        if text:
+                            print(f"{log_prefix}  [Thinking] {text[:200]}")
+                    elif step.startswith("tool:"):
                         tool_name = step.replace("tool:", "")
                         if status == "running":
                             tool_calls.append({"tool": tool_name, "args": data.get("input", {})})
                             tool_call_details[tool_name] = tool_call_details.get(tool_name, 0) + 1
+                            if verbose:
+                                tool_input = data.get("input", {})
+                                # 截断过长的参数
+                                tool_input_short = {
+                                    k: (str(v)[:120] + "..." if len(str(v)) > 120 else v)
+                                    for k, v in tool_input.items()
+                                }
+                                print(f"{log_prefix}  [Tool] {tool_name}({tool_input_short})")
+                        elif status == "completed" and verbose:
+                            content = data.get("content", "")
+                            content_preview = str(content)[:120].replace("\n", " ")
+                            print(f"{log_prefix}          → {content_preview}{'...' if len(str(content)) > 120 else ''}")
                 elif event_type == "sql":
                     sql_text = data.get("sql", "")
                     if sql_text:
                         sqls.append(sql_text)
+                        if verbose:
+                            print(f"{log_prefix}  [SQL] {sql_text[:200]}")
                 elif event_type == "final":
                     final_response = data.get("response", "")
                     stats = data.get("stats", {})
@@ -107,21 +127,66 @@ async def _execute_agent_once(
     )
 
 
-def _make_session_state(schema_id: int) -> dict[str, Any]:
+def _make_session_state(schema_id: int, db_name: str = "dw_onedba") -> dict[str, Any]:
     """
     创建初始 session_state（每次执行独立创建）。
 
-    注入前置条件：当前数据库已选定为 dw_onedba (schema_id=65938636)。
+    注入前置条件：当前数据库已选定为指定的数据库。
     模拟真实用户场景——用户在 OneDBA 平台上点击进入某个数据库后直接提问。
     Agent 不需要调用 list_databases 或 select_database 探索数据库，
     但需要自行发现表名、列名和枚举值。
     """
     return {
         "selected_schema_id": schema_id,
-        "selected_database": {"schemaName": "dw_onedba"},
+        "selected_database": {"schemaId": schema_id, "schemaName": db_name},
         "chat_history": [],
         "summary": "",
     }
+
+
+async def _inject_hdc_context(
+    session_state: dict[str, Any],
+    user_input: str,
+    database_name: str,
+    schema_id: int,
+    user_id: str = "evaluation",
+) -> bool:
+    """
+    向 session_state 注入 HDC 数据底座上下文。
+
+    模拟生产环境 app/api/routes.py 中的 HDC 检索流程：
+    1. 检查 hdc_enabled 配置
+    2. 创建 OpenViking 客户端 → HDCRetriever
+    3. 检索 HDC 上下文并格式化为 [_hdc_context]
+    4. 静默降级：HDC 不可用时记录日志并返回 False
+
+    Returns:
+        True 表示 HDC 上下文注入成功，False 表示降级或跳过。
+    """
+    from app.config import get_settings as _cfg
+
+    settings = _cfg()
+    if not settings.hdc_enabled:
+        return False
+
+    try:
+        from app.datavault.retriever import HDCRetriever
+        from app.knowledge.openviking import OpenVikingClient as OVC
+
+        ov = OVC(settings.kb_openviking_url, user_id)
+        await ov.start()
+        try:
+            retriever = HDCRetriever(ov)
+            hdc_ctx = await retriever.retrieve(user_input, schema_id, database_name)
+            if hdc_ctx:
+                session_state["_hdc_context"] = retriever.format_context(hdc_ctx)
+                return True
+            return False
+        finally:
+            await ov.close()
+    except Exception:
+        # 静默降级：HDC 不可用不阻塞评测
+        return False
 
 
 def _build_run_detail(run: _AgentRunOutput) -> RunDetail:
@@ -163,6 +228,9 @@ async def _run_single_case(
     llm_client: Any,
     use_llm_judge: bool,
     use_quality_judge: bool,
+    enable_hdc: bool = False,
+    db_name: str = "dw_onedba",
+    verbose: bool = False,
 ) -> CaseResult:
     """
     执行单条测试用例，支持重复执行取平均。
@@ -181,10 +249,21 @@ async def _run_single_case(
 
     async def _run_one(run_index: int) -> _AgentRunOutput:
         async with _repeat_semaphore:
-            session_state = _make_session_state(schema_id)
+            session_state = _make_session_state(schema_id, db_name)
+            if enable_hdc:
+                hdc_ok = await _inject_hdc_context(
+                    session_state,
+                    test_case.question,
+                    session_state["selected_database"]["schemaName"],
+                    schema_id,
+                )
+                if hdc_ok and run_index == 0:
+                    print(f"    [HDC] 上下文已注入")
             trace_name = f"eval/{test_case.case_id}/run-{run_index}"
             return await _execute_agent_once(
-                test_case.question, session_state, timeout, trace_name=trace_name
+                test_case.question, session_state, timeout, trace_name=trace_name,
+                verbose=verbose,
+                log_prefix=f"  [{test_case.case_id}#{run_index}]" if verbose else "",
             )
 
     if repeat > 1:
@@ -363,6 +442,9 @@ async def run_evaluation(
     use_quality_judge: bool = True,
     keep_langfuse: bool = False,
     llm_model: str | None = None,
+    enable_hdc: bool = False,
+    db_name: str = "dw_onedba",
+    verbose: bool = False,
     progress_callback: Any = None,
 ) -> EvaluationReport:
     """
@@ -406,7 +488,8 @@ async def run_evaluation(
             print(f"[{i+1}/{total}] {tc.case_id} ({tc.difficulty.value}){repeat_info} — {tc.question[:60]}...")
             result = await _run_single_case(
                 tc, schema_id, timeout, repeat, onedba_client, llm_client,
-                use_llm_judge, use_quality_judge,
+                use_llm_judge, use_quality_judge, enable_hdc=enable_hdc, db_name=db_name,
+                verbose=verbose,
             )
             case_results.append(result)
             status = "✅" if result.passed else ("⚠️" if result.error else "❌")

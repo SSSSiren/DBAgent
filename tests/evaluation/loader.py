@@ -22,6 +22,14 @@ _DIFFICULTY_MAP: dict[str, Difficulty] = {
     "TC-022": Difficulty.EASY, "TC-023": Difficulty.MEDIUM, "TC-024": Difficulty.MEDIUM,
     "TC-025": Difficulty.MEDIUM, "TC-026": Difficulty.HARD, "TC-027": Difficulty.HARD,
     "TC-028": Difficulty.HARD, "TC-029": Difficulty.HARD, "TC-030": Difficulty.HARD,
+    # dw_onedba_cs 测试用例
+    "CS-001": Difficulty.EASY, "CS-002": Difficulty.EASY, "CS-003": Difficulty.EASY,
+    "CS-004": Difficulty.EASY, "CS-005": Difficulty.EASY, "CS-006": Difficulty.EASY,
+    "CS-007": Difficulty.MEDIUM, "CS-008": Difficulty.MEDIUM, "CS-009": Difficulty.MEDIUM,
+    "CS-010": Difficulty.HARD, "CS-011": Difficulty.HARD, "CS-012": Difficulty.MEDIUM,
+    "CS-013": Difficulty.EASY, "CS-014": Difficulty.EASY, "CS-015": Difficulty.EASY,
+    "CS-016": Difficulty.MEDIUM, "CS-017": Difficulty.MEDIUM, "CS-018": Difficulty.HARD,
+    "CS-019": Difficulty.MEDIUM, "CS-020": Difficulty.MEDIUM,
 }
 
 # 类别映射表（从评分汇总表提取）
@@ -36,6 +44,14 @@ _CATEGORY_MAP: dict[str, str] = {
     "TC-022": "聚合", "TC-023": "JOIN", "TC-024": "JOIN",
     "TC-025": "子查询", "TC-026": "窗口函数", "TC-027": "派生指标",
     "TC-028": "时间窗口", "TC-029": "复合查询", "TC-030": "复合查询",
+    # dw_onedba_cs 测试用例
+    "CS-001": "单表过滤", "CS-002": "单表过滤", "CS-003": "聚合",
+    "CS-004": "聚合", "CS-005": "聚合", "CS-006": "聚合",
+    "CS-007": "多条件过滤", "CS-008": "时间窗口", "CS-009": "去重查询",
+    "CS-010": "窗口函数", "CS-011": "派生指标", "CS-012": "复合查询",
+    "CS-013": "单表过滤", "CS-014": "单表过滤", "CS-015": "聚合",
+    "CS-016": "聚合", "CS-017": "多条件过滤", "CS-018": "派生指标",
+    "CS-019": "时间窗口", "CS-020": "复合查询",
 }
 
 # 表名映射
@@ -54,6 +70,17 @@ _TABLE_MAP: dict[str, list[str]] = {
     "TC-025": ["db_alert_history"], "TC-026": ["db_alert_history"],
     "TC-027": ["order_record"], "TC-028": ["db_alert_history"],
     "TC-029": ["db_alert_history"], "TC-030": ["order_record"],
+    # dw_onedba_cs 测试用例
+    "CS-001": ["db_alert_history"], "CS-002": ["db_alert_history"],
+    "CS-003": ["db_alert_history"], "CS-004": ["db_alert_history"],
+    "CS-005": ["db_alert_history"], "CS-006": ["db_alert_history"],
+    "CS-007": ["db_alert_history"], "CS-008": ["db_alert_history"],
+    "CS-009": ["db_alert_history"], "CS-010": ["db_alert_history"],
+    "CS-011": ["db_alert_history"], "CS-012": ["db_alert_history"],
+    "CS-013": ["todo_record_detail"], "CS-014": ["todo_record_detail"],
+    "CS-015": ["todo_record_detail"], "CS-016": ["todo_record_detail"],
+    "CS-017": ["todo_record_detail"], "CS-018": ["todo_record_detail"],
+    "CS-019": ["todo_record_detail"], "CS-020": ["db_alert_history"],
 }
 
 
@@ -95,8 +122,8 @@ def _extract_judging_criteria(text: str) -> list[str]:
 def _parse_quick_copy_section(content: str) -> dict[str, str]:
     """解析快速复制区，返回 {case_id: sql} 映射"""
     result: dict[str, str] = {}
-    # 按 ### TC-XXX 分割
-    sections = re.split(r"### (TC-\d{3})", content)
+    # 按 ### TC-XXX 或 ### CS-XXX 分割
+    sections = re.split(r"### (TC-\d{3}|CS-\d{3})", content)
     # sections[0] 是快速复制区标题，后续是 [id1, body1, id2, body2, ...]
     for i in range(1, len(sections), 2):
         if i + 1 >= len(sections):
@@ -123,7 +150,7 @@ def load_test_cases(markdown_path: str | None = None) -> list[TestCase]:
     """
     if markdown_path is None:
         markdown_path = str(
-            Path(__file__).resolve().parent.parent / "test_cases_onedba_evaluation.md"
+            Path(__file__).resolve().parent.parent / "docs" / "test_cases_onedba_evaluation.md"
         )
 
     with open(markdown_path, encoding="utf-8") as f:
@@ -141,7 +168,7 @@ def load_test_cases(markdown_path: str | None = None) -> list[TestCase]:
 
     # 按 ### TC-XXX 分割主内容
     # 先找到所有 TC- 标题的位置
-    pattern = r"### (TC-\d{3})\b"
+    pattern = r"### (TC-\d{3}|CS-\d{3})\b"
     splits = list(re.finditer(pattern, main_content))
 
     for i, match in enumerate(splits):

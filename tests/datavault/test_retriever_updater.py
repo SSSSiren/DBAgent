@@ -106,7 +106,7 @@ class TestHDCRetriever:
         })
 
         r = retriever(ov)
-        result = await r.retrieve("退款金额", "dwd_trade")
+        result = await r.retrieve("退款金额", 142, "dwd_trade")
 
         assert result is not None
         assert len(result.matched_tables) == 2
@@ -123,7 +123,7 @@ class TestHDCRetriever:
         })
 
         r = retriever(ov)
-        result = await r.retrieve("nonexistent_query", "dwd_trade")
+        result = await r.retrieve("nonexistent_query", 142, "dwd_trade")
 
         assert result is None
 
@@ -173,7 +173,7 @@ class TestHDCRetriever:
         ov = MockOVClient({"_tables": {}})  # empty response
 
         r = retriever(ov)
-        result = await r.retrieve("退款", "dwd_trade")
+        result = await r.retrieve("退款", 142, "dwd_trade")
 
         # Empty result from find() → _extract_matches returns [] → returns None
         assert result is None
