@@ -214,3 +214,97 @@ class TestSchemaCollector:
 
         # Empty rows with no name are skipped
         assert len(result.tables[0].columns) == 0
+
+    # ── 7.1: 部分表模式 ──
+
+    @pytest.mark.asyncio
+    async def test_tables_filter_only_collects_specified(self):
+        """tables=["users"] only collects specified table, skips others."""
+        client = MockOneDBAClient({
+            "show_table_status": {
+                "columnDatas": [
+                    make_status_row("users", "用户表"),
+                    make_status_row("orders", "订单表"),
+                    make_status_row("products", "商品表"),
+                ]
+            },
+            "describe_users": {
+                "columnDatas": [make_describe_row("id", "int", "NO", "PRI")],
+            },
+            "sample_users": {"columnDatas": [{"id": "1"}]},
+        })
+
+        collector = SchemaCollector(client)
+        result = await collector.collect_database(142, tables=["users"])
+
+        assert len(result.tables) == 1
+        assert result.tables[0].name == "users"
+
+    @pytest.mark.asyncio
+    async def test_tables_none_collects_all(self):
+        """tables=None (default) collects all tables — backward compatible."""
+        client = MockOneDBAClient({
+            "show_table_status": {
+                "columnDatas": [
+                    make_status_row("users", "用户表"),
+                    make_status_row("orders", "订单表"),
+                ]
+            },
+            "describe_users": {
+                "columnDatas": [make_describe_row("id", "int", "NO", "PRI")],
+            },
+            "sample_users": {"columnDatas": [{"id": "1"}]},
+            "describe_orders": {
+                "columnDatas": [make_describe_row("id", "int", "NO", "PRI")],
+            },
+            "sample_orders": {"columnDatas": [{"id": "1"}]},
+        })
+
+        collector = SchemaCollector(client)
+        result = await collector.collect_database(142, tables=None)
+
+        assert len(result.tables) == 2
+        names = {t.name for t in result.tables}
+        assert names == {"users", "orders"}
+
+    @pytest.mark.asyncio
+    async def test_nonexistent_table_name_warns_and_skips(self):
+        """Non-existent table name in tables list logs warning, continues."""
+        client = MockOneDBAClient({
+            "show_table_status": {
+                "columnDatas": [
+                    make_status_row("users", "用户表"),
+                ]
+            },
+            "describe_users": {
+                "columnDatas": [make_describe_row("id", "int", "NO", "PRI")],
+            },
+            "sample_users": {"columnDatas": [{"id": "1"}]},
+        })
+
+        collector = SchemaCollector(client)
+        result = await collector.collect_database(142, tables=["users", "not_exist"])
+
+        # Only the existing table is collected
+        assert len(result.tables) == 1
+        assert result.tables[0].name == "users"
+
+    @pytest.mark.asyncio
+    async def test_all_nonexistent_tables_returns_empty(self):
+        """All specified tables don't exist — returns empty DatabaseRaw."""
+        client = MockOneDBAClient({
+            "show_table_status": {
+                "columnDatas": [
+                    make_status_row("users", "用户表"),
+                ]
+            },
+            "describe_users": {
+                "columnDatas": [make_describe_row("id", "int", "NO", "PRI")],
+            },
+            "sample_users": {"columnDatas": [{"id": "1"}]},
+        })
+
+        collector = SchemaCollector(client)
+        result = await collector.collect_database(142, tables=["ghost_a", "ghost_b"])
+
+        assert len(result.tables) == 0

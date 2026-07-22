@@ -1180,6 +1180,7 @@ class HDCGenerator:
         self,
         schema_id: int,
         database_name: str,
+        tables: list[str] | None = None,
         progress_callback: Callable[[str, dict[str, Any]], None] | None = None,
     ) -> dict[str, Any]:
         """Orchestrate the full HDC generation pipeline.
@@ -1205,6 +1206,8 @@ class HDCGenerator:
         Args:
             schema_id: OneDBA schema ID.
             database_name: Database name.
+            tables: Optional target table names. None for full-database mode,
+                a list for partial-table mode.
             progress_callback: Optional callback(step_name, info_dict) called at
                 each pipeline step boundary for real-time progress reporting.
 
@@ -1218,6 +1221,8 @@ class HDCGenerator:
                 "relationships": int,
                 "duration_seconds": float,
                 "errors": list[str],
+                "mode": "full" | "partial",
+                "requested_tables": list[str] | None,   # only in partial mode
             }
         """
         start_time = time.time()
@@ -1242,7 +1247,7 @@ class HDCGenerator:
                 "status": "running",
             })
 
-        db_raw = await self._collector.collect_database(schema_id)
+        db_raw = await self._collector.collect_database(schema_id, tables=tables)
         tables = db_raw.tables
         tables_total = len(tables)
         if progress_callback:
@@ -1456,6 +1461,7 @@ class HDCGenerator:
             status = "completed"
 
         duration = time.time() - start_time
+        mode: str = "partial" if tables is not None else "full"
         stats: dict[str, Any] = {
             "status": status,
             "tables_total": tables_total,
@@ -1464,7 +1470,10 @@ class HDCGenerator:
             "relationships": len(relationships),
             "duration_seconds": round(duration, 2),
             "errors": errors,
+            "mode": mode,
         }
+        if tables is not None:
+            stats["requested_tables"] = tables
 
         logger.info(
             "generate: %s — %d/%d tables, %d columns, %d relationships, %.2fs",

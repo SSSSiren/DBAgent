@@ -44,11 +44,13 @@ parser = argparse.ArgumentParser(description="HDC 知识库生成验证")
 parser.add_argument("schema_id", nargs="?", type=int, default=25800743, help="OneDBA schema ID")
 parser.add_argument("database_name", nargs="?", type=str, default="dw_onedba", help="数据库名称")
 parser.add_argument("-v", "--verbose", action="store_true", help="输出详细中间日志（每张表/每个关系）")
+parser.add_argument("--tables", type=str, default=None, help="逗号分隔的目标表名列表（部分表生成模式）")
 _cli_args = parser.parse_args()
 
 TARGET_SCHEMA_ID = _cli_args.schema_id
 TARGET_DB_NAME = _cli_args.database_name
 VERBOSE = _cli_args.verbose
+TARGET_TABLES = [t.strip() for t in _cli_args.tables.split(",")] if _cli_args.tables else None
 
 HDC_RESOURCE_BASE = f"viking://resources/hdc/{TARGET_SCHEMA_ID}/{TARGET_DB_NAME}"
 
@@ -253,6 +255,7 @@ async def generate_hdc():
 
     stats = await generator.generate(
         TARGET_SCHEMA_ID, TARGET_DB_NAME,
+        tables=TARGET_TABLES,
         progress_callback=_on_progress,
     )
     elapsed = time.monotonic() - t0
@@ -260,6 +263,7 @@ async def generate_hdc():
     print(f"  ═══════════════════════════════════════════════════════════")
     print(f"  生成结果")
     print(f"  ═══════════════════════════════════════════════════════════")
+    print(f"  模式:        {stats.get('mode', 'full')} {'(部分表)' if stats.get('mode') == 'partial' else '(全库)'}")
     print(f"  状态:        {stats.get('status', 'unknown')}")
     print(f"  表总数:      {stats.get('tables_total', 0)}")
     print(f"  成功:        {stats.get('tables_succeeded', 0)}")

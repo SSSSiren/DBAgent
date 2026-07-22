@@ -83,11 +83,14 @@ class SchemaCollector:
     def __init__(self, client: OneDBAClient) -> None:
         self._client = client
 
-    async def collect_database(self, schema_id: int) -> DatabaseRaw:
-        """采集指定数据库的完整 schema 元数据。
+    async def collect_database(
+        self, schema_id: int, tables: list[str] | None = None
+    ) -> DatabaseRaw:
+        """采集指定数据库的 schema 元数据。
 
         Args:
             schema_id: OneDBA schema ID
+            tables: 可选的目标表名列表。None 时采集全库；指定后仅采集匹配的表
 
         Returns:
             DatabaseRaw 包含所有成功采集的表元数据
@@ -114,6 +117,20 @@ class SchemaCollector:
                 info = _parse_show_table_status_row(row)
                 if info["name"]:
                     table_infos.append(info)
+
+        # ── 表名过滤（部分表模式）──
+        if tables is not None:
+            table_set = set(tables)
+            # 检查不存在的表名并记录警告
+            existing_names = {info["name"] for info in table_infos}
+            for t in tables:
+                if t not in existing_names:
+                    logger.warning(
+                        "SchemaCollector: table '%s' not found in schema_id=%d, skipped",
+                        t,
+                        schema_id,
+                    )
+            table_infos = [info for info in table_infos if info["name"] in table_set]
 
         if not table_infos:
             logger.info(
