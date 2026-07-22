@@ -67,9 +67,11 @@
 
 6. **多层记忆系统**：三层记忆并存——会话级对话历史（存储后端）、长期记忆（OpenViking 外部知识库，每 N 轮延迟提交）、操作偏好（`query_preferences` 表记录表使用模式），每次 Agent 运行前注入上下文。
 
-7. **asyncio.Event 取消机制**：`CancelEventRegistry`（`app/agent/cancel.py`）管理每个会话的取消信号，Agent 循环在多个安全点检查取消（迭代边界、LLM 调用竞态、工具执行），通过 REST 端点暴露。含 TTL 过期机制（5 分钟）防止内存泄漏。
+7. **HDC 离线生成管线**：`app/datavault/` 模块实现 TiInsight HDC 方法论的离线 LLM 管线 — SchemaCollector（OneDBA 采集）→ HDCGenerator（四层自底向上 LLM 生成：列摘要→表描述→表关系→数据库摘要）→ HDCUploader（OpenViking 目录结构 + tags），HDCRetriever 负责在线两阶段检索（tags+向量双路召回），HDCUpdater 支持增量更新（列签名 hash 对比）。LLM 调用通过 `asyncio.Semaphore` 限流，单表失败不中断整体流程。
+
+8. **asyncio.Event 取消机制**：`CancelEventRegistry`（`app/agent/cancel.py`）管理每个会话的取消信号，Agent 循环在多个安全点检查取消（迭代边界、LLM 调用竞态、工具执行），通过 REST 端点暴露。含 TTL 过期机制（5 分钟）防止内存泄漏。
 
 8. **用户隔离的多租户会话**：所有会话操作使用 `(user_id, session_id)` 复合键，存储层实现多租户隔离。
 
 ---
-_updated_at: 2026-07-15_
+_updated_at: 2026-07-22_

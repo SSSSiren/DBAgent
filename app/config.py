@@ -57,6 +57,7 @@ class Settings(BaseSettings):
     # ========== HDC 数据底座 ==========
     hdc_enabled: bool = False
     hdc_auto_generate: bool = False
+    hdc_semantic_timeout: float = 300.0  # write(wait=True) 等待 SemanticProcessor 的超时秒数
 
     model_config = SettingsConfigDict(
         env_file=".env",

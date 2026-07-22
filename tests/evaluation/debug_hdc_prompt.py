@@ -136,9 +136,10 @@ async def main():
     parser.add_argument("--output", type=str, default="tests/evaluation/output/hdc_prompt_debug",
                         help="输出目录")
     parser.add_argument("--db-name", type=str, default="dw_onedba")
+    parser.add_argument("--test-cases", type=str, default="/Users/admin/DBR/DB-Agent/Infra-DB-Agent/DBAgent/tests/docs/test_cases_onedba_cs_evaluation.md", help="指定测试用例文件路径（可选）")
     args = parser.parse_args()
 
-    cases = load_test_cases()
+    cases = load_test_cases(args.test_cases)
     filtered = filter_test_cases(cases, ids=args.ids, difficulty=args.difficulty, category=args.category)
 
     if not filtered:

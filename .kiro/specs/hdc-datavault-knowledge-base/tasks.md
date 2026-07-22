@@ -75,7 +75,8 @@
 - [ ] 2.4 构建 HDCGenerator — 表关系与数据库摘要生成
   - 实现表关系两阶段检测：阶段 1 — OpenViking `find` 粗筛候选表（每表 top 5）；阶段 2 — LLM 细筛确认引用关系（join_columns、relationship_type、confidence）
   - 实现数据库摘要生成：基于影响力最大化原则（关系数最多的 Top 5 表 → LLM 推断 `representative_entities`、`domain_hint`、`description`）
-  - 实现 `generate()` 主方法：编排 `collect_database → generate_column_summaries → generate_table_descriptions → generate_relationships → generate_database_summary → upload_database` 全流程
+  - 实现 `generate()` 主方法：编排 `collect_database → generate_column_summaries → generate_table_descriptions → upload_tables → generate_relationships → generate_database_summary → upload_cascade` 全流程<br/>
+  （表先上传到 OpenViking，使关系检测阶段的 `find()` API 可用，首次生成和增量更新共享同一路径）
   - 返回生成统计字典：`{"status", "tables_total", "tables_succeeded", "columns", "relationships", "duration_seconds", "errors"}`
   - 完成后：调用 `generate(142, "dwd_trade")` 返回统计字典，`status` 为 `"completed"` 或 `"partial"`，OpenViking 中可见完整 HDC 数据
   - _Requirements: 1.2, 1.6_

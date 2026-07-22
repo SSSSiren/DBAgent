@@ -118,6 +118,44 @@ def _format_column_md(col: "ColumnSummary") -> str:
     return "\n".join(lines).strip() + "\n"
 
 
+def _format_tables_index(tables: list["TableDescriptionWithColumns"]) -> str:
+    """Format the _tables/_INDEX.md content — minimal index for SemanticProcessor.
+
+    Provides SemanticProcessor with material to generate _tables/.abstract.md (L0)
+    and .overview.md (L1). Without this file, the directory-level L0 would remain
+    "[Directory overview is not generated]".
+
+    DESIGN: Grouped by main_entity prefix to keep file size O(unique entities) not
+    O(table count). For 5000 tables with 200 unique entities, this is ~8KB instead
+    of ~200KB. The per-table _INDEX.md already carries full descriptions and
+    generates per-table L0/L1 vectors. The directory-level L0/L1 only needs enough
+    signal for coarse-grained domain filtering ("which tables match the user's
+    business domain?").
+    """
+    from collections import Counter
+
+    # Group by the first part of main_entity (the primary entity name)
+    entity_groups: Counter[str] = Counter()
+    for t in tables:
+        me = t.main_entity or t.table_name
+        primary = me.split("/")[0].strip()
+        if primary:
+            entity_groups[primary] += 1
+
+    lines = [
+        f"# 数据库表目录",
+        "",
+        f"**表总数**：{len(tables)}",
+        f"**业务实体**：{len(entity_groups)} 类",
+        "",
+        "## 核心实体分布",
+        "",
+    ]
+    for entity, count in entity_groups.most_common():
+        lines.append(f"- **{entity}**：{count} 张表")
+    return "\n".join(lines).strip() + "\n"
+
+
 def _format_database_index(db_summary: "DatabaseSummary") -> str:
     """Format the database-level _INDEX.md content."""
     entities = "、".join(db_summary.representative_entities) if db_summary.representative_entities else db_summary.database_name
@@ -176,30 +214,26 @@ class HDCUploader:
 
     def __init__(self, ov_client: "OpenVikingClient") -> None:
         self._ov = ov_client
+        from app.config import get_settings
+        self._semantic_timeout = get_settings().hdc_semantic_timeout
 
     # ── 公开 API ────────────────────────────────────────────────
 
-    async def upload_database(
+    async def upload_tables(
         self,
         key: str,
-        db_summary: "DatabaseSummary",
         tables: list["TableDescriptionWithColumns"],
-        relationships: list["TableRelationship"],
     ) -> None:
-        """创建完整的数据库 HDC 目录结构并上传所有内容。
+        """Phase A: 上传表到 OpenViking（不含数据库摘要和关系）。
 
-        流程：
-        1. mkdir 创建数据库目录、_tables 目录、_relationships 目录
-        2. 逐表调用 upload_table() 上传表描述和列详情
-        3. 写入数据库 _INDEX.md（wait=True 触发 SemanticProcessor）
-        4. 写入 _relationships/{src}__{tgt}.md 文件
-
+        创建数据库目录和 _tables 目录，逐表上传表描述和列详情。
         单表上传失败不中断整体流程，记录错误并继续。
+
+        使 OpenViking find API 在后续关系检测阶段可用。
         """
         # 1. 创建目录结构
         await self._ov.mkdir(_db_uri(key))
         await self._ov.mkdir(_tables_dir_uri(key))
-        await self._ov.mkdir(_relations_dir_uri(key))
 
         # 2. 逐表上传（单表失败不中断）
         for table in tables:
@@ -211,22 +245,69 @@ class HDCUploader:
                     key, table.table_name, exc_info=True,
                 )
 
-        # 3. 写入数据库摘要（wait=True 触发 SemanticProcessor）
-        # 使用 mode="create" — 文件首次创建，避免 replace→create fallback
+        # 3. 写入 _tables/_INDEX.md 目录汇总，触发 SemanticProcessor 生成 L0/L1
+        # 没有此文件时，_tables/.abstract.md 永远为 "[Directory overview is not generated]"
+        # 导致 find() 的 tags 语义过滤失效
+        # wait=False — 大库（>100表）的汇总文档 VLM 处理 >300s，不阻塞管线
+        tables_index = _format_tables_index(tables)
+        await self._ov.write(
+            f"{_tables_dir_uri(key)}/_INDEX.md", tables_index,
+            mode="create", wait=False,
+            timeout=self._semantic_timeout,
+        )
+
+        log.info(
+            "HDCUploader: uploaded %d tables for %s",
+            len(tables), key,
+        )
+
+    async def upload_cascade(
+        self,
+        key: str,
+        db_summary: "DatabaseSummary",
+        relationships: list["TableRelationship"],
+    ) -> None:
+        """Phase B: 上传数据库摘要和关系文件。
+
+        假设 upload_tables() 已经完成（数据库目录和 _tables 目录已存在）。
+        写入数据库 _INDEX.md 和 _relationships/{src}__{tgt}.md 文件。
+        """
+        # 确保 _relationships 目录存在
+        await self._ov.mkdir(_relations_dir_uri(key))
+
+        # 写入数据库摘要（wait=True 触发 SemanticProcessor）
+        # Use mode="replace" — on rebuild, the file already exists
         db_index_content = _format_database_index(db_summary)
         db_index_uri = f"{_db_uri(key)}/_INDEX.md"
-        await self._ov.write(db_index_uri, db_index_content, mode="create", wait=True)
+        await self._ov.write(
+            db_index_uri, db_index_content, mode="replace", wait=True,
+            timeout=self._semantic_timeout,
+        )
 
-        # 4. 写入关系文件
+        # 写入关系文件（mode="replace" — on rebuild, old relationship files exist）
         for rel in relationships:
             rel_content = _format_relationship_md(rel)
             rel_uri = f"{_relations_dir_uri(key)}/{rel.source_table}__{rel.target_table}.md"
-            await self._ov.write(rel_uri, rel_content, mode="create", wait=False)
+            await self._ov.write(rel_uri, rel_content, mode="replace", wait=False)
 
         log.info(
-            "HDCUploader: uploaded database %s (%d tables, %d relationships)",
-            key, len(tables), len(relationships),
+            "HDCUploader: uploaded cascade for %s (summary + %d relationships)",
+            key, len(relationships),
         )
+
+    async def upload_database(
+        self,
+        key: str,
+        db_summary: "DatabaseSummary",
+        tables: list["TableDescriptionWithColumns"],
+        relationships: list["TableRelationship"],
+    ) -> None:
+        """便捷方法：upload_tables + upload_cascade。保持向后兼容。
+
+        等效于依次调用 upload_tables() 和 upload_cascade()。
+        """
+        await self.upload_tables(key, tables)
+        await self.upload_cascade(key, db_summary, relationships)
 
     async def upload_table(
         self,
@@ -252,9 +333,13 @@ class HDCUploader:
 
         # 写入 _INDEX.md（wait=True 触发 SemanticProcessor）
         # 使用 mode="create" — 文件首次创建，避免 replace→create fallback
+        # timeout 从 hdc_semantic_timeout 配置读取（默认 300s），应对大表 VLM 处理慢
         index_content = _format_table_index(table_desc)
         index_uri = f"{table_dir}/_INDEX.md"
-        await self._ov.write(index_uri, index_content, mode="create", wait=True)
+        await self._ov.write(
+            index_uri, index_content, mode="create", wait=True,
+            timeout=self._semantic_timeout,
+        )
 
         # 设置 tags（OpenViking 要求 k=v 格式）
         tags = [

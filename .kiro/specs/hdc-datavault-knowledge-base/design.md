@@ -198,11 +198,15 @@ sequenceDiagram
     LLM-->>Gen: 列描述列表
     Gen->>LLM: 表描述生成（并行）
     LLM-->>Gen: 表描述
-    Gen->>LLM: 表关系生成（两阶段）
+    Gen->>OV: upload_tables (mkdir + write + set_tags)
+    OV-->>Gen: 表数据上传完成
+    Gen->>OV: find (检索候选关系表)
+    OV-->>Gen: 候选表列表
+    Gen->>LLM: 表关系 LLM 细筛
     LLM-->>Gen: 关系列表
     Gen->>LLM: 数据库摘要生成
     LLM-->>Gen: 数据库摘要
-    Gen->>OV: mkdir + write + set_tags
+    Gen->>OV: upload_cascade (数据库摘要 + 关系)
     OV-->>Gen: 上传完成
     Gen-->>API: 生成统计
     API-->>Admin: {task_id, stats}

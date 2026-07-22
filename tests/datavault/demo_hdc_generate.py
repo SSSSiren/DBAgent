@@ -9,14 +9,16 @@ HDC 知识库生成验证
 运行方式：
   cd /Users/admin/DBR/DB-Agent/Infra-DB-Agent/DBAgent
   python tests/datavault/demo_hdc_generate.py [schema_id] [database_name]
+  python tests/datavault/demo_hdc_generate.py [schema_id] [database_name] -v   # 详细日志
 
   验证持久化：
   ov ls viking://resources/hdc/{database_name}
   ov tree viking://resources/hdc/{database_name} -L 3
 """
 
+import argparse
 import asyncio
-import json
+import logging
 import os
 import sys
 import time
@@ -36,8 +38,17 @@ OV_API = f"{OV_BASE_URL}/api/v1"
 TEST_USER = "hdc-gen-verify"
 
 SETTINGS = get_settings()
-TARGET_SCHEMA_ID = int(sys.argv[1]) if len(sys.argv) > 1 else 25800743
-TARGET_DB_NAME = sys.argv[2] if len(sys.argv) > 2 else "dw_onedba"
+
+# ── 命令行参数 ──
+parser = argparse.ArgumentParser(description="HDC 知识库生成验证")
+parser.add_argument("schema_id", nargs="?", type=int, default=25800743, help="OneDBA schema ID")
+parser.add_argument("database_name", nargs="?", type=str, default="dw_onedba", help="数据库名称")
+parser.add_argument("-v", "--verbose", action="store_true", help="输出详细中间日志（每张表/每个关系）")
+_cli_args = parser.parse_args()
+
+TARGET_SCHEMA_ID = _cli_args.schema_id
+TARGET_DB_NAME = _cli_args.database_name
+VERBOSE = _cli_args.verbose
 
 HDC_RESOURCE_BASE = f"viking://resources/hdc/{TARGET_SCHEMA_ID}/{TARGET_DB_NAME}"
 
@@ -156,7 +167,7 @@ async def generate_hdc():
     generator = HDCGenerator(llm_client=llm, collector=collector, uploader=uploader)
 
     print(f"\n  正在生成 HDC（预计 1-3 分钟，取决于表数量和 LLM 速度）...")
-    print(f"  管线: 采集 schema → 列摘要 → 表描述 → 表关系 → 数据库摘要 → 上传\n")
+    print(f"  管线: 采集 schema → 列摘要 → 表描述 → 上传表 → 表关系 → 数据库摘要 → 上传摘要和关系\n")
 
     # ── 实时进度回调 ──
     # 每个步骤开始时打印 "[INFO] 正在执行...", 完成时打印 "[OK] 完成"
@@ -170,7 +181,7 @@ async def generate_hdc():
 
         if status == "running":
             _step_start_time[step] = time.monotonic()
-            indicator = f"[{phase}/5]"
+            indicator = f"[{phase}/6]"
             extra = ""
             if "tables_total" in info:
                 extra = f" ({info['tables_total']} 张表)"
@@ -184,6 +195,35 @@ async def generate_hdc():
                 total = info.get("tables_total", 0)
                 pct = done / total * 100 if total else 0
                 extra = f" ({done}/{total} 张表, {pct:.0f}%)"
+
+            # ── 详细日志：逐表完成 ──
+            if VERBOSE and step == "table_done":
+                tn = info.get("table_name", "?")
+                me = info.get("main_entity", "")
+                tt = info.get("table_type", "")
+                done = info.get("done", 0)
+                total = info.get("total", 0)
+                pct = done / total * 100 if total else 0
+                me_str = f" → {me} [{tt}]" if me else ""
+                print(f"       [{done}/{total} {pct:.0f}%] {tn}{me_str}")
+
+            # ── 详细日志：关系检测 ──
+            if VERBOSE and step == "relate_source":
+                src = info.get("source_table", "?")
+                cand = info.get("candidates", 0)
+                find_src = info.get("find_source", "?")
+                done = info.get("done", 0)
+                total = info.get("total", 0)
+                src_label = {"openviking": "OV", "fallback": "回退", "local": "本地", "none": "无"}.get(find_src, find_src)
+                print(f"       [{done}/{total}] {src} → {cand} 候选 ({src_label})")
+
+            if VERBOSE and step == "relate_found":
+                src = info.get("source_table", "?")
+                found = info.get("found", 0)
+                targets = info.get("targets", [])
+                targets_str = ", ".join(targets[:5])
+                print(f"         {src}: 确认 {found} 个关系 → [{targets_str}]")
+
             print(f"  {indicator} {label}...{extra}")
 
         elif status == "done":
@@ -202,9 +242,14 @@ async def generate_hdc():
                 hint = info.get("domain_hint", "")
                 hint_str = f" — {hint}" if hint else ""
                 print(f"       [OK]{hint_str}{suffix}")
-            elif step == "upload":
+            elif step == "upload_tables":
+                tables = info.get("tables", 0)
                 ok = "✅" if info.get("success") else "❌"
-                print(f"       [{ok}] 上传{'成功' if info.get('success') else '失败'}{suffix}")
+                print(f"       [{ok}] 上传表{'成功' if info.get('success') else '失败'} ({tables} 张表){suffix}")
+            elif step == "upload_cascade":
+                ok = "✅" if info.get("success") else "❌"
+                rels = info.get("relationships", 0)
+                print(f"       [{ok}] 上传摘要和关系{'成功' if info.get('success') else '失败'} ({rels} 个关系){suffix}")
 
     stats = await generator.generate(
         TARGET_SCHEMA_ID, TARGET_DB_NAME,
@@ -369,12 +414,30 @@ async def verify_retrieval():
 # ═══════════════════════════════════════════════════════════════
 
 async def main():
+    # ── 配置日志 ──
+    if VERBOSE:
+        logging.basicConfig(
+            level=logging.DEBUG,
+            format="%(asctime)s [%(name)s] %(levelname)s: %(message)s",
+            datefmt="%H:%M:%S",
+        )
+        # 抑制 httpx 等第三方库的噪音
+        logging.getLogger("httpx").setLevel(logging.WARNING)
+        logging.getLogger("httpcore").setLevel(logging.WARNING)
+        logging.getLogger("openai").setLevel(logging.WARNING)
+    else:
+        logging.basicConfig(
+            level=logging.WARNING,
+            format="%(levelname)s: %(message)s",
+        )
+
     print("=" * 70)
     print("  HDC 知识库生成验证")
     print("=" * 70)
     print(f"  目标: {TARGET_DB_NAME} (schemaId={TARGET_SCHEMA_ID})")
     print(f"  OpenViking: {OV_BASE_URL}")
     print(f"  LLM: {SETTINGS.llm_model}")
+    print(f"  详细日志: {'开启' if VERBOSE else '关闭'} (使用 -v 开启)")
     print()
 
     # Phase 1: 生成

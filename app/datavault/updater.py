@@ -120,7 +120,11 @@ class HDCUpdater:
             if not entry.get("isDir", False):
                 continue
 
-            table_name = entry.get("name", "")
+            # OpenViking fs/ls via _get_raw returns entries with 'uri' but not 'name'.
+            table_name = (entry.get("name") or "").strip()
+            if not table_name:
+                uri = entry.get("uri", "")
+                table_name = uri.rstrip("/").split("/")[-1] if uri else ""
             if not table_name:
                 continue
 
@@ -130,7 +134,7 @@ class HDCUpdater:
             table_dir = _table_dir_uri(key, table_name)
             try:
                 detail = await self._uploader._ov._get_raw(
-                    "/api/v1/fs/read", table_dir
+                    "/api/v1/fs/attrs", table_dir
                 )
             except Exception:
                 log.debug(
@@ -141,7 +145,9 @@ class HDCUpdater:
             if not isinstance(detail, dict):
                 continue
 
-            tags = detail.get("tags", [])
+            # fs/attrs returns {"uri": ..., "attrs": {"tags": [...]}}
+            attrs = detail.get("attrs", {})
+            tags = attrs.get("tags", []) if isinstance(attrs, dict) else []
             if not isinstance(tags, list):
                 tags = []
 
@@ -182,6 +188,274 @@ class HDCUpdater:
     async def check_and_update(
         self, schema_id: int, database_name: str
     ) -> dict[str, Any]:
+        """Check for schema changes and perform incremental updates.
+
+        Workflow:
+        1. Collect current schema from OneDBA
+        2. Compute column signature hashes for each table
+        3. Read stored hashes from OpenViking
+        4. Compare: identify new, changed, and deleted tables
+        5. If no changes: return ``{"changed": False}`` (zero LLM calls)
+        6. Re-generate new/changed tables (column summaries + table description)
+        7. Delete removed tables from OpenViking
+        8. Cascade: re-generate relationships and database summary
+        9. Return change summary
+
+        Args:
+            schema_id: OneDBA schema ID.
+            database_name: Database name.
+
+        Returns:
+            ``{"changed": False}`` when no schema changes are detected.
+            ``{"changed": True, "new": N, "changed_tables": N, "deleted": N}``
+            when changes are detected and processed.
+
+        Requirements: 3.1, 3.2, 3.3, 3.4, 3.5
+        """
+
+    async def rebuild_relationships(
+        self, schema_id: int, database_name: str,
+        progress_callback: Callable[[str, dict[str, Any]], None] | None = None,
+    ) -> dict[str, Any]:
+        """Force-rebuild relationships and database summary without touching tables.
+
+        Use case: After fixing a bug that caused relationship detection failures
+        (e.g. LLM connection exhaustion), rebuild relationships and database
+        summary from existing table data in OpenViking.
+
+        This method does NOT regenerate column summaries or table descriptions.
+        It reads table tags (main_entity, table_type, pk) from OpenViking and
+        column names/types from OneDBA, then runs relationship detection and
+        database summary generation.
+
+        Returns:
+            {"relationships": N, "duration_seconds": float} on success.
+        """
+        import time as _time
+        from app.datavault.uploader import _tables_dir_uri, _table_dir_uri
+
+        key = storage_key(schema_id, database_name)
+        start_time = _time.monotonic()
+
+        # ── 1. Collect current schema from OneDBA ──
+        db_raw = await self._collector.collect_database(schema_id)
+        current_tables: dict[str, Any] = {
+            t.name: t for t in db_raw.tables
+        }
+
+        # ── 2. Read table tags from OpenViking ──
+        tables_dir = _tables_dir_uri(key)
+        try:
+            entries = await self._uploader._ov._get_raw(
+                "/api/v1/fs/ls", tables_dir
+            )
+        except Exception:
+            log.warning(
+                "HDCUpdater: cannot list _tables directory for '%s'", key
+            )
+            return {"relationships": 0, "duration_seconds": 0}
+
+        if not isinstance(entries, list):
+            entries = []
+
+        # Build TableDescription + ColumnSummary from OpenViking tags + OneDBA raw
+        all_descriptions: list[TableDescription] = []
+        all_column_summaries: dict[str, list[ColumnSummary]] = {}
+
+        for entry in (entries or []):
+            if not isinstance(entry, dict):
+                continue
+            if not entry.get("isDir", False):
+                continue
+
+            # OpenViking fs/ls via _get_raw returns entries with 'uri' but not 'name'.
+            # Extract table name from the last segment of the URI path.
+            table_name = (entry.get("name") or "").strip()
+            if not table_name:
+                uri = entry.get("uri", "")
+                table_name = uri.rstrip("/").split("/")[-1] if uri else ""
+            if not table_name:
+                continue
+
+            # Read tags from OpenViking table directory
+            table_dir = _table_dir_uri(key, table_name)
+            main_entity = table_name
+            table_type = "fact"
+            primary_key = ""
+
+            try:
+                detail = await self._uploader._ov._get_raw(
+                    "/api/v1/fs/attrs", table_dir
+                )
+                if isinstance(detail, dict):
+                    # fs/attrs returns {"uri": ..., "attrs": {"tags": [...]}}
+                    attrs = detail.get("attrs", {})
+                    tags_raw = attrs.get("tags", []) if isinstance(attrs, dict) else []
+                    tags: list[str] = tags_raw if isinstance(tags_raw, list) else []
+                    for tag in tags:
+                        if not isinstance(tag, str):
+                            continue
+                        if tag.startswith("main_entity="):
+                            main_entity = tag[len("main_entity="):]
+                        elif tag.startswith("table_type="):
+                            table_type = tag[len("table_type="):]
+                        elif tag.startswith("pk="):
+                            primary_key = tag[len("pk="):]
+            except Exception:
+                log.debug("HDCUpdater: cannot read tags for %s", table_dir)
+
+            # Build TableDescription from tags
+            desc = TableDescription(
+                table_name=table_name,
+                main_entity=main_entity,
+                table_type=table_type,  # type: ignore[arg-type]
+                primary_key=primary_key,
+                key_attributes=[],
+                description="",
+                usage_scenario="",
+            )
+            all_descriptions.append(desc)
+
+            # Build ColumnSummary from OneDBA raw schema
+            table_raw = current_tables.get(table_name)
+            if table_raw:
+                summaries: list[ColumnSummary] = []
+                for col in table_raw.columns:
+                    summaries.append(ColumnSummary(
+                        column_name=col.name,
+                        description="",
+                        data_type=col.data_type,
+                        nullable=col.nullable,
+                        is_primary_key=(col.key == "PRI"),
+                    ))
+                all_column_summaries[table_name] = summaries
+
+        if not all_descriptions:
+            log.warning("HDCUpdater: no tables found in OpenViking for '%s'", key)
+            return {"relationships": 0, "duration_seconds": 0}
+
+        log.info(
+            "HDCUpdater: rebuilding relationships for %d tables in '%s'",
+            len(all_descriptions), key,
+        )
+
+        # ── 2.5 Write _tables/_INDEX.md to trigger SemanticProcessor L0/L1 ──
+        # find() searches _tables/ directory level (non-recursive), so we need
+        # _tables/.abstract.md and .overview.md for tags-based vector search to work.
+        # Without this, every table shows "回退" (local heuristic) instead of "OV".
+        from app.datavault.uploader import _format_tables_index, _tables_dir_uri
+        from app.datavault.models import TableDescriptionWithColumns
+        tables_for_index: list[TableDescriptionWithColumns] = []
+        for td in all_descriptions:
+            tables_for_index.append(TableDescriptionWithColumns(
+                table_name=td.table_name,
+                main_entity=td.main_entity,
+                table_type=td.table_type,
+                primary_key=td.primary_key,
+                key_attributes=td.key_attributes,
+                description=td.description,
+                usage_scenario=td.usage_scenario,
+                row_count_estimate=td.row_count_estimate,
+                columns=all_column_summaries.get(td.table_name, []),
+            ))
+        tables_dir = _tables_dir_uri(key)
+        tables_index = _format_tables_index(tables_for_index)
+        try:
+            await self._uploader._ov.write(
+                f"{tables_dir}/_INDEX.md", tables_index,
+                mode="replace", wait=False,  # 377表文档 VLM 处理 >300s，不阻塞
+            )
+        except Exception:
+            log.warning(
+                "HDCUpdater: failed to write _tables/_INDEX.md for '%s'", key, exc_info=True
+            )
+
+        # ── 3. Regenerate relationships ──
+        relationships: list[TableRelationship] = []
+        errors: list[str] = []
+
+        if progress_callback:
+            progress_callback("rebuild_relationships", {
+                "phase": 4, "phase_label": "检测表关系",
+                "status": "running",
+                "tables": len(all_descriptions),
+            })
+
+        try:
+            relationships = await self._generator.generate_relationships(
+                key, all_descriptions, all_column_summaries,
+                progress_callback=progress_callback,
+            )
+        except Exception as e:
+            error_msg = f"Relationship regeneration failed during rebuild: {e}"
+            log.error("HDCUpdater: %s", error_msg)
+            errors.append(error_msg)
+
+        if progress_callback:
+            progress_callback("rebuild_relationships", {
+                "phase": 4, "phase_label": "检测表关系",
+                "status": "done",
+                "count": len(relationships),
+            })
+
+        # ── 4. Regenerate database summary ──
+        db_summary = None
+
+        if progress_callback:
+            progress_callback("rebuild_db_summary", {
+                "phase": 5, "phase_label": "生成数据库摘要",
+                "status": "running",
+            })
+
+        try:
+            db_summary = await self._generator.generate_database_summary(
+                database_name, all_descriptions, relationships,
+            )
+        except Exception as e:
+            error_msg = f"Database summary regeneration failed during rebuild: {e}"
+            log.error("HDCUpdater: %s", error_msg)
+            errors.append(error_msg)
+
+        if progress_callback:
+            progress_callback("rebuild_db_summary", {
+                "phase": 5, "phase_label": "生成数据库摘要",
+                "status": "done",
+                "domain_hint": db_summary.domain_hint if db_summary else "",
+            })
+
+        # ── 5. Upload cascade results ──
+        if db_summary is not None:
+            if progress_callback:
+                progress_callback("rebuild_upload", {
+                    "phase": 6, "phase_label": "上传摘要和关系",
+                    "status": "running",
+                    "relationships": len(relationships),
+                })
+            try:
+                await self._uploader.upload_cascade(key, db_summary, relationships)
+            except Exception as e:
+                error_msg = f"Cascade upload failed during rebuild: {e}"
+                log.error("HDCUpdater: %s", error_msg)
+                errors.append(error_msg)
+            if progress_callback:
+                progress_callback("rebuild_upload", {
+                    "phase": 6, "phase_label": "上传摘要和关系",
+                    "status": "done",
+                })
+
+        duration = _time.monotonic() - start_time
+        result = {
+            "relationships": len(relationships),
+            "duration_seconds": round(duration, 2),
+        }
+        if errors:
+            result["errors"] = errors
+
+        log.info(
+            "HDCUpdater: rebuild_relationships complete — %d relationships in %.2fs",
+            len(relationships), duration,
+        )
+        return result
         """Check for schema changes and perform incremental updates.
 
         Workflow:
@@ -393,31 +667,8 @@ class HDCUpdater:
         # Upload cascade results (database summary + relationships only;
         # individual tables were already uploaded above)
         if db_summary is not None:
-            from app.datavault.uploader import (
-                _db_uri,
-                _format_database_index,
-                _format_relationship_md,
-                _relations_dir_uri,
-            )
-
             try:
-                # Write database _INDEX.md
-                db_index_content = _format_database_index(db_summary)
-                db_index_uri = f"{_db_uri(key)}/_INDEX.md"
-                await self._uploader._ov.write(
-                    db_index_uri, db_index_content, mode="replace", wait=True
-                )
-
-                # Write relationship files
-                for rel in relationships:
-                    rel_content = _format_relationship_md(rel)
-                    rel_uri = (
-                        f"{_relations_dir_uri(key)}/"
-                        f"{rel.source_table}__{rel.target_table}.md"
-                    )
-                    await self._uploader._ov.write(
-                        rel_uri, rel_content, mode="replace", wait=False
-                    )
+                await self._uploader.upload_cascade(key, db_summary, relationships)
             except Exception as e:
                 error_msg = f"Cascade upload failed: {e}"
                 log.error("HDCUpdater: %s", error_msg)

@@ -320,9 +320,12 @@ class OpenVikingClient:
             # When wait=True, SemanticProcessor needs extra time for VLM + vector store
             # Default httpx timeout (30s) is too short. Use caller-provided timeout
             # or fall back to 120s for wait=True writes.
-            httpx_timeout: float | None = None
-            if wait and timeout is None:
+            if timeout is not None:
+                httpx_timeout = timeout
+            elif wait:
                 httpx_timeout = 120.0
+            else:
+                httpx_timeout = None
             return await self._post("/api/v1/content/write", payload, timeout=httpx_timeout)
         except Exception:
             # mode="replace" 要求文件已存在；如果失败，回退到 create

@@ -14,6 +14,8 @@ DBAgent 是一个 **NL2SQL（自然语言转 SQL）智能数据库助手**，运
 
 5. **可观测的流式 Agent**：ReAct 推理循环通过 SSE 和 WebSocket 实时推送到前端，每一步（LLM 推理、工具调用、SQL 提取、最终响应）都可追踪。Langfuse 集成提供 trace、token 统计和性能可观测性。
 
+6. **HDC 数据底座**：离线 LLM 管线将数据库 schema 转化为四层业务语义描述（列→表→关系→库），存储于 OpenViking 资源目录，在线检索时注入 Agent 上下文，减少 Agent 面对陌生数据库时的 `find_table→describe_table` 盲搜往返。
+
 ## Target Use Cases
 
 - **即席数据探索**：用户不知道表名和 SQL 语法，用自然语言描述需求，Agent 自动完成发现→生成→执行。
@@ -30,4 +32,4 @@ DBAgent 是一个 **NL2SQL（自然语言转 SQL）智能数据库助手**，运
 - **流式交互体验**：SSE/WebSocket 实时展示 Agent 推理过程，提升透明度和信任感。
 
 ---
-_updated_at: 2026-07-15_
+_updated_at: 2026-07-22_

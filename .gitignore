@@ -29,6 +29,7 @@ htmlcov/
 data/
 data/*
 *.txt
+*.log
 
 # Docker
 .docker/

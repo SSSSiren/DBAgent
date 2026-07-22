@@ -39,6 +39,11 @@
 **Purpose**: OpenViking 长期记忆集成  
 **Pattern**: 可选子系统
 
+### 数据底座 (`app/datavault/`)
+**Purpose**: HDC（层次化数据上下文）知识库的生成、检索、上传和增量更新  
+**Key modules**: `models.py`（采集层/生成层/检索层数据模型）、`collector.py`（SchemaCollector — OneDBA schema 采集）、`generator.py`（HDCGenerator — 四层 LLM 生成管线）、`uploader.py`（HDCUploader — OpenViking 目录结构 + tags 写入）、`retriever.py`（HDCRetriever — 两阶段 tags+向量检索）、`updater.py`（HDCUpdater — 列签名 hash 增量更新）  
+**Pattern**: 离线生成管线 + 在线检索分离；asyncio.Semaphore LLM 并发限流；单表容错（失败不中断整体）；静默降级（OpenViking 不可用时回退到 find_table+describe_table）
+
 ### 客户端 (`app/client/`)
 **Purpose**: OneDBA 平台 HTTP 客户端  
 **Pattern**: 外部服务访问层
@@ -108,4 +113,4 @@ from app.tools import TOOLS, TOOL_HANDLERS
 8. **中文文档**：模块级和函数级 docstring 使用中文，代码注释中英混合。
 
 ---
-_updated_at: 2026-07-15_
+_updated_at: 2026-07-22_

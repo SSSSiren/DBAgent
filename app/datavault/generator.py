@@ -599,6 +599,9 @@ class HDCGenerator:
     async def _chat_json(self, prompt: str) -> Any:
         """Make a single LLM chat completion call and return parsed JSON.
 
+        Uses self._semaphore to limit concurrency — shared with column summary
+        and table description generation to avoid LLM connection exhaustion.
+
         Args:
             prompt: The user message to send to the LLM.
 
@@ -606,17 +609,18 @@ class HDCGenerator:
             Parsed JSON value (dict, list, etc.), or {} on failure.
         """
         client = self._get_client()
-        try:
-            response = await client.chat.completions.create(
-                model=self._settings.llm_model,
-                messages=[{"role": "user", "content": prompt}],
-                temperature=0.1,
-            )
-            content = response.choices[0].message.content or ""
-            return self._parse_json_response(content)
-        except Exception as e:
-            logger.error("_chat_json LLM call failed: %s", e)
-            return {}
+        async with self._semaphore:
+            try:
+                response = await client.chat.completions.create(
+                    model=self._settings.llm_model,
+                    messages=[{"role": "user", "content": prompt}],
+                    temperature=0.1,
+                )
+                content = response.choices[0].message.content or ""
+                return self._parse_json_response(content)
+            except Exception as e:
+                logger.error("_chat_json LLM call failed: %s", e)
+                return {}
 
     @staticmethod
     def _parse_json_response(response_text: str) -> Any:
@@ -712,9 +716,12 @@ class HDCGenerator:
     ) -> list[str]:
         """Stage 1: Use OpenViking find to get top 5 candidate tables for a source table.
 
-        Uses the table's main_entity as a search query against the _tables directory
-        for the given database, filtered to hdc_level:table tags and L0/L1 level.
-        Returns up to 5 candidate table names (excluding the source table itself).
+        Requires that tables have been uploaded to OpenViking (via upload_tables())
+        before this method is called. The upload_tables() call triggers SemanticProcessor
+        which generates L0/L1 vector embeddings used by find().
+
+        Falls back to empty list if find() fails or returns no results, which
+        triggers _local_coarse_candidates() in the caller.
         """
         desc = next((td for td in table_descriptions if td.table_name == table_name), None)
         if desc is None:
@@ -895,6 +902,7 @@ class HDCGenerator:
         key: str,
         table_descriptions: list[TableDescription],
         column_summaries: dict[str, list[ColumnSummary]] | None = None,
+        progress_callback: Callable[[str, dict[str, Any]], None] | None = None,
     ) -> list[TableRelationship]:
         """Generate table relationships using two-stage detection.
 
@@ -924,28 +932,64 @@ class HDCGenerator:
         }
 
         # Process each table as a source, running Stage 1 in parallel
+        _relate_done = 0
+        _relate_total = len(table_descriptions)
+
         async def _relate_one_source(source_table: str) -> list[TableRelationship]:
+            nonlocal _relate_done
             # Stage 1: coarse candidates
             candidates: list[str] = []
+            find_source = "none"
             if self._uploader:
-                # Try OpenViking find first
-                candidates = await self._stage1_coarse_candidates(
-                    key, source_table, table_descriptions,
-                )
+                # Try OpenViking find first — use semaphore to limit
+                # concurrent HTTP requests to OpenViking (377 concurrent
+                # find() calls will overwhelm the service)
+                async with self._semaphore:
+                    candidates = await self._stage1_coarse_candidates(
+                        key, source_table, table_descriptions,
+                    )
+                find_source = "openviking" if candidates else "openviking-empty"
             if not candidates:
-                # Fallback: local column-name heuristic — find other tables
-                # that share column names with the source table
+                # Fallback: local column-name heuristic
                 candidates = HDCGenerator._local_coarse_candidates(
                     source_table, table_descriptions, column_summaries,
                 )
+                if find_source == "openviking-empty":
+                    find_source = "fallback"
+                else:
+                    find_source = "local"
+            _relate_done += 1
+
+            if progress_callback:
+                progress_callback("relate_source", {
+                    "phase": 4, "phase_label": "检测表关系",
+                    "status": "running",
+                    "source_table": source_table,
+                    "candidates": len(candidates),
+                    "find_source": find_source,
+                    "done": _relate_done,
+                    "total": _relate_total,
+                })
+
             if not candidates:
                 return []
 
             # Stage 2: LLM fine screening
-            return await self._stage2_llm_fine_screening(
+            rels = await self._stage2_llm_fine_screening(
                 key, source_table, candidates,
                 table_descriptions, column_summaries,
             )
+
+            if progress_callback and rels:
+                progress_callback("relate_found", {
+                    "phase": 4, "phase_label": "检测表关系",
+                    "status": "running",
+                    "source_table": source_table,
+                    "found": len(rels),
+                    "targets": [r.target_table for r in rels],
+                })
+
+            return rels
 
         coros = [_relate_one_source(td.table_name) for td in table_descriptions]
         results = await asyncio.gather(*coros, return_exceptions=True)
@@ -1140,13 +1184,14 @@ class HDCGenerator:
     ) -> dict[str, Any]:
         """Orchestrate the full HDC generation pipeline.
 
-        Pipeline order (per-table streaming):
+        Pipeline order:
           1. collect_database → list[TableRaw]
           2. Per-table pipeline (parallel, semaphore-limited):
              column summaries → table description, for each table
-          3. generate_relationships → list[TableRelationship]
-          4. generate_database_summary → DatabaseSummary
-          5. upload_database → write to OpenViking
+          3. upload_tables → populate OpenViking so find() works for relationships
+          4. generate_relationships → list[TableRelationship]
+          5. generate_database_summary → DatabaseSummary
+          6. upload_cascade → write db summary + relationships to OpenViking
 
         Tables flow through the pipeline independently — table A's description
         starts as soon as its column summaries finish, without waiting for
@@ -1154,7 +1199,7 @@ class HDCGenerator:
 
         Single-table failures are tolerated throughout (Requirement 1.5).
         The uploader step is optional — if no uploader is configured the
-        pipeline completes up to step 4 and returns a stats dict without
+        pipeline completes up to step 5 and returns a stats dict without
         uploading.
 
         Args:
@@ -1232,13 +1277,24 @@ class HDCGenerator:
             nonlocal pipeline_done
             result = await self._pipeline_one_table(t)
             pipeline_done += 1
-            if progress_callback and pipeline_done % 50 == 0:
-                progress_callback("table_pipeline", {
+            if progress_callback:
+                td, _ = result if result else (None, None)
+                progress_callback("table_done", {
                     "phase": 2, "phase_label": "表流水线 (列摘要→表描述)",
                     "status": "running",
-                    "tables_total": tables_total,
-                    "tables_done": pipeline_done,
+                    "table_name": t.name,
+                    "main_entity": td.main_entity if td else "",
+                    "table_type": td.table_type if td else "",
+                    "done": pipeline_done,
+                    "total": tables_total,
                 })
+                if pipeline_done % 50 == 0:
+                    progress_callback("table_pipeline", {
+                        "phase": 2, "phase_label": "表流水线 (列摘要→表描述)",
+                        "status": "running",
+                        "tables_total": tables_total,
+                        "tables_done": pipeline_done,
+                    })
             return result
 
         pipeline_results = await asyncio.gather(
@@ -1273,64 +1329,22 @@ class HDCGenerator:
                 "total_columns": total_columns,
             })
 
-        # ── Step 3: Table relationships (cross-table, needs all descriptions) ──
-        relationships: list[TableRelationship] = []
-        if progress_callback:
-            progress_callback("relationships", {
-                "phase": 3, "phase_label": "检测表关系",
-                "status": "running",
-                "tables_with_desc": tables_succeeded,
-            })
-        try:
-            relationships = await self.generate_relationships(
-                key, table_descriptions, column_summaries,
-            )
-        except Exception as e:
-            error_msg = f"Relationship generation failed: {e}"
-            logger.error(error_msg)
-            errors.append(error_msg)
-
-        if progress_callback:
-            progress_callback("relationships", {
-                "phase": 3, "phase_label": "检测表关系",
-                "status": "done",
-                "count": len(relationships),
-            })
-
-        # ── Step 4: Database summary ──
-        db_summary: DatabaseSummary | None = None
-        if progress_callback:
-            progress_callback("database_summary", {
-                "phase": 4, "phase_label": "生成数据库摘要",
-                "status": "running",
-            })
-        try:
-            db_summary = await self.generate_database_summary(
-                database_name, table_descriptions, relationships,
-            )
-        except Exception as e:
-            error_msg = f"Database summary generation failed: {e}"
-            logger.error(error_msg)
-            errors.append(error_msg)
-
-        if progress_callback:
-            progress_callback("database_summary", {
-                "phase": 4, "phase_label": "生成数据库摘要",
-                "status": "done",
-                "domain_hint": db_summary.domain_hint if db_summary else "",
-            })
-
-        # ── Step 5: Upload to OpenViking ──
-        if self._uploader and db_summary:
+        # ── Step 3: Upload tables to OpenViking (before relationships) ──
+        # Tables must be in OpenViking before generate_relationships() so that
+        # _stage1_coarse_candidates() can use the find() API for vector search.
+        # The upload_table() call triggers SemanticProcessor L0/L1 generation via
+        # write(wait=True). If the vector index is not yet ready, find() will
+        # return empty and _local_coarse_candidates() fallback handles it.
+        tables_with_cols: list[TableDescriptionWithColumns] = []
+        if self._uploader:
             if progress_callback:
-                progress_callback("upload", {
-                    "phase": 5, "phase_label": "上传到 OpenViking",
+                progress_callback("upload_tables", {
+                    "phase": 3, "phase_label": "上传表到 OpenViking",
                     "status": "running",
                     "tables": tables_succeeded,
-                    "relationships": len(relationships),
                 })
+
             # Build TableDescriptionWithColumns for upload
-            tables_with_cols: list[TableDescriptionWithColumns] = []
             for td in table_descriptions:
                 cols = column_summaries.get(td.table_name, [])
                 tables_with_cols.append(TableDescriptionWithColumns(
@@ -1346,20 +1360,91 @@ class HDCGenerator:
                 ))
 
             try:
-                await self._uploader.upload_database(
-                    key, db_summary, tables_with_cols, relationships,
-                )
+                await self._uploader.upload_tables(key, tables_with_cols)
             except Exception as e:
-                error_msg = f"Upload failed: {e}"
+                error_msg = f"Table upload failed: {e}"
                 logger.error(error_msg)
                 errors.append(error_msg)
 
             if progress_callback:
-                upload_ok = not any("Upload failed" in e for e in errors)
-                progress_callback("upload", {
-                    "phase": 5, "phase_label": "上传到 OpenViking",
+                upload_ok = not any("Table upload failed" in e for e in errors)
+                progress_callback("upload_tables", {
+                    "phase": 3, "phase_label": "上传表到 OpenViking",
                     "status": "done",
                     "success": upload_ok,
+                    "tables": tables_succeeded,
+                })
+
+        # ── Step 4: Table relationships (cross-table, needs all descriptions) ──
+        relationships: list[TableRelationship] = []
+        if progress_callback:
+            progress_callback("relationships", {
+                "phase": 4, "phase_label": "检测表关系",
+                "status": "running",
+                "tables_with_desc": tables_succeeded,
+            })
+        try:
+            relationships = await self.generate_relationships(
+                key, table_descriptions, column_summaries,
+                progress_callback=progress_callback,
+            )
+        except Exception as e:
+            error_msg = f"Relationship generation failed: {e}"
+            logger.error(error_msg)
+            errors.append(error_msg)
+
+        if progress_callback:
+            progress_callback("relationships", {
+                "phase": 4, "phase_label": "检测表关系",
+                "status": "done",
+                "count": len(relationships),
+            })
+
+        # ── Step 5: Database summary ──
+        db_summary: DatabaseSummary | None = None
+        if progress_callback:
+            progress_callback("database_summary", {
+                "phase": 5, "phase_label": "生成数据库摘要",
+                "status": "running",
+            })
+        try:
+            db_summary = await self.generate_database_summary(
+                database_name, table_descriptions, relationships,
+            )
+        except Exception as e:
+            error_msg = f"Database summary generation failed: {e}"
+            logger.error(error_msg)
+            errors.append(error_msg)
+
+        if progress_callback:
+            progress_callback("database_summary", {
+                "phase": 5, "phase_label": "生成数据库摘要",
+                "status": "done",
+                "domain_hint": db_summary.domain_hint if db_summary else "",
+            })
+
+        # ── Step 6: Upload cascade (database summary + relationships) ──
+        if self._uploader and db_summary:
+            if progress_callback:
+                progress_callback("upload_cascade", {
+                    "phase": 6, "phase_label": "上传摘要和关系",
+                    "status": "running",
+                    "relationships": len(relationships),
+                })
+            try:
+                await self._uploader.upload_cascade(key, db_summary, relationships)
+            except Exception as e:
+                error_msg = f"Upload cascade failed: {e}"
+                logger.error(error_msg)
+                errors.append(error_msg)
+
+            if progress_callback:
+                upload_ok = not any("Upload cascade failed" in e for e in errors)
+                progress_callback("upload_cascade", {
+                    "phase": 6, "phase_label": "上传摘要和关系",
+                    "status": "done",
+                    "success": upload_ok,
+                    "relationships": len(relationships),
                 })
 
         # ── Determine final status ──

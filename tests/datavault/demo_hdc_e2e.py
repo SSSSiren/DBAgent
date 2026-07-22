@@ -294,7 +294,7 @@ async def generate_hdc_knowledge_base():
         await ov_delete("/fs", {"uri": HDC_RESOURCE_BASE, "recursive": "true"})
         print("  [OK] 旧数据已删除")
 
-    print(f"\n  [Step 1/5] 采集 schema 元数据...")
+    print(f"\n  [Step 1/6] 采集 schema 元数据...")
     t0 = time.monotonic()
 
     llm = AsyncOpenAI(api_key=SETTINGS.llm_api_key, base_url=SETTINGS.llm_base_url)
@@ -310,14 +310,14 @@ async def generate_hdc_knowledge_base():
     uploader = HDCUploader(ov)
     generator = HDCGenerator(llm_client=llm, collector=collector, uploader=uploader)
 
-    print(f"  [Step 2/5] 生成列摘要 (垂直分区, 每 6 列一组并行 LLM)...")
+    print(f"  [Step 2/6] 生成列摘要 (垂直分区, 每 6 列一组并行 LLM)...")
     col_start = time.monotonic()
     col_summaries = await generator.generate_column_summaries(raw.tables)
     col_elapsed = time.monotonic() - col_start
     col_count = sum(len(cs) for cs in col_summaries.values())
     print(f"  [OK] 列摘要: {col_count} 列 ({col_elapsed:.1f}s)")
 
-    print(f"  [Step 3/5] 生成表描述 (每表一次 LLM, 表间并行)...")
+    print(f"  [Step 3/6] 生成表描述 (每表一次 LLM, 表间并行)...")
     tbl_start = time.monotonic()
     table_descs = await generator.generate_table_descriptions(raw.tables, col_summaries)
     tbl_elapsed = time.monotonic() - tbl_start
@@ -325,16 +325,9 @@ async def generate_hdc_knowledge_base():
     for td in table_descs[:5]:
         print(f"       {td.table_name} → main_entity=\"{td.main_entity}\" [{td.table_type}]")
 
-    print(f"  [Step 4/5] 生成表关系 (两阶段: OpenViking 粗筛 → LLM 细筛)...")
-    rel_start = time.monotonic()
-    relationships = await generator.generate_relationships(TARGET_DB_NAME, table_descs, col_summaries)
-    rel_elapsed = time.monotonic() - rel_start
-    print(f"  [OK] 表关系: {len(relationships)} 条 ({rel_elapsed:.1f}s)")
-
-    print(f"  [Step 5/5] 生成数据库摘要 + 上传到 OpenViking...")
-    db_start = time.monotonic()
-    db_summary = await generator.generate_database_summary(TARGET_DB_NAME, table_descs, relationships)
+    print(f"  [Step 4/6] 上传表到 OpenViking (使 find API 可用于关系检测)...")
     from app.datavault.models import TableDescriptionWithColumns
+    upload_start = time.monotonic()
     tbl_with_cols = []
     for td in table_descs:
         tdc = TableDescriptionWithColumns(
@@ -344,11 +337,25 @@ async def generate_hdc_knowledge_base():
             primary_key=td.primary_key,
             key_attributes=td.key_attributes,
             description=td.description,
+            usage_scenario=td.usage_scenario,
             row_count_estimate=td.row_count_estimate,
             columns=col_summaries.get(td.table_name, []),
         )
         tbl_with_cols.append(tdc)
-    await uploader.upload_database(TARGET_DB_NAME, db_summary, tbl_with_cols, relationships)
+    await uploader.upload_tables(TARGET_DB_NAME, tbl_with_cols)
+    upload_elapsed = time.monotonic() - upload_start
+    print(f"  [OK] 已上传 {len(tbl_with_cols)} 张表 ({upload_elapsed:.1f}s)")
+
+    print(f"  [Step 5/6] 生成表关系 (两阶段: OpenViking 粗筛 → LLM 细筛)...")
+    rel_start = time.monotonic()
+    relationships = await generator.generate_relationships(TARGET_DB_NAME, table_descs, col_summaries)
+    rel_elapsed = time.monotonic() - rel_start
+    print(f"  [OK] 表关系: {len(relationships)} 条 ({rel_elapsed:.1f}s)")
+
+    print(f"  [Step 6/6] 生成数据库摘要 + 上传关系和摘要...")
+    db_start = time.monotonic()
+    db_summary = await generator.generate_database_summary(TARGET_DB_NAME, table_descs, relationships)
+    await uploader.upload_cascade(TARGET_DB_NAME, db_summary, relationships)
     db_elapsed = time.monotonic() - db_start
     print(f"  [OK] 上传完成 ({db_elapsed:.1f}s)")
     print(f"       数据库摘要: {db_summary.domain_hint} — {db_summary.description[:80]}...")
