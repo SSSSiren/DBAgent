@@ -219,21 +219,11 @@ class HDCUploader:
     # ── Embedding 等待 ──────────────────────────────────────────
 
     async def wait_for_embedding(
-        self, key: str, *, timeout: float = 30.0, interval: float = 1.0
+        self, key: str, *, timeout: float = 10.0, interval: float = 0.5
     ) -> bool:
-        """轮询 find() 直到 embedding 就绪。
-
-        write(wait=False) 后文件立即写入但 embedding 异步处理中。
-        此方法轮询 OpenViking find API，直到能搜到结果（embedding 完成）。
-
-        Args:
-            key: storage_key (e.g. "65938636/dw_onedba")
-            timeout: 最长等待秒数
-            interval: 轮询间隔秒数
-
-        Returns:
-            True if embedding became ready, False if timed out.
-        """
+        """验证 embedding 就已。write(wait=True) 已确保 embedding 完成，
+        此方法作为冗余验证：轮询 find() 快速确认即可。
+        返回 True 表示 embedding 就已；超时返回 False。"""
         tables_uri = _tables_dir_uri(key)
         deadline = asyncio.get_event_loop().time() + timeout
 
@@ -324,11 +314,12 @@ class HDCUploader:
         # 确保 _relationships 目录存在
         await self._ov.mkdir(_relations_dir_uri(key))
 
-        # 写入数据库摘要（wait=False 避免 VLM 超时，embedding 异步完成）
+        # 写入数据库摘要（wait=True + timeout=60s，等 embedding 完成）
         db_index_content = _format_database_index(db_summary)
         db_index_uri = f"{_db_uri(key)}/_INDEX.md"
         await self._ov.write(
-            db_index_uri, db_index_content, mode="replace", wait=False,
+            db_index_uri, db_index_content, mode="replace", wait=True,
+            timeout=60.0,
         )
 
         # 写入关系文件（mode="replace" — on rebuild, old relationship files exist）
@@ -378,13 +369,14 @@ class HDCUploader:
             col_uri = f"{table_dir}/{col.column_name}.md"
             await self._ov.write(col_uri, col_content, mode="create", wait=False)
 
-        # 写入 _INDEX.md（wait=False 避免 OpenViking VLM 连接池超时）
-        # HDC 内容已是 LLM 精炼的结构化描述，不需要 VLM 再摘要
-        # embedding 向量化由 OpenViking 后台异步完成
+        # 写入 _INDEX.md（wait=True 等 embedding 完成，timeout=60s 防止 VLM 超时阻塞）
+        # HDC 内容已是 LLM 精炼描述，VLM 摘要可有可无
+        # 60s 足够 embedding 向量化完成，VLM 超时在服务端日志中记录但不影响上传
         index_content = _format_table_index(table_desc)
         index_uri = f"{table_dir}/_INDEX.md"
         await self._ov.write(
-            index_uri, index_content, mode="create", wait=False,
+            index_uri, index_content, mode="create", wait=True,
+            timeout=60.0,
         )
 
         # 设置 tags（OpenViking 要求 k=v 格式）
