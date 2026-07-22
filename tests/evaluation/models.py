@@ -70,6 +70,19 @@ class EfficiencyMetrics(BaseModel):
     score: float = Field(default=0.0, ge=0.0, le=1.0, description="效率综合得分")
 
 
+# ========== HDC 验证 ==========
+
+class HdcVerificationData(BaseModel):
+    """HDC 上下文注入验证数据 — 对比 agent 实际使用的表名与 HDC 注入的上下文"""
+    injected: bool = Field(default=False, description="本轮是否注入了 HDC 上下文")
+    context_chars: int = Field(default=0, description="注入的 HDC 上下文字符数")
+    reference_table: str = Field(default="", description="参考 SQL 中使用的表名")
+    correct_table_in_context: bool = Field(default=False, description="参考表名是否在 HDC 上下文中出现")
+    agent_table_used: str = Field(default="", description="Agent 实际使用的表名")
+    agent_used_correct_table: bool = Field(default=False, description="Agent 是否使用了正确的表名")
+    is_hallucination: bool = Field(default=False, description="Agent 使用的表名是否在数据库 schema 中不存在（幻觉）")
+
+
 # ========== 维度评分 ==========
 
 class DimensionScores(BaseModel):
@@ -92,6 +105,10 @@ class RunDetail(BaseModel):
     total_tokens: int = Field(default=0, description="Token 消耗")
     generated_sqls: list[str] = Field(default_factory=list, description="生成的 SQL 列表")
     error: Optional[str] = Field(default=None, description="本次运行错误信息")
+    # HDC 增强字段
+    first_tool: str = Field(default="", description="Agent 第一个调用的工具名称")
+    first_table_used: str = Field(default="", description="Agent 第一个查询类工具使用的表名")
+    called_find_table_before_query: bool = Field(default=False, description="首次查询前是否调用了 find_table")
 
 
 class CaseResult(BaseModel):
@@ -117,6 +134,8 @@ class CaseResult(BaseModel):
     std_tokens: float = Field(default=0.0, description="Token 消耗标准差")
     std_latency_ms: float = Field(default=0.0, description="延迟标准差（毫秒）")
     std_turns: float = Field(default=0.0, description="Turns 标准差")
+    # HDC 验证
+    hdc_verification: Optional[HdcVerificationData] = Field(default=None, description="HDC 上下文验证数据")
 
 
 # ========== 评测报告 ==========
