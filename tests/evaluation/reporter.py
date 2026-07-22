@@ -5,6 +5,7 @@
 from __future__ import annotations
 
 import json
+import re
 from pathlib import Path
 from datetime import datetime
 from typing import Any
@@ -428,6 +429,64 @@ def _compute_hdc_diff(
         "per_case": per_case_diff,
     }
 
+def _extract_table_from_sql(sql: str) -> str:
+    """Extract the first table name from a SQL FROM clause."""
+    if not sql:
+        return ""
+    # Match FROM table_name (possibly with backticks or schema prefix)
+    match = re.search(r'\bFROM\s+`?(\w+)`?', sql, re.IGNORECASE)
+    if match:
+        return match.group(1)
+    # Try JOIN pattern
+    match = re.search(r'\bJOIN\s+`?(\w+)`?', sql, re.IGNORECASE)
+    if match:
+        return match.group(1)
+    return ""
+
+
+def _compute_first_table_correct(
+    case_id: str,
+    no_case: CaseResult | None,
+    with_case: CaseResult | None,
+) -> str:
+    """Determine if the first table used was correct for both baseline and HDC runs."""
+    # Extract reference table from reference_sql
+    ref_table = ""
+    if with_case and with_case.test_case.reference_sql:
+        ref_table = _extract_table_from_sql(with_case.test_case.reference_sql)
+    elif no_case and no_case.test_case.reference_sql:
+        ref_table = _extract_table_from_sql(no_case.test_case.reference_sql)
+
+    if not ref_table:
+        return "N/A"
+
+    parts = []
+    # No-HDC first table correctness
+    if no_case and no_case.run_details:
+        first_table = no_case.run_details[0].first_table_used
+        if first_table:
+            ok = first_table.lower() == ref_table.lower()
+            parts.append("\u2705" if ok else "\u274c")
+        else:
+            parts.append("N/A")
+    else:
+        parts.append("N/A")
+
+    # With-HDC first table correctness
+    if with_case and with_case.run_details:
+        first_table = with_case.run_details[0].first_table_used
+        if first_table:
+            ok = first_table.lower() == ref_table.lower()
+            parts.append("\u2705" if ok else "\u274c")
+        else:
+            parts.append("N/A")
+    else:
+        parts.append("N/A")
+
+    if len(parts) == 2:
+        return f"{parts[0]} \u2192 {parts[1]}"
+    return " / ".join(parts)
+
 
 def _render_hdc_comparison_md(
     no_hdc: EvaluationReport,
@@ -507,18 +566,26 @@ def _render_hdc_comparison_md(
     if per_case:
         lines.append("## 📝 逐用例对比")
         lines.append("")
-        lines.append("| 用例 | 难度 | 类别 | 无 HDC | 有 HDC | 分数变化 | 工具调用变化 | Token 变化 |")
-        lines.append("|------|------|------|--------|--------|----------|-------------|-----------|")
+        lines.append("| 用例 | 难度 | 类别 | 无 HDC | 有 HDC | 分数变化 | 工具调用变化 | Token 变化 | 首轮正确 |")
+        lines.append("|------|------|------|--------|--------|----------|-------------|-----------|---------|")
+
+        # Build lookup maps for CaseResult by case_id
+        no_by_id = {c.test_case.case_id: c for c in no_hdc.case_results}
+        with_by_id = {c.test_case.case_id: c for c in with_hdc.case_results}
 
         for pc in per_case:
             no_status = "✅" if pc["no_hdc_passed"] else "❌"
             with_status = "✅" if pc["with_hdc_passed"] else "❌"
             tool_arrow = f"{pc['tool_call_diff']:+d}" if pc["tool_call_diff"] != 0 else "0"
             token_arrow = f"{pc['token_diff']:+d}" if pc["token_diff"] != 0 else "0"
+            # Build first-table correctness
+            no_cr = no_by_id.get(pc['case_id'])
+            with_cr = with_by_id.get(pc['case_id'])
+            first_correct = _compute_first_table_correct(pc['case_id'], no_cr, with_cr)
             lines.append(
                 f"| {pc['case_id']} | {pc['difficulty']} | {pc['category']} | "
                 f"{no_status} {pc['no_hdc_score']:.2%} | {with_status} {pc['with_hdc_score']:.2%} | "
-                f"{pc['score_diff']:+.2%} | {tool_arrow} | {token_arrow} |"
+                f"{pc['score_diff']:+.2%} | {tool_arrow} | {token_arrow} | {first_correct} |"
             )
         lines.append("")
 
@@ -534,6 +601,12 @@ def _render_hdc_comparison_md(
         if unchanged:
             lines.append(f"**无变化的用例 ({len(unchanged)} 条)**: " + ", ".join(pc["case_id"] for pc in unchanged))
         lines.append("")
+
+    # 逐工具效率对比
+    _render_per_tool_breakdown(lines, no_hdc, with_hdc)
+
+    # HDC 正确性审计
+    _render_hdc_audit(lines, with_hdc)
 
     # 结论
     lines.append("## 🏁 结论")
@@ -577,6 +650,170 @@ def _render_hdc_comparison_md(
     lines.append("> 正收益体现在更快定位目标表和更准确的列引用；负收益可能来自过时或错误的 HDC 知识。")
 
     return "\n".join(lines)
+
+def _render_per_tool_breakdown(
+    lines: list[str],
+    no_hdc: EvaluationReport,
+    with_hdc: EvaluationReport,
+) -> None:
+    """Render per-tool efficiency comparison table (find_table, describe_table, query_database)."""
+    tools = ["find_table", "describe_table", "query_database"]
+    tool_labels = {
+        "find_table": "find_table",
+        "describe_table": "describe_table",
+        "query_database": "query_database",
+    }
+
+    lines.append("## \U0001f527 工具调用效率对比")
+    lines.append("")
+
+    # Build a mapping by case_id for both reports
+    no_by_id = {c.test_case.case_id: c for c in no_hdc.case_results}
+    with_by_id = {c.test_case.case_id: c for c in with_hdc.case_results}
+
+    # Per-case table
+    lines.append("| 用例 | 工具 | 基线（无 HDC） | 有 HDC | 变化 | 趋势 |")
+    lines.append("|------|------|---------------|--------|------|------|")
+
+    tool_totals: dict[str, dict[str, float]] = {t: {"no": 0.0, "with": 0.0} for t in tools}
+    case_count = 0
+
+    for case_id in sorted(no_by_id.keys()):
+        no_c = no_by_id[case_id]
+        with_c = with_by_id.get(case_id)
+        if not with_c:
+            continue
+        case_count += 1
+
+        no_details = no_c.efficiency.tool_call_details if no_c.efficiency else {}
+        with_details = with_c.efficiency.tool_call_details if with_c.efficiency else {}
+
+        for tool in tools:
+            no_val = no_details.get(tool, 0)
+            with_val = with_details.get(tool, 0)
+            change = with_val - no_val
+            tool_totals[tool]["no"] += no_val
+            tool_totals[tool]["with"] += with_val
+
+            if change < 0:
+                trend = "\U0001f4c8 改善"
+            elif change > 0:
+                trend = "\U0001f4c9 退化"
+            else:
+                trend = "\u27a1\ufe0f"
+
+            lines.append(
+                f"| {case_id} | {tool} | {no_val} | {with_val} | "
+                f"{change:+d} | {trend} |"
+            )
+
+    # Summary row
+    if case_count > 0:
+        lines.append(f"| **平均** | **汇总** | | | | |")
+        for tool in tools:
+            no_avg = tool_totals[tool]["no"] / case_count
+            with_avg = tool_totals[tool]["with"] / case_count
+            avg_change = with_avg - no_avg
+            if avg_change < 0:
+                trend = "\U0001f4c8 改善"
+            elif avg_change > 0:
+                trend = "\U0001f4c9 退化"
+            else:
+                trend = "\u27a1\ufe0f"
+            lines.append(
+                f"| **平均** | {tool} | {no_avg:.1f} | {with_avg:.1f} | "
+                f"{avg_change:+.1f} | {trend} |"
+            )
+
+    lines.append("")
+
+    # First-round find_table call rate
+    no_find_first = 0
+    with_find_first = 0
+    no_total = 0
+    with_total = 0
+
+    for case_id in sorted(no_by_id.keys()):
+        no_c = no_by_id[case_id]
+        with_c = with_by_id.get(case_id)
+        if not with_c:
+            continue
+
+        if no_c.run_details:
+            no_total += 1
+            if any(rd.called_find_table_before_query for rd in no_c.run_details):
+                no_find_first += 1
+
+        if with_c.run_details:
+            with_total += 1
+            if any(rd.called_find_table_before_query for rd in with_c.run_details):
+                with_find_first += 1
+
+    if no_total > 0 or with_total > 0:
+        no_rate = no_find_first / no_total if no_total > 0 else 0.0
+        with_rate = with_find_first / with_total if with_total > 0 else 0.0
+        lines.append(f"**首轮 find_table 调用率**: 基线 {no_rate:.1%} ({no_find_first}/{no_total}) "
+                     f"\u2192 HDC {with_rate:.1%} ({with_find_first}/{with_total})")
+        if with_rate < no_rate:
+            lines.append("  \U0001f4c8 HDC 减少了首轮 find_table 调用")
+        elif with_rate > no_rate:
+            lines.append("  \U0001f4c9 HDC 增加了首轮 find_table 调用")
+        else:
+            lines.append("  \u27a1\ufe0f 首轮 find_table 调用率无变化")
+        lines.append("")
+
+def _render_hdc_audit(
+    lines: list[str],
+    with_hdc: EvaluationReport,
+) -> None:
+    """Render HDC correctness audit table."""
+    lines.append("## \U0001f50d HDC 正确性审计")
+    lines.append("")
+
+    if not with_hdc.case_results:
+        lines.append("_无 HDC 验证数据_")
+        lines.append("")
+        return
+
+    lines.append("| 用例 | HDC 含正确表 | Agent 用正确表 | 幻觉 |")
+    lines.append("|------|-------------|---------------|------|")
+
+    total_cases = 0
+    correct_in_context = 0
+    agent_used_correct = 0
+    hallucination_count = 0
+
+    for cr in with_hdc.case_results:
+        hv = cr.hdc_verification
+        if hv is None:
+            lines.append(f"| {cr.test_case.case_id} | N/A | N/A | N/A |")
+            continue
+
+        total_cases += 1
+        ctx_ok = "\u2705" if hv.correct_table_in_context else "\u274c"
+        agent_ok = "\u2705" if hv.agent_used_correct_table else "\u274c"
+        hall = "\u26a0\ufe0f **是**" if hv.is_hallucination else "\u2705"
+
+        if hv.correct_table_in_context:
+            correct_in_context += 1
+        if hv.agent_used_correct_table:
+            agent_used_correct += 1
+        if hv.is_hallucination:
+            hallucination_count += 1
+
+        lines.append(
+            f"| {cr.test_case.case_id} | {ctx_ok} | {agent_ok} | {hall} |"
+        )
+
+    lines.append("")
+
+    # Aggregate stats
+    if total_cases > 0:
+        lines.append(f"**聚合统计**:")
+        lines.append(f"- HDC 上下文含正确表: {correct_in_context}/{total_cases} ({correct_in_context/total_cases:.1%})")
+        lines.append(f"- Agent 采纳正确表: {agent_used_correct}/{total_cases} ({agent_used_correct/total_cases:.1%})")
+        lines.append(f"- Agent 幻觉: {hallucination_count}/{total_cases} ({hallucination_count/total_cases:.1%})")
+        lines.append("")
 
 
 def _add_metric_row(

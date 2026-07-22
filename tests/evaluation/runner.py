@@ -360,6 +360,19 @@ def _compute_std(values: list[float], mean: float) -> float:
     return round(math.sqrt(variance), 2)
 
 
+def _extract_ref_table(reference_sql: str) -> str:
+    """从参考 SQL 中提取第一个表名（FROM 或 JOIN 后的表名）。"""
+    if not reference_sql:
+        return ""
+    m = re.search(r'\bFROM\s+(\w+)', reference_sql, re.IGNORECASE)
+    if m:
+        return m.group(1)
+    m = re.search(r'\bJOIN\s+(\w+)', reference_sql, re.IGNORECASE)
+    if m:
+        return m.group(1)
+    return ""
+
+
 async def _run_single_case(
     test_case: TestCase,
     schema_id: int,
@@ -372,6 +385,7 @@ async def _run_single_case(
     enable_hdc: bool = False,
     db_name: str = "dw_onedba",
     verbose: bool = False,
+    verbose_hdc: bool = False,
 ) -> CaseResult:
     """
     执行单条测试用例，支持重复执行取平均。
@@ -401,8 +415,17 @@ async def _run_single_case(
                 )
                 if hdc_ok:
                     hdc_context = session_state.get("_hdc_context", "")
-                    if run_index == 0:
+                    if verbose_hdc and run_index == 0:
+                        chars = len(hdc_context)
+                        ref_table = _extract_ref_table(test_case.reference_sql)
+                        in_context = ref_table in hdc_context if ref_table else "N/A"
+                        in_context_str = "yes" if in_context else "no"
+                        print(f"    [HDC] {test_case.case_id}: 已注入({chars}字符) | 正确表在上下文中={in_context_str}")
+                    elif run_index == 0 and not verbose_hdc:
                         print(f"    [HDC] 上下文已注入")
+                else:
+                    if verbose_hdc and run_index == 0:
+                        print(f"    [HDC] {test_case.case_id}: 注入失败，跳过")
             trace_name = f"eval/{test_case.case_id}/run-{run_index}"
             output = await _execute_agent_once(
                 test_case.question, session_state, timeout, trace_name=trace_name,
@@ -599,6 +622,7 @@ async def run_evaluation(
     enable_hdc: bool = False,
     db_name: str = "dw_onedba",
     verbose: bool = False,
+    verbose_hdc: bool = False,
     progress_callback: Any = None,
 ) -> EvaluationReport:
     """
@@ -643,7 +667,7 @@ async def run_evaluation(
             result = await _run_single_case(
                 tc, schema_id, timeout, repeat, onedba_client, llm_client,
                 use_llm_judge, use_quality_judge, enable_hdc=enable_hdc, db_name=db_name,
-                verbose=verbose,
+                verbose=verbose, verbose_hdc=verbose_hdc,
             )
             case_results.append(result)
             status = "✅" if result.passed else ("⚠️" if result.error else "❌")
@@ -665,7 +689,8 @@ async def run_evaluation(
                 print(f"[{idx+1}/{total}] {tc.case_id}{repeat_info} 开始...")
                 result = await _run_single_case(
                     tc, schema_id, timeout, repeat, onedba_client, llm_client,
-                    use_llm_judge, use_quality_judge,
+                    use_llm_judge, use_quality_judge, enable_hdc=enable_hdc, db_name=db_name,
+                    verbose=verbose, verbose_hdc=verbose_hdc,
                 )
                 results_map[idx] = result
                 status = "✅" if result.passed else ("⚠️" if result.error else "❌")

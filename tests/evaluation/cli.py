@@ -93,6 +93,8 @@ def cmd_run(args: argparse.Namespace) -> None:
         print(f"（LLM 模型: {args.llm_model}）")
     if args.verbose:
         print("（详细日志模式 — 输出 Agent 中间过程）")
+    if args.verbose_hdc:
+        print("（详细 HDC 日志模式 — 输出每个用例的 HDC 注入状态）")
     print()
 
     async def _run() -> None:
@@ -109,6 +111,7 @@ def cmd_run(args: argparse.Namespace) -> None:
             enable_hdc=args.with_hdc,
             db_name=args.db_name or "dw_onedba",
             verbose=args.verbose,
+            verbose_hdc=args.verbose_hdc,
         )
 
         # 生成报告
@@ -148,6 +151,7 @@ def _run_compare_hdc(args: argparse.Namespace, filtered) -> None:
             enable_hdc=False,
             db_name=args.db_name or "dw_onedba",
             verbose=args.verbose,
+            verbose_hdc=args.verbose_hdc,
         )
 
         print(f"\n{'='*60}")
@@ -168,6 +172,7 @@ def _run_compare_hdc(args: argparse.Namespace, filtered) -> None:
             enable_hdc=True,
             db_name=args.db_name or "dw_onedba",
             verbose=args.verbose,
+            verbose_hdc=args.verbose_hdc,
         )
 
         # 生成对比报告
@@ -176,6 +181,9 @@ def _run_compare_hdc(args: argparse.Namespace, filtered) -> None:
             with_hdc_report,
             output_dir=args.output_dir,
         )
+
+        # ── HDC 聚合摘要 ──
+        _print_hdc_aggregate_summary(with_hdc_report)
 
         print(f"\n{'='*60}")
         print("HDC 对比评测完成")
@@ -201,6 +209,30 @@ def _print_summary(report, json_path: str, md_path: str) -> None:
         print(f"\nJSON 报告: {json_path}")
     if md_path:
         print(f"Markdown 报告: {md_path}")
+
+
+def _print_hdc_aggregate_summary(report) -> None:
+    """打印 HDC 注入聚合摘要（遍历 case_results 汇总 hdc_verification 数据）。"""
+    total = len(report.case_results)
+    if total == 0:
+        return
+
+    injected_count = sum(1 for c in report.case_results if c.hdc_verification and c.hdc_verification.injected)
+    correct_table_count = sum(1 for c in report.case_results if c.hdc_verification and c.hdc_verification.correct_table_in_context)
+    agent_correct_table_count = sum(1 for c in report.case_results if c.hdc_verification and c.hdc_verification.agent_used_correct_table)
+    hallucination_count = sum(1 for c in report.case_results if c.hdc_verification and c.hdc_verification.is_hallucination)
+    total_chars = sum(c.hdc_verification.context_chars for c in report.case_results if c.hdc_verification)
+    avg_chars = total_chars / injected_count if injected_count > 0 else 0
+
+    print(f"\n{'─'*50}")
+    print("HDC 注入聚合摘要")
+    print(f"{'─'*50}")
+    print(f"注入成功: {injected_count}/{total} ({injected_count/total:.0%})")
+    print(f"正确表在上下文中: {correct_table_count}/{injected_count}" if injected_count > 0 else f"正确表在上下文中: 0/0")
+    print(f"Agent 使用正确表: {agent_correct_table_count}/{injected_count}" if injected_count > 0 else f"Agent 使用正确表: 0/0")
+    print(f"幻觉表名: {hallucination_count}/{injected_count}" if injected_count > 0 else f"幻觉表名: 0/0")
+    print(f"平均上下文字符数: {avg_chars:.0f}")
+    print(f"{'─'*50}")
 
 
 def main() -> None:
@@ -279,6 +311,10 @@ def main() -> None:
     run_parser.add_argument(
         "--verbose", "-v", action="store_true",
         help="详细日志模式：输出 Agent 中间过程（工具调用、SQL 生成、思考过程）",
+    )
+    run_parser.add_argument(
+        "--verbose-hdc", action="store_true",
+        help="详细 HDC 日志模式：输出每个用例的 HDC 注入状态（字符数、正确表是否在上下文中）",
     )
     run_parser.add_argument(
         "--output-dir", type=str, default="tests/evaluation/output",
