@@ -7,6 +7,7 @@ from __future__ import annotations
 import asyncio
 import math
 import os
+import re
 import time
 from dataclasses import dataclass
 from datetime import datetime
@@ -20,7 +21,7 @@ from app.client.onedba import get_onedba_client
 from app.config import get_settings
 from app.observation import flush_langfuse
 
-from .models import TestCase, CaseResult, RunDetail, SQLJudgeResult, EvaluationReport, DimensionScores
+from .models import TestCase, CaseResult, RunDetail, SQLJudgeResult, EvaluationReport, DimensionScores, HdcVerificationData
 from .judges.sql_judge import judge_sql_correctness
 from .judges.quality_judge import judge_answer_quality
 from .judges.efficiency_judge import compute_efficiency_from_stats
@@ -37,6 +38,7 @@ class _AgentRunOutput:
     stats: dict[str, Any]
     error: str | None
     duration_ms: int
+    hdc_context: str = ""
 
 
 async def _execute_agent_once(
@@ -199,6 +201,8 @@ def _build_run_detail(run: _AgentRunOutput) -> RunDetail:
     if isinstance(tokens, dict):
         tokens = tokens.get("value", 0)
 
+    first_tool, first_table_used, called_find_table = _extract_first_tool_info(run)
+
     return RunDetail(
         duration_ms=run.duration_ms,
         tool_call_count=len(run.tool_calls),
@@ -207,6 +211,143 @@ def _build_run_detail(run: _AgentRunOutput) -> RunDetail:
         total_tokens=int(tokens) if tokens else 0,
         generated_sqls=run.sqls,
         error=run.error,
+        first_tool=first_tool,
+        first_table_used=first_table_used,
+        called_find_table_before_query=called_find_table,
+    )
+
+
+def _extract_first_tool_info(agent_output: _AgentRunOutput) -> tuple[str, str, bool]:
+    """
+    从 Agent 执行的工具调用记录中提取首轮追踪信息。
+
+    返回 (first_tool, first_table_used, called_find_table_before_query)
+
+    - first_tool: 第一个调用的工具名称
+    - first_table_used: 第一个查询类工具使用的表名
+      - query_database: 从 args["table_name"] 提取
+      - execute_sql: 从 args["sql"] 中用正则提取 FROM/JOIN 后的表名
+    - called_find_table_before_query: 首次查询前是否调用了 find_table
+    """
+    tool_calls = agent_output.tool_calls
+    if not tool_calls:
+        return ("", "", False)
+
+    first_tool = tool_calls[0].get("tool", "")
+
+    # 遍历找首个查询类工具
+    first_table_used = ""
+    seen_find_table = False
+    called_find_table_before_query = False
+    found_query_tool = False
+
+    for tc in tool_calls:
+        tool_name = tc.get("tool", "")
+        if tool_name == "find_table":
+            if not found_query_tool:
+                seen_find_table = True
+            continue
+
+        if tool_name in ("query_database", "execute_sql"):
+            if not found_query_tool:
+                found_query_tool = True
+                called_find_table_before_query = seen_find_table
+
+                if tool_name == "query_database":
+                    first_table_used = str(tc.get("args", {}).get("table_name", ""))
+                elif tool_name == "execute_sql":
+                    sql = str(tc.get("args", {}).get("sql", ""))
+                    # 提取 FROM 或 JOIN 后的表名
+                    m = re.search(r'\bFROM\s+(\w+)', sql, re.IGNORECASE)
+                    if m:
+                        first_table_used = m.group(1)
+                    else:
+                        m = re.search(r'\bJOIN\s+(\w+)', sql, re.IGNORECASE)
+                        if m:
+                            first_table_used = m.group(1)
+
+    return (first_tool, first_table_used, called_find_table_before_query)
+
+
+def _verify_hdc_injection(
+    hdc_context: str,
+    test_case: TestCase,
+    agent_output: _AgentRunOutput,
+) -> HdcVerificationData:
+    """
+    验证 HDC 上下文是否正确注入并被 Agent 使用。
+
+    从参考 SQL 提取表名，检查是否在 HDC 上下文中出现；
+    从 Agent SQL 提取实际使用的表名，判断是否为幻觉。
+
+    Args:
+        hdc_context: 注入的 HDC 上下文字符串
+        test_case: 测试用例
+        agent_output: Agent 执行输出
+
+    Returns:
+        HdcVerificationData 验证结果
+    """
+    # 提取参考表名
+    reference_tables: list[str] = []
+    if test_case.reference_sql:
+        reference_tables = re.findall(r'\bFROM\s+(\w+)', test_case.reference_sql, re.IGNORECASE)
+        reference_tables += re.findall(r'\bJOIN\s+(\w+)', test_case.reference_sql, re.IGNORECASE)
+        reference_tables = list(dict.fromkeys(reference_tables))  # 去重保序
+
+    reference_table = reference_tables[0] if reference_tables else ""
+
+    # 检查参考表名是否在 HDC 上下文中出现
+    correct_table_in_context = False
+    if reference_table and hdc_context:
+        # 检查多种匹配模式：### table_name 或直接的 table_name
+        correct_table_in_context = (
+            f"### {reference_table}" in hdc_context
+            or reference_table in hdc_context
+        )
+
+    # 从 Agent SQL 提取实际使用的表名
+    agent_table_used = ""
+    if agent_output.sqls:
+        agent_sql = agent_output.sqls[-1]
+        m = re.search(r'\bFROM\s+(\w+)', agent_sql, re.IGNORECASE)
+        if m:
+            agent_table_used = m.group(1)
+        else:
+            m = re.search(r'\bJOIN\s+(\w+)', agent_sql, re.IGNORECASE)
+            if m:
+                agent_table_used = m.group(1)
+
+    # 判断 Agent 是否使用了正确的表名
+    agent_used_correct_table = (
+        agent_table_used.lower() == reference_table.lower()
+        if agent_table_used and reference_table
+        else False
+    )
+
+    # 判断幻觉：agent_table_used 既不在 HDC 上下文中也不在参考 SQL 中
+    is_hallucination = False
+    if agent_table_used and hdc_context:
+        in_hdc = (
+            f"### {agent_table_used}" in hdc_context
+            or agent_table_used in hdc_context
+        )
+        in_reference = (
+            agent_table_used.lower() in [t.lower() for t in reference_tables]
+        )
+        is_hallucination = not in_hdc and not in_reference
+
+    injected = bool(hdc_context)
+    context_chars = len(hdc_context)
+
+    return HdcVerificationData(
+        injected=injected,
+        context_chars=context_chars,
+        reference_table=reference_table,
+        correct_table_in_context=correct_table_in_context,
+        agent_table_used=agent_table_used,
+        agent_used_correct_table=agent_used_correct_table,
+        is_hallucination=is_hallucination,
     )
 
 
@@ -250,6 +391,7 @@ async def _run_single_case(
     async def _run_one(run_index: int) -> _AgentRunOutput:
         async with _repeat_semaphore:
             session_state = _make_session_state(schema_id, db_name)
+            hdc_context = ""
             if enable_hdc:
                 hdc_ok = await _inject_hdc_context(
                     session_state,
@@ -257,14 +399,18 @@ async def _run_single_case(
                     session_state["selected_database"]["schemaName"],
                     schema_id,
                 )
-                if hdc_ok and run_index == 0:
-                    print(f"    [HDC] 上下文已注入")
+                if hdc_ok:
+                    hdc_context = session_state.get("_hdc_context", "")
+                    if run_index == 0:
+                        print(f"    [HDC] 上下文已注入")
             trace_name = f"eval/{test_case.case_id}/run-{run_index}"
-            return await _execute_agent_once(
+            output = await _execute_agent_once(
                 test_case.question, session_state, timeout, trace_name=trace_name,
                 verbose=verbose,
                 log_prefix=f"  [{test_case.case_id}#{run_index}]" if verbose else "",
             )
+            output.hdc_context = hdc_context
+            return output
 
     if repeat > 1:
         # 为 asyncio.gather 加整体超时保护，防止死锁导致评测永久卡住。
@@ -379,6 +525,13 @@ async def _run_single_case(
     # 构建 run_details
     run_details = [_build_run_detail(r) for r in runs]
 
+    # HDC 验证：取最后一次运行的 HDC 上下文
+    hdc_verification = None
+    if enable_hdc and last_run.hdc_context:
+        hdc_verification = _verify_hdc_injection(
+            last_run.hdc_context, test_case, last_run,
+        )
+
     # 错误信息：取最后一次的错误
     error = last_run.error
 
@@ -400,6 +553,7 @@ async def _run_single_case(
         std_tokens=std_tokens,
         std_latency_ms=std_latency,
         std_turns=std_turns,
+        hdc_verification=hdc_verification,
     )
 
     return score_case(result)
