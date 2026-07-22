@@ -17,6 +17,7 @@ Tags（表目录级别）：
 
 from __future__ import annotations
 
+import asyncio
 import logging
 from typing import TYPE_CHECKING
 
@@ -214,6 +215,57 @@ class HDCUploader:
 
     def __init__(self, ov_client: "OpenVikingClient") -> None:
         self._ov = ov_client
+
+    # ── Embedding 等待 ──────────────────────────────────────────
+
+    async def wait_for_embedding(
+        self, key: str, *, timeout: float = 30.0, interval: float = 1.0
+    ) -> bool:
+        """轮询 find() 直到 embedding 就绪。
+
+        write(wait=False) 后文件立即写入但 embedding 异步处理中。
+        此方法轮询 OpenViking find API，直到能搜到结果（embedding 完成）。
+
+        Args:
+            key: storage_key (e.g. "65938636/dw_onedba")
+            timeout: 最长等待秒数
+            interval: 轮询间隔秒数
+
+        Returns:
+            True if embedding became ready, False if timed out.
+        """
+        tables_uri = _tables_dir_uri(key)
+        deadline = asyncio.get_event_loop().time() + timeout
+
+        while asyncio.get_event_loop().time() < deadline:
+            try:
+                result = await self._ov.find(
+                    query="test",
+                    target_uri=tables_uri,
+                    level=[0, 1],
+                    limit=1,
+                )
+                if result:
+                    entries = (
+                        result if isinstance(result, list)
+                        else result.get("matches", []) if isinstance(result, dict)
+                        else []
+                    )
+                    if entries:
+                        log.info(
+                            "HDCUploader: embedding ready for key=%s after %.1fs",
+                            key, timeout - (deadline - asyncio.get_event_loop().time()),
+                        )
+                        return True
+            except Exception:
+                pass  # find() 可能抛异常，重试
+            await asyncio.sleep(interval)
+
+        log.warning(
+            "HDCUploader: embedding not ready for key=%s within %.0fs timeout",
+            key, timeout,
+        )
+        return False
 
     # ── 公开 API ────────────────────────────────────────────────
 

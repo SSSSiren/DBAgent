@@ -1366,6 +1366,8 @@ class HDCGenerator:
 
             try:
                 await self._uploader.upload_tables(key, tables_with_cols)
+                # 等待 embedding 就绪，确保后续 find() API 可用
+                await self._uploader.wait_for_embedding(key)
             except Exception as e:
                 error_msg = f"Table upload failed: {e}"
                 logger.error(error_msg)
