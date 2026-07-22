@@ -47,6 +47,7 @@ parser.add_argument("-v", "--verbose", action="store_true", help="输出详细�
 parser.add_argument("--force-update", action="store_true", help="强制执行增量更新（如有变更）")
 parser.add_argument("--dry-run", action="store_true", help="仅检测变更，不执行更新")
 parser.add_argument("--rebuild", action="store_true", help="强制重建关系+数据库摘要（不重跑列摘要/表描述）")
+parser.add_argument("--tables", type=str, default=None, help="逗号分隔的目标表名列表（仅检测指定表的变更）")
 _cli_args = parser.parse_args()
 
 TARGET_SCHEMA_ID = _cli_args.schema_id
@@ -55,6 +56,7 @@ VERBOSE = _cli_args.verbose
 FORCE_UPDATE = _cli_args.force_update
 DRY_RUN = _cli_args.dry_run
 REBUILD = _cli_args.rebuild
+TARGET_TABLES = [t.strip() for t in _cli_args.tables.split(",")] if _cli_args.tables else None
 
 HDC_RESOURCE_BASE = f"viking://resources/hdc/{TARGET_SCHEMA_ID}/{TARGET_DB_NAME}"
 
@@ -161,7 +163,7 @@ async def verify_no_change_detection():
 
     print(f"  正在比对 schema 签名 hash...")
     t0 = time.monotonic()
-    result = await updater.check_and_update(TARGET_SCHEMA_ID, TARGET_DB_NAME)
+    result = await updater.check_and_update(TARGET_SCHEMA_ID, TARGET_DB_NAME, tables=TARGET_TABLES)
     elapsed = time.monotonic() - t0
 
     print(f"  耗时: {elapsed:.1f}s")
@@ -352,7 +354,7 @@ async def run_update():
 
     print(f"  正在执行增量更新...")
     t0 = time.monotonic()
-    result = await updater.check_and_update(TARGET_SCHEMA_ID, TARGET_DB_NAME)
+    result = await updater.check_and_update(TARGET_SCHEMA_ID, TARGET_DB_NAME, tables=TARGET_TABLES)
     elapsed = time.monotonic() - t0
 
     print(f"  耗时: {elapsed:.1f}s")

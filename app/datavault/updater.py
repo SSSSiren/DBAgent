@@ -186,7 +186,10 @@ class HDCUpdater:
     # ── Main entry point ──────────────────────────────────────────
 
     async def check_and_update(
-        self, schema_id: int, database_name: str
+        self,
+        schema_id: int,
+        database_name: str,
+        tables: list[str] | None = None,
     ) -> dict[str, Any]:
         """Check for schema changes and perform incremental updates.
 
@@ -204,13 +207,15 @@ class HDCUpdater:
         Args:
             schema_id: OneDBA schema ID.
             database_name: Database name.
+            tables: Optional target table names. None checks all tables;
+                a list limits change detection to only those tables.
 
         Returns:
             ``{"changed": False}`` when no schema changes are detected.
             ``{"changed": True, "new": N, "changed_tables": N, "deleted": N}``
             when changes are detected and processed.
 
-        Requirements: 3.1, 3.2, 3.3, 3.4, 3.5
+        Requirements: 3.1, 3.2, 3.3, 3.4, 3.5, 1.11, 1.12
         """
 
     async def rebuild_relationships(
@@ -487,6 +492,20 @@ class HDCUpdater:
         current_tables: dict[str, Any] = {
             t.name: t for t in db_raw.tables
         }
+
+        # ── Filter: only check specified tables when tables param is provided ──
+        if tables is not None:
+            table_set = set(tables)
+            for t in tables:
+                if t not in current_tables:
+                    log.warning(
+                        "HDCUpdater: table '%s' not found in schema_id=%d, skipped",
+                        t, schema_id,
+                    )
+            current_tables = {
+                name: tbl for name, tbl in current_tables.items()
+                if name in table_set
+            }
 
         # ── 2. Compute current hashes ──
         current_hashes: dict[str, str] = {}
