@@ -9,7 +9,7 @@
   - 完成标志：`HdcVerificationData` 可被 Pydantic 序列化/反序列化，`CaseResult` 的 `model_dump(mode="json")` 输出包含新字段
   - _Requirements: 2.1, 2.2, 2.4, 3.1, 3.2, 5.3_
 
-- [ ] 2. 运行器：新增 HDC 验证和首轮追踪函数
+- [x] 2. 运行器：新增 HDC 验证和首轮追踪函数
   - 在 `tests/evaluation/runner.py` 中新增 `_verify_hdc_injection(hdc_context, test_case, agent_output) -> HdcVerificationData` 函数：接收 `hdc_context` 字符串（而非 session_state dict），搜索参考表名，从 Agent SQL 提取实际表名，判断是否幻觉
   - 新增 `_extract_first_tool_info(agent_output) -> tuple[str, str, bool]` 函数：从 `tool_calls` 列表提取 first_tool、first_table_used（首个 query_database 或 execute_sql 调用的 table_name）、called_find_table_before_query
   - 修改 `_AgentRunOutput` dataclass：新增 `hdc_context: str = ""` 字段
@@ -21,7 +21,7 @@
   - _Boundary: runner.py_
   - _Depends: 1_
 
-- [ ] 3. (P) 报告器：新增逐工具效率对比和 HDC 审计渲染
+- [x] 3. (P) 报告器：新增逐工具效率对比和 HDC 审计渲染
   - 在 `tests/evaluation/reporter.py` 中新增 `_render_per_tool_breakdown(lines, no_hdc, with_hdc)` 函数：读取 `no_hdc` 和 `with_hdc` 报告中的 `case_results[].efficiency.tool_call_details`，渲染 find_table、describe_table、query_database 三种工具的基线 vs HDC 对比表，含趋势标注、汇总行、首轮 find_table 调用率
   - 新增 `_render_hdc_audit(lines, with_hdc)` 函数：读取 `with_hdc.case_results[].hdc_verification`，渲染逐用例审计表（HDC 含正确表、Agent 用正确表、幻觉），末尾输出聚合统计
   - 修改 `_render_hdc_comparison_md()` 中的逐用例对比表：在现有列后新增"首轮正确"列，从 `run_details[].first_table_used` 与 `test_case.reference_sql` 提取的表名对比判断
@@ -31,7 +31,7 @@
   - _Boundary: reporter.py_
   - _Depends: 1_
 
-- [ ] 4. (P) CLI：新增 --verbose-hdc 参数和实时输出
+- [x] 4. (P) CLI：新增 --verbose-hdc 参数和实时输出
   - 在 `tests/evaluation/cli.py` 的 `run` 子命令中新增 `--verbose-hdc` 参数
   - 新增 `verbose_hdc` 参数到 `run_evaluation()` 函数签名，透传至 `_run_single_case()`，在 `_run_one()` 中 `_inject_hdc_context()` 返回后打印注入状态行
   - 注入状态行格式：`[HDC] {case_id}: 已注入({chars}字符) | 正确表在上下文中={yes/no}`（正确表名通过子字符串搜索判断，仅需输出 yes/no）
