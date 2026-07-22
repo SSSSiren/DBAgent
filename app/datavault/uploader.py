@@ -12,7 +12,7 @@ HDCUploader — 将 HDC 内容写入 OpenViking 资源目录结构并设置结�
 Tags（表目录级别）：
     hdc_level:table  main_entity:{value}  table_type:{value}  pk:{value}
 
-需求覆盖：1.3（tags 写入）、1.4（trigger SemanticProcessor via write wait=True）、3.3（rm 删除）
+需求覆盖：1.3（tags 写入）、1.4（trigger SemanticProcessor via write）、3.3（rm 删除）
 """
 
 from __future__ import annotations
@@ -214,8 +214,6 @@ class HDCUploader:
 
     def __init__(self, ov_client: "OpenVikingClient") -> None:
         self._ov = ov_client
-        from app.config import get_settings
-        self._semantic_timeout = get_settings().hdc_semantic_timeout
 
     # ── 公开 API ────────────────────────────────────────────────
 
@@ -248,12 +246,11 @@ class HDCUploader:
         # 3. 写入 _tables/_INDEX.md 目录汇总，触发 SemanticProcessor 生成 L0/L1
         # 没有此文件时，_tables/.abstract.md 永远为 "[Directory overview is not generated]"
         # 导致 find() 的 tags 语义过滤失效
-        # wait=False — 大库（>100表）的汇总文档 VLM 处理 >300s，不阻塞管线
+        # wait=False — 避免 OpenViking VLM 连接池超时，embedding 异步完成
         tables_index = _format_tables_index(tables)
         await self._ov.write(
             f"{_tables_dir_uri(key)}/_INDEX.md", tables_index,
             mode="create", wait=False,
-            timeout=self._semantic_timeout,
         )
 
         log.info(
@@ -275,13 +272,11 @@ class HDCUploader:
         # 确保 _relationships 目录存在
         await self._ov.mkdir(_relations_dir_uri(key))
 
-        # 写入数据库摘要（wait=True 触发 SemanticProcessor）
-        # Use mode="replace" — on rebuild, the file already exists
+        # 写入数据库摘要（wait=False 避免 VLM 超时，embedding 异步完成）
         db_index_content = _format_database_index(db_summary)
         db_index_uri = f"{_db_uri(key)}/_INDEX.md"
         await self._ov.write(
-            db_index_uri, db_index_content, mode="replace", wait=True,
-            timeout=self._semantic_timeout,
+            db_index_uri, db_index_content, mode="replace", wait=False,
         )
 
         # 写入关系文件（mode="replace" — on rebuild, old relationship files exist）
@@ -331,14 +326,13 @@ class HDCUploader:
             col_uri = f"{table_dir}/{col.column_name}.md"
             await self._ov.write(col_uri, col_content, mode="create", wait=False)
 
-        # 写入 _INDEX.md（wait=True 触发 SemanticProcessor）
-        # 使用 mode="create" — 文件首次创建，避免 replace→create fallback
-        # timeout 从 hdc_semantic_timeout 配置读取（默认 300s），应对大表 VLM 处理慢
+        # 写入 _INDEX.md（wait=False 避免 OpenViking VLM 连接池超时）
+        # HDC 内容已是 LLM 精炼的结构化描述，不需要 VLM 再摘要
+        # embedding 向量化由 OpenViking 后台异步完成
         index_content = _format_table_index(table_desc)
         index_uri = f"{table_dir}/_INDEX.md"
         await self._ov.write(
-            index_uri, index_content, mode="create", wait=True,
-            timeout=self._semantic_timeout,
+            index_uri, index_content, mode="create", wait=False,
         )
 
         # 设置 tags（OpenViking 要求 k=v 格式）
