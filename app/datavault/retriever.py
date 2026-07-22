@@ -13,6 +13,7 @@ Storage key format: {schemaId}/{database_name}
 
 from __future__ import annotations
 
+import asyncio
 import logging
 from typing import Optional
 
@@ -84,6 +85,16 @@ class HDCRetriever:
                 limit=10,
             )
             matches = self._extract_matches(result)
+        # Filesystem fallback: when embedding hasn't completed yet (wait=False
+        # during upload), find() returns empty. List _tables directory directly
+        # and match by main_entity substring in _INDEX.md content.
+        if not matches:
+            log.info(
+                "HDC retrieval: find returned nothing for key=%s. "
+                "Falling back to filesystem listing (embedding may not be ready).",
+                key,
+            )
+            matches = await self._fs_table_fallback(target_base, user_input)
         if not matches:
             log.info(
                 "HDC retrieval: no matching tables for key=%s query=%s",
@@ -355,6 +366,72 @@ class HDCRetriever:
             return ""
 
     # ── Static helpers ──
+
+    async def _fs_table_fallback(
+        self, target_base: str, user_input: str
+    ) -> list[dict]:
+        """文件系统 fallback：直接列出 _tables 目录，按关键词匹配 _INDEX.md。
+
+        当 OpenViking embedding 尚未完成时（如 wait=False 上传后），
+        find() 返回空结果。此方法用 fs/ls 列出目录，逐表读取 _INDEX.md
+        用关键词匹配 main_entity 或内容。
+
+        Returns:
+            list of synthetic match dicts with table_name and score=0.0.
+        """
+        tables_uri = f"{target_base}/_tables"
+        try:
+            raw = await self._ov._get_raw("/api/v1/fs/ls", tables_uri)
+        except Exception:
+            log.warning("HDC retrieval: fs/ls fallback failed for %s", tables_uri)
+            return []
+
+        entries = (
+            raw if isinstance(raw, list)
+            else raw.get("result", []) if isinstance(raw, dict)
+            else []
+        )
+        if not entries:
+            return []
+
+        # Collect table directory names (skip files and _-prefixed dirs)
+        table_dirs: list[str] = []
+        for entry in entries:
+            if not isinstance(entry, dict):
+                continue
+            if not entry.get("isDir", False):
+                continue
+            uri = entry.get("uri", "")
+            name = uri.rstrip("/").rsplit("/", 1)[-1] if uri else ""
+            if not name or name.startswith("_"):
+                continue
+            table_dirs.append(name)
+
+        if not table_dirs:
+            return []
+
+        # Match: read each _INDEX.md, check if user input keywords appear
+        keywords = user_input.lower().split()
+        matches: list[dict] = []
+        for table_name in table_dirs:
+            content = await self._read_index(target_base, table_name)
+            if not content:
+                continue
+            main_entity = ""
+            for line in content.split("\n"):
+                stripped = line.strip()
+                if stripped and not stripped.startswith("#") and not stripped.startswith("**"):
+                    main_entity = stripped.lower()
+                    break
+            content_lower = content.lower()
+            if any(kw in main_entity or kw in content_lower for kw in keywords):
+                matches.append({"table_name": table_name, "score": 0.0})
+
+        log.info(
+            "HDC retrieval: fs fallback found %d tables for query=%s",
+            len(matches), user_input[:80],
+        )
+        return matches
 
     @staticmethod
     def _extract_matches(result) -> list[dict]:
