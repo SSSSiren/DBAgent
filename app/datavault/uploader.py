@@ -387,6 +387,9 @@ class HDCUploader:
             f"pk={table_desc.primary_key}",
         ]
         result = await self._ov.set_tags(table_dir, tags, mode="replace")
+
+        # 额外等待 embedding，确保 tags 索引生效 / find() API 可用
+        await asyncio.sleep(1.0)
         if not result:
             log.warning(
                 "HDCUploader: set_tags returned empty for table_dir=%s tags=%s. "
