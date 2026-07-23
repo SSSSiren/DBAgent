@@ -733,7 +733,8 @@ class HDCGenerator:
             query_parts.append(desc.description)
         query = " ".join(query_parts)
 
-        target_uri = f"viking://resources/hdc/{key}/_tables"
+        from app.datavault.uploader import _tables_dir_uri
+        target_uri = _tables_dir_uri(key)
 
         try:
             result = await self._uploader._ov.find(

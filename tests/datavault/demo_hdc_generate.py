@@ -12,8 +12,8 @@ HDC 知识库生成验证
   python tests/datavault/demo_hdc_generate.py [schema_id] [database_name] -v   # 详细日志
 
   验证持久化：
-  ov ls viking://resources/hdc/{database_name}
-  ov tree viking://resources/hdc/{database_name} -L 3
+  ov ls viking://user/hdc-system/memories/hdc/{database_name}
+  ov tree viking://user/hdc-system/memories/hdc/{database_name} -L 3
 """
 
 import argparse
@@ -52,7 +52,7 @@ TARGET_DB_NAME = _cli_args.database_name
 VERBOSE = _cli_args.verbose
 TARGET_TABLES = [t.strip() for t in _cli_args.tables.split(",")] if _cli_args.tables else None
 
-HDC_RESOURCE_BASE = f"viking://resources/hdc/{TARGET_SCHEMA_ID}/{TARGET_DB_NAME}"
+HDC_RESOURCE_BASE = f"viking://user/hdc-system/memories/hdc/{TARGET_SCHEMA_ID}/{TARGET_DB_NAME}"
 
 OV_HEADERS = {
     "Content-Type": "application/json",
@@ -469,8 +469,8 @@ async def main():
         print(f"\n  ⚠️  请先排查上述问题后再运行对比实验")
 
     print(f"\n  手动验证命令:")
-    print(f"     ov ls viking://resources/hdc/{TARGET_SCHEMA_ID}/{TARGET_DB_NAME}")
-    print(f"     ov tree viking://resources/hdc/{TARGET_SCHEMA_ID}/{TARGET_DB_NAME} -L 3")
+    print(f"     ov ls viking://user/hdc-system/memories/hdc/{TARGET_SCHEMA_ID}/{TARGET_DB_NAME}")
+    print(f"     ov tree viking://user/hdc-system/memories/hdc/{TARGET_SCHEMA_ID}/{TARGET_DB_NAME} -L 3")
 
 
 if __name__ == "__main__":

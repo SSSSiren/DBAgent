@@ -41,7 +41,7 @@ SETTINGS = get_settings()
 TARGET_SCHEMA_ID = int(sys.argv[1]) if len(sys.argv) > 1 else 25800743
 TARGET_DB_NAME = sys.argv[2] if len(sys.argv) > 2 else "dw_onedba"
 
-HDC_RESOURCE_BASE = f"viking://resources/hdc/{TARGET_SCHEMA_ID}/{TARGET_DB_NAME}"
+HDC_RESOURCE_BASE = f"viking://user/hdc-system/memories/hdc/{TARGET_SCHEMA_ID}/{TARGET_DB_NAME}"
 
 OV_HEADERS = {
     "Content-Type": "application/json",

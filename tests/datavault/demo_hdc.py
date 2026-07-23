@@ -370,7 +370,7 @@ def main():
     print(f"  💡 HDC 数据底座的机制:")
     print(f"     1. 离线生成：LLM 预先分析数据库 schema")
     print(f"        → 生成四层业务语义描述（列→表→关系→库）")
-    print(f"     2. 存储于 OpenViking: viking://resources/hdc/{{schemaId}}/{{db}}/")
+    print(f"     2. 存储于 OpenViking: viking://user/hdc-system/memories/hdc/{{schemaId}}/{{db}}/")
     print(f"        → 列=文件、表=子目录、库=目录、L0/L1 自动摘要")
     print(f"     3. 在线检索：对话时 OpenViking find API 双路召回")
     print(f"        → tags 精确过滤 (main_entity) + 向量语义检索")

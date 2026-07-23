@@ -58,7 +58,7 @@ DRY_RUN = _cli_args.dry_run
 REBUILD = _cli_args.rebuild
 TARGET_TABLES = [t.strip() for t in _cli_args.tables.split(",")] if _cli_args.tables else None
 
-HDC_RESOURCE_BASE = f"viking://resources/hdc/{TARGET_SCHEMA_ID}/{TARGET_DB_NAME}"
+HDC_RESOURCE_BASE = f"viking://user/hdc-system/memories/hdc/{TARGET_SCHEMA_ID}/{TARGET_DB_NAME}"
 
 OV_HEADERS = {
     "Content-Type": "application/json",

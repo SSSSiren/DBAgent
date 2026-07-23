@@ -798,7 +798,7 @@ async def hdc_status(database_name: str):
         from app.knowledge.openviking import OpenVikingClient
         ov = OpenVikingClient(settings.kb_openviking_url, "hdc-admin")
         await ov.start()
-        entries = await ov.ls(f"viking://resources/hdc/{database_name}")
+        entries = await ov.ls(f"viking://user/hdc-system/memories/hdc/{database_name}")
         await ov.close()
 
         exists = len(entries) > 0 if isinstance(entries, list) else False
@@ -837,7 +837,7 @@ async def hdc_delete(database_name: str):
         from app.knowledge.openviking import OpenVikingClient
         ov = OpenVikingClient(settings.kb_openviking_url, "hdc-admin")
         await ov.start()
-        await ov.rm(f"viking://resources/hdc/{database_name}", recursive=True)
+        await ov.rm(f"viking://user/hdc-system/memories/hdc/{database_name}", recursive=True)
         await ov.close()
         return {"deleted": True, "database_name": database_name}
     except Exception as e:
