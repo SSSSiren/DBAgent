@@ -61,6 +61,15 @@
 **Purpose**: FastAPI 应用工厂、lifespan、静态文件挂载、路由注册  
 **Pattern**: 组合根，将所有组件装配在一起
 
+### 测试 (`tests/`)
+**Purpose**: 单元测试、集成测试、E2E、HDC demo、独立评测框架  
+**Key modules**: 
+- `test_{module}.py` — 标准单元/集成/E2E 测试（镜像源模块命名）
+- `evaluation/` — 独立评测框架（CLI → loader → runner → judges → scorer → reporter），支持 `--with-hdc`/`--compare-hdc`/`--verbose-hdc` 模式，输出 JSON+Markdown 双格式报告
+- `datavault/` — HDC 生成、更新、端到端验证的 demo 脚本
+- `docs/` — 评测用例 Markdown 规格文件  
+**Pattern**: 标准测试镜像源结构 + 独立评测子框架（自有 CLI、模型、运行器、评判器、渲染器）
+
 ## Naming Conventions
 
 - **Files**: `snake_case`（`runner.py`、`find_table.py`、`sql_utils.py`）

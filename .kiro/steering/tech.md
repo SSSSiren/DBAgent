@@ -71,7 +71,9 @@
 
 8. **asyncio.Event 取消机制**：`CancelEventRegistry`（`app/agent/cancel.py`）管理每个会话的取消信号，Agent 循环在多个安全点检查取消（迭代边界、LLM 调用竞态、工具执行），通过 REST 端点暴露。含 TTL 过期机制（5 分钟）防止内存泄漏。
 
-8. **用户隔离的多租户会话**：所有会话操作使用 `(user_id, session_id)` 复合键，存储层实现多租户隔离。
+9. **用户隔离的多租户会话**：所有会话操作使用 `(user_id, session_id)` 复合键，存储层实现多租户隔离。
+
+10. **独立评测框架**：`tests/evaluation/` 实现 CLI 驱动的批量评测系统——TestCase 模型定义用例（自然语言问题+参考 SQL+预期行数+难度分级+分类+涉及表名），多维度评判（SQL 正确性 judge、质量 judge、效率 judge）打分聚合为总分，支持 `--with-hdc` 单轮、`--compare-hdc` 对比、`--verbose-hdc` 实时注入输出三种模式，生成 JSON+Markdown 双格式报告。
 
 ---
 _updated_at: 2026-07-22_

@@ -13,7 +13,7 @@ DBAgent 的 NL2SQL 查询助手在面对陌生数据库时，需要反复调用 
 
 ## 边界上下文
 
-- **范围内**：HDC 知识库的生成（离线管线）、检索（在线路径）、增量更新（后台任务）、静默降级、管理操作
+- **范围内**：HDC 知识库的生成（离线管线，支持全库和部分表两种模式）、检索（在线路径）、增量更新（后台任务）、静默降级、管理操作
 - **范围外**：不替换 OpenViking 语义记忆、不替换现有 `find_table`/`describe_table` 工具、不实现自定义 embedding 或向量存储
 - **相邻预期**：OpenViking 提供向量检索和存储能力；OneDBA 平台提供 schema 采集能力；现有 `build_context()` 已注入 OpenViking 语义记忆和操作记忆，HDC 上下文段落与之并列
 
@@ -31,6 +31,12 @@ DBAgent 的 NL2SQL 查询助手在面对陌生数据库时，需要反复调用 
 4. When 所有内容上传到 OpenViking 后，the DBAgent HDC 子系统 shall 触发 SemanticProcessor 处理，使 OpenViking 自动生成 L0（.abstract）和 L1（.overview）摘要
 5. When 生成过程中某张表的 LLM 调用失败，the DBAgent HDC 子系统 shall 记录该表错误并继续处理其余表，不中断整个数据库的生成流程
 6. When 生成完成后，the DBAgent HDC 子系统 shall 返回生成统计（成功表数、失败表数、列数、关系数、耗时）
+7. Where 管理员在触发生成时指定了目标表名列表，the DBAgent HDC 子系统 shall 仅对指定表执行 schema 采集、列摘要生成、表描述生成和上传操作，跳过未指定表
+8. Where 管理员指定了目标表名列表（即部分表生成模式），the DBAgent HDC 子系统 shall 基于已生成的表完成表关系生成和数据库摘要生成步骤（关系仅检测指定表之间的关联，数据库摘要仅基于指定表的核心实体和业务域编写），返回的生成统计中注明"部分生成"状态及涉及的表名列表
+9. If 管理员指定的表名在目标数据库中不存在，the DBAgent HDC 子系统 shall 记录警告并跳过该表名，继续处理其余合法表名，不中断整体流程
+10. Where 管理员未指定目标表名列表（默认行为），the DBAgent HDC 子系统 shall 采集全部表并生成完整四层 HDC 知识库，保持现有行为不变
+11. Where 管理员使用部分表模式生成 HDC 后，the DBAgent HDC 子系统 shall 确保后续增量更新操作可正常执行——增量更新应能检测到未生成表的新增/变更，并自动扩展知识库覆盖范围
+12. When 增量更新在部分表模式下生成的 HDC 知识库上执行，the DBAgent HDC 子系统 shall 仅对比已生成表的列签名 hash，未生成的表视为"待新增"并纳入更新范围
 
 ### 需求 2：HDC 在线检索与上下文注入
 
