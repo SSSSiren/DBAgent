@@ -163,8 +163,8 @@ class HDCUpdater:
     ) -> None:
         """Store the column hash as a ``columns_hash:...`` tag on the table directory.
 
-        Uses ``mode="merge"`` so that existing tags (hdc_level, main_entity, etc.)
-        are preserved.
+        Uses ``mode="append"`` so that existing tags (hdc_level, main_entity, etc.)
+        are preserved and only the new columns_hash tag is added.
         """
         from app.datavault.uploader import _table_dir_uri
 
@@ -173,7 +173,7 @@ class HDCUpdater:
             await self._uploader._ov.set_tags(
                 table_dir,
                 [f"columns_hash={hash_value}"],
-                mode="merge",
+                mode="append",
             )
         except Exception:
             log.warning(
@@ -220,7 +220,7 @@ class HDCUpdater:
         key = storage_key(schema_id, database_name)
 
         # ── 1. Collect current schema ──
-        db_raw = await self._collector.collect_database(schema_id)
+        db_raw = await self._collector.collect_database(schema_id, tables=tables)
         current_tables: dict[str, Any] = {
             t.name: t for t in db_raw.tables
         }
@@ -381,7 +381,7 @@ class HDCUpdater:
         start_time = _time.monotonic()
 
         # ── 1. Collect current schema from OneDBA ──
-        db_raw = await self._collector.collect_database(schema_id)
+        db_raw = await self._collector.collect_database(schema_id, tables=tables)
         current_tables: dict[str, Any] = {
             t.name: t for t in db_raw.tables
         }
