@@ -10,9 +10,9 @@
 
 ### 目标
 
-- 实现 HDC 离线生成管线：OneDBA schema 采集 → LLM 四层自底向上生成 → OpenViking 上传
+- 实现 HDC 离线生成管线：OneDBA schema 采集 → LLM 四层自底向上生成 → OpenViking 上传，支持全库和部分表两种模式
 - 实现 HDC 在线检索：OpenViking `find` API 双路召回（tags 精确 + 向量语义），`build_context()` 注入
-- 实现增量更新：列签名 hash 对比，仅重算变更表
+- 实现增量更新：列签名 hash 对比，仅重算变更表，兼容部分表模式生成的 HDC 知识库
 - 实现静默降级：OpenViking 不可用时 Agent 回退到现有 `find_table` + `describe_table` 流程
 - 提供管理 API：触发生成、查询状态、删除 HDC 数据
 
@@ -24,12 +24,13 @@
 - 不做 HDC 内容的可视化展示（前端范围）
 - 不做历史版本 HDC 回滚（OpenViking git snapshot 可覆盖）
 - 不做分布式任务调度（单进程异步生成即可）
+- 不限制"部分表生成"时表名数量的上限（合理使用即可，不设硬上限）
 
 ## 边界承诺
 
 ### 本规格拥有
 
-- HDC 生成管线：schema 采集、LLM 生成、OpenViking 上传的编排逻辑
+- HDC 生成管线：schema 采集、LLM 生成、OpenViking 上传的编排逻辑，支持全库和部分表两种模式
 - HDC 检索逻辑：OpenViking `find` API 调用、结果格式化、上下文段落组装
 - `build_context()` 中 `[数据底座]` 上下文段落
 - `OpenVikingClient` 中 `find`/`search`/`write`/`set_tags` API 封装
@@ -59,8 +60,10 @@
 - OpenViking `find` API 的请求/响应格式变更
 - `build_context()` 函数签名变更
 - `session_state` 字典中 `_hdc_context` 键的命名或结构变更
-- HDC OpenViking 目录结构 `viking://resources/hdc/{schemaId}/{db}/_tables/{table}/` 变更
+- HDC OpenViking 目录结构 `viking://user/hdc-system/memories/hdc/{schemaId}/{db}/_tables/{table}/` 变更
 - `Settings` 中 HDC 相关配置项命名或默认值变更
+- `HDCGenerator.generate()` 参数签名变更（如 `tables` 参数的类型或语义修改）
+- `SchemaCollector.collect_database()` 签名变更
 
 ## 架构
 
@@ -115,7 +118,21 @@ graph TB
 | 后端 | Python 3.12 + FastAPI | HDC 管理 API 端点 | 已有 |
 | HTTP 客户端 | httpx | OpenViking API 调用 | 已有 |
 | LLM | OpenAI 兼容 API（deepseek-v4-flash） | HDC 生成时的描述生成 | 已有，复用 `Settings.llm_model` |
-| 存储 | OpenViking（viking://resources/hdc/{schemaId}/{db}/） | HDC 知识库持久化 + 向量检索 | 已有 |
+| 存储 | OpenViking（`viking://user/hdc-system/memories/hdc/{schemaId}/{db}/`） | HDC 知识库持久化 + 向量检索 | 已有 |
+
+**设计决策 — HDC 存储路径选择 (2026-07-23)**：
+
+HDC 数据存储路径从 `viking://resources/hdc/...` 迁移到 `viking://user/hdc-system/memories/hdc/...`。
+
+**理由**：OpenViking 对 `resources` 路径的写入走 `_write_direct_with_refresh` 路径，强制触发 SemanticProcessor（VLM 生成 L0/L1 摘要 + embedding）。VLM 调用慢（30-120s）且对 HDC 冗余（HDC 的 `_INDEX.md` 已是 LLM 精炼的描述）。同时 VLM 连接池无并发限流，多表并行处理时连接池耗尽导致 `PoolTimeout`。
+
+改为 `memories/hdc` 路径后走 `_write_memory_with_refresh` 路径：VLM 被硬编码跳过（`semantic_status="skipped"`），仅保留 embedding 向量化（2-5s），彻底消除 VLM 连接池耗尽问题。
+
+**兼容性验证**：
+- `content/read` API（`raw=False`）自动剥除 `MemoryFileUtils` 包装 → `_read_index()` 拿到原始 markdown ✅
+- `registry.get("hdc")` 无注册项 → `refresh_schema_overview` 静默跳过 ✅
+- `find()` 向量检索不依赖 context_type ✅
+- `set_tags()` 不区分 context_type ✅
 | Schema 源 | OneDBA 平台 | 数据库 schema 采集 | 已有 |
 | 异步 | asyncio | 生成管线并行调度 | 标准库 |
 
@@ -147,9 +164,10 @@ app/
 
 - `app/knowledge/openviking.py` — 扩展 `find()`、`search()`、`write()`、`set_tags()`、`mkdir()`、`rm()` 方法
 - `app/agent/context.py` — `build_context()` 新增 `[数据底座]` 段落（~20 行），从 `session_state["_hdc_context"]` 读取
-- `app/api/routes.py` — 新增 4 个 HDC 管理端点：`POST /api/hdc/generate`、`GET /api/hdc/status/{database_name}`、`GET /api/hdc/tasks/{task_id}`、`DELETE /api/hdc/{database_name}`
-- `app/config.py` — 新增 `hdc_enabled: bool = False`、`hdc_auto_generate: bool = False`
-- `app/main.py` — lifespan 启动日志中新增 HDC 状态行
+- `app/datavault/collector.py` — `collect_database()` 新增可选 `tables` 参数，采集时过滤表名
+- `app/datavault/generator.py` — `generate()` 新增可选 `tables` 参数，传递到采集步骤并控制管线范围；部分表模式下仍执行关系和摘要生成
+- `app/api/routes.py` — `POST /api/hdc/generate` 请求体新增可选 `tables` 字段
+- `tests/datavault/demo_hdc_generate.py` — CLI 新增 `--tables` 参数
 
 ## 系统流程
 
@@ -222,6 +240,12 @@ sequenceDiagram
 | 1.4 | 触发 SemanticProcessor | HDCUploader | OpenViking write (wait) | HDC 生成流程 |
 | 1.5 | 单表失败不中断 | HDCGenerator | — | HDC 生成流程 |
 | 1.6 | 生成统计返回 | HDCGenerator | HDC Admin API | HDC 生成流程 |
+| 1.7 | 部分表采集和生成 | SchemaCollector, HDCGenerator | — | HDC 生成流程 |
+| 1.8 | 部分表模式关系+摘要 | HDCGenerator | LLM API | HDC 生成流程 |
+| 1.9 | 不存在的表名容错 | SchemaCollector, HDCGenerator | — | HDC 生成流程 |
+| 1.10 | 默认全库向后兼容 | HDCGenerator | — | HDC 生成流程 |
+| 1.11 | 增量更新兼容部分表 | HDCUpdater | OpenViking | 增量更新 |
+| 1.12 | 部分表 hash 对比范围 | HDCUpdater | — | 增量更新 |
 | 2.1 | 数据库摘要注入 | HDCRetriever, build_context | OpenViking find | HDC 上下文注入 |
 | 2.2 | 双路召回检索 | HDCRetriever | OpenViking find (tags+vector) | HDC 上下文注入 |
 | 2.3 | 无匹配时跳过 | HDCRetriever | — | HDC 上下文注入 |
@@ -248,11 +272,11 @@ sequenceDiagram
 
 | 组件 | 域/层 | 意图 | 需求覆盖 | 关键依赖 (P0/P1) | 合约 |
 |------|------|------|----------|-------------------|------|
-| SchemaCollector | datavault | 从 OneDBA 采集原始 schema 元数据 | 1.1 | OneDBAClient (P0) | Service |
-| HDCGenerator | datavault | 编排 HDC 生成全流程 | 1.2, 1.5, 1.6 | SchemaCollector (P0), LLM (P0), HDCUploader (P0) | Service |
+| SchemaCollector | datavault | 从 OneDBA 采集原始 schema 元数据，支持全库和指定表过滤 | 1.1, 1.7, 1.9 | OneDBAClient (P0) | Service |
+| HDCGenerator | datavault | 编排 HDC 生成全流程，支持全库和部分表两种模式 | 1.2, 1.5, 1.6, 1.7, 1.8, 1.9, 1.10 | SchemaCollector (P0), LLM (P0), HDCUploader (P0) | Service |
 | HDCUploader | datavault | 将 HDC 内容写入 OpenViking 目录结构 | 1.3, 1.4 | OpenVikingClient (P0) | Service |
 | HDCRetriever | datavault | 封装 OpenViking find 检索和结果格式化 | 2.1, 2.2, 2.6, 4.1-4.4 | OpenVikingClient (P0) | Service |
-| HDCUpdater | datavault | 检测 schema 变更并执行增量更新 | 3.1-3.5 | OneDBAClient (P0), HDCGenerator (P0) | Service |
+| HDCUpdater | datavault | 检测 schema 变更并执行增量更新，兼容部分表和全库两种知识库状态 | 1.11, 1.12, 3.1-3.5 | OneDBAClient (P0), HDCGenerator (P0) | Service |
 | HDC Admin API | API 层 | HDC 管理 REST 端点 | 5.1-5.4 | HDCGenerator (P0), HDCUpdater (P0) | API |
 | Context Builder | Agent 层 | build_context() 新增 HDC 段落 | 2.3, 2.4, 2.5 | HDCRetriever (P1) | Service |
 
@@ -269,6 +293,8 @@ sequenceDiagram
 - 调用 `OneDBAClient.execute_sql()` 执行 `SHOW TABLE STATUS`、`DESCRIBE`、`SELECT * LIMIT 3`
 - 返回结构化 `DatabaseRaw` 对象，不包含任何 LLM 生成的内容
 - 单表采集失败不中断整体采集，记录错误并继续
+- 接受可选的 `tables` 参数以过滤目标表名；指定了表名列表时仅采集匹配的表，跳过其余表
+- 当指定的表名在数据库中不存在时，记录警告并继续处理其余合法表名
 
 **依赖**
 - 外部：OneDBAClient (P0) — 执行 SQL 查询
@@ -305,7 +331,10 @@ class DatabaseRaw:
 
 class SchemaCollector:
     def __init__(self, client: OneDBAClient): ...
-    async def collect_database(self, schema_id: int) -> DatabaseRaw: ...
+    async def collect_database(
+        self, schema_id: int, tables: list[str] | None = None
+    ) -> DatabaseRaw: ...
+    # tables=None 采集全库；tables=["a","b"] 仅采集指定表
 ```
 
 - 前置条件：`OneDBAClient` 已初始化，`schema_id` 有效
@@ -321,12 +350,14 @@ class SchemaCollector:
 
 **职责与约束**
 - 按自底向上顺序：列摘要 → 表描述 → 表关系 → 数据库摘要
+- 接受可选的 `tables` 参数以限定生成范围；指定后仅对指定表执行采集和生成，其余表跳过
+- 部分表模式下仍执行表关系和数据库摘要生成：关系仅检测指定表之间的关联，摘要仅基于指定表的核心实体和业务域编写
 - 列摘要使用垂直分区策略：每 6 列一组，`asyncio.gather` 并行调用 LLM，`asyncio.Semaphore` 限制并发数
 - 表描述采用逐表流式管线：列摘要完成后立即启动该表的描述生成（通过 `_pipeline_one_table`），表间并行但受信号量约束，避免 LLM 连接耗尽
 - 支持 LLM 调用超时重试（`max_retries=2`，60s 超时，线性退避）
 - 表关系使用两阶段检测：OpenViking `find` 粗筛 → LLM 细筛
 - 单表 LLM 调用失败时记录错误并继续，不中断整体流程
-- 返回生成统计（成功表数、失败表数、列数、关系数、耗时）
+- 返回生成统计（成功表数、失败表数、列数、关系数、耗时、模式标识 `mode: "full"|"partial"`、partial 模式时附带 `requested_tables`）
 
 **依赖**
 - 入站：SchemaCollector (P0) — 获取原始 schema
@@ -351,13 +382,17 @@ class HDCGenerator:
         self,
         schema_id: int,
         database_name: str,
+        tables: list[str] | None = None,
         progress_callback: Callable[[str, dict[str, Any]], None] | None = None,
     ) -> dict[str, Any]: ...
     # 返回: {"status": "completed"|"partial"|"failed",
     #         "tables_total": int, "tables_succeeded": int,
     #         "columns": int, "relationships": int,
-    #         "duration_seconds": float, "errors": list[str]}
-    # progress_callback: 可选，接收 (step_name, info_dict) 用于实时进度上报
+    #         "duration_seconds": float, "errors": list[str],
+    #         "mode": "full" | "partial",
+    #         "requested_tables": list[str] | None}    # 仅在 partial 模式下存在
+    # tables=None 表示全库模式（向后兼容）
+    # tables=["a", "b"] 表示仅对指定表生成
 
     async def generate_table(
         self, key: str, table: TableRaw
@@ -385,10 +420,10 @@ class HDCGenerator:
 | 需求 | 1.3, 1.4 |
 
 **职责与约束**
-- 创建目录结构：`viking://resources/hdc/{schemaId}/{db}/_tables/{table}/`、`viking://resources/hdc/{schemaId}/{db}/_relationships/`
+- 创建目录结构：`viking://user/hdc-system/memories/hdc/{schemaId}/{db}/_tables/{table}/`、`viking://user/hdc-system/memories/hdc/{schemaId}/{db}/_relationships/`
 - 写入 `_INDEX.md` 文件（表级 L2）和 `{column}.md` 文件（列级 L2）
 - 调用 `set_tags` 设置结构化元数据（main_entity、table_type、pk）
-- 写入操作触发 OpenViking SemanticProcessor 自动生成 L0/L1
+- 使用 `user/memories/hdc` 路径走 `_write_memory_with_refresh` → 跳过 VLM，仅 embedding 向量化
 
 **依赖**
 - 外部：OpenVikingClient (P0) — `mkdir`/`write`/`set_tags` API
@@ -489,7 +524,7 @@ class HDCRetriever:
 
 | 方法 | 端点 | 请求 | 响应 | 错误 |
 |------|------|------|------|------|
-| POST | `/api/hdc/generate` | `{"schema_id": 142, "database_name": "dwd_trade"}` | `{"task_id": "uuid", "status": "started"}` | 400（schema_id 无效）、409（已有进行中的任务） |
+| POST | `/api/hdc/generate` | `{"schema_id": 142, "database_name": "dwd_trade", "tables": ["t1", "t2"]}` | `{"task_id": "uuid", "status": "started"}` | 400（schema_id 无效）、409（已有进行中的任务） |
 | GET | `/api/hdc/status/{database_name}` | 路径参数 | `{"database_name": "...", "exists": true, "generated_at": "...", "table_count": 45, "last_updated_at": "..."}` | 404（数据库无 HDC 数据） |
 | GET | `/api/hdc/tasks/{task_id}` | 路径参数 | `{"task_id": "...", "status": "running/completed/failed", "progress": {"phase": "...", "tables_done": 10, "tables_total": 45}}` | 404（任务不存在） |
 | DELETE | `/api/hdc/{database_name}` | 路径参数 | `{"deleted": true, "database_name": "dwd_trade"}` | 404（数据库无 HDC 数据） |
@@ -521,11 +556,12 @@ class HDCRetriever:
 
 HDC 数据存储在 OpenViking 文件系统中，非关系型数据库。目录结构即数据模型：
 
-- **数据库** → `viking://resources/hdc/{schemaId}/{database_name}/` 目录
+- **数据库** → `viking://user/hdc-system/memories/hdc/{schemaId}/{database_name}/` 目录
 - **表** → `_tables/{table_name}/` 子目录
 - **列** → `{column_name}.md` 文件
 - **关系** → `_relationships/{source}__{target}.md` 文件
 - **元数据** → OpenViking tags（`main_entity`、`table_type`、`pk`、`hdc_level`）
+- **embedding** → MemoryUpdater 纯文本向量化（跳过 VLM L0/L1 摘要）
 
 ### 数据合约与集成
 
@@ -558,6 +594,8 @@ HDC 数据存储在 OpenViking 文件系统中，非关系型数据库。目录�
 - `HDCGenerator._generate_table_description()` — mock LLM，验证输出解析和 tags 提取
 - `HDCRetriever.retrieve()` — mock OpenVikingClient，验证降级路径和格式化输出
 - `HDCUpdater._compute_columns_hash()` — 验证相同列结构产生相同 hash，变更列产生不同 hash
+- 部分表模式生成：mock SchemaCollector 返回过滤后的表，验证仅指定表进入后续管线
+- 部分表模式 + 增量更新：首先生成 2 张表的 HDC → 增量更新检测到其余表为"待新增" → 自动扩展覆盖范围
 
 ### 集成测试
 
@@ -581,6 +619,6 @@ HDC 数据存储在 OpenViking 文件系统中，非关系型数据库。目录�
 ## 安全考量
 
 - HDC 管理 API 端点无需额外认证（复用 OneDBA 平台已有的网络隔离）
-- HDC 数据存储在 `viking://resources/hdc/{schemaId}/{db}/`，所有用户共享读取（HDC 是数据库 schema 描述，不包含敏感数据）
+- HDC 数据存储在 `viking://user/hdc-system/memories/hdc/{schemaId}/{db}/`，所有用户共享读取（HDC 是数据库 schema 描述，不包含敏感数据）
 - HDC 生成时的 LLM 调用复用项目已有的 API key 配置，不新增凭证
 - 不将用户查询数据发送到 HDC 生成管线（生成管线仅使用 OneDBA schema 元数据）

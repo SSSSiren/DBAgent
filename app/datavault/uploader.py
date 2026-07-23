@@ -32,8 +32,13 @@ if TYPE_CHECKING:
 
 log = logging.getLogger("vkdbagent.datavault.uploader")
 
-# Base URI prefix for all HDC content in OpenViking
-_HDC_ROOT = "viking://resources/hdc"
+# Base URI prefix for all HDC content in OpenViking.
+# Using user/memories/hdc path to route writes through _write_memory_with_refresh,
+# which skips VLM L0/L1 generation (semantic_status="skipped") while still
+# triggering embedding vectorization. This avoids VLM connection pool exhaustion
+# that occurs with the resources/ path (which forces VLM via SemanticProcessor).
+# See: .kiro/specs/hdc-datavault-knowledge-base/research.md § Design Decisions 2026-07-23
+_HDC_ROOT = "viking://user/hdc-system/memories/hdc"
 
 
 def storage_key(schema_id: int, database_name: str) -> str:
@@ -42,23 +47,33 @@ def storage_key(schema_id: int, database_name: str) -> str:
 
 
 def _db_uri(key: str) -> str:
-    """viking://resources/hdc/{schemaId}/{db}/"""
+    """viking://user/hdc-system/memories/hdc/{schemaId}/{db}/"""
     return f"{_HDC_ROOT}/{key}"
 
 
 def _tables_dir_uri(key: str) -> str:
-    """viking://resources/hdc/{schemaId}/{db}/_tables/"""
+    """viking://user/hdc-system/memories/hdc/{schemaId}/{db}/_tables/"""
     return f"{_db_uri(key)}/_tables"
 
 
 def _relations_dir_uri(key: str) -> str:
-    """viking://resources/hdc/{schemaId}/{db}/_relationships/"""
+    """viking://user/hdc-system/memories/hdc/{schemaId}/{db}/_relationships/"""
     return f"{_db_uri(key)}/_relationships"
 
 
 def _table_dir_uri(key: str, table_name: str) -> str:
-    """viking://resources/hdc/{schemaId}/{db}/_tables/{table}/"""
+    """viking://user/hdc-system/memories/hdc/{schemaId}/{db}/_tables/{table}/"""
     return f"{_tables_dir_uri(key)}/{table_name}"
+
+
+def _db_index_uri(key: str) -> str:
+    """viking://user/hdc-system/memories/hdc/{schemaId}/{db}/_INDEX.md"""
+    return f"{_db_uri(key)}/_INDEX.md"
+
+
+def _table_index_uri(key: str, table_name: str) -> str:
+    """viking://user/hdc-system/memories/hdc/{schemaId}/{db}/_tables/{table}/_INDEX.md"""
+    return f"{_table_dir_uri(key, table_name)}/_INDEX.md"
 
 
 def _format_table_index(table: "TableDescriptionWithColumns") -> str:

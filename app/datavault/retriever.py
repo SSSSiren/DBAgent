@@ -18,7 +18,13 @@ import logging
 from typing import Optional
 
 from app.datavault.models import HDCContext, TableMatch
-from app.datavault.uploader import storage_key
+from app.datavault.uploader import (
+    _db_index_uri,
+    _table_dir_uri,
+    _table_index_uri,
+    _tables_dir_uri,
+    storage_key,
+)
 from app.knowledge.openviking import OpenVikingClient
 
 log = logging.getLogger("vkdbagent.datavault")
@@ -56,12 +62,12 @@ class HDCRetriever:
             HDCContext with database_summary and matched_tables, or None on degradation.
         """
         key = storage_key(schema_id, database_name)
-        target_base = f"viking://resources/hdc/{key}"
+        tables_uri = _tables_dir_uri(key)
 
         # ── Stage 1: find matching tables ──
         result = await self._ov.find(
             query=user_input,
-            target_uri=f"{target_base}/_tables",
+            target_uri=tables_uri,
             tags=["hdc_level=table"],
             level=[0, 1],
             limit=10,
@@ -80,7 +86,7 @@ class HDCRetriever:
             )
             result = await self._ov.find(
                 query=user_input,
-                target_uri=f"{target_base}/_tables",
+                target_uri=tables_uri,
                 level=[0, 1],
                 limit=10,
             )
@@ -94,7 +100,7 @@ class HDCRetriever:
                 "Falling back to filesystem listing (embedding may not be ready).",
                 key,
             )
-            matches = await self._fs_table_fallback(target_base, user_input)
+            matches = await self._fs_table_fallback(tables_uri, user_input)
         if not matches:
             log.info(
                 "HDC retrieval: no matching tables for key=%s query=%s",
@@ -135,11 +141,11 @@ class HDCRetriever:
         table_matches: list[TableMatch] = []
         for table_name, score in candidates[:5]:
             # Read _INDEX.md to get real metadata we wrote
-            index_content = await self._read_index(target_base, table_name)
+            index_content = await self._read_index(key, table_name)
             main_entity, table_type, description, usage_scenario = self._parse_index(index_content)
 
             relevant_columns = await self._retrieve_columns(
-                user_input, target_base, table_name
+                user_input, key, table_name
             )
 
             table_matches.append(TableMatch(
@@ -155,7 +161,7 @@ class HDCRetriever:
             return None
 
         # ── Retrieve database summary ──
-        database_summary = await self._retrieve_database_summary(target_base)
+        database_summary = await self._retrieve_database_summary(key)
 
         return HDCContext(
             database_summary=database_summary,
@@ -209,12 +215,12 @@ class HDCRetriever:
 
     # ── Private helpers ──
 
-    async def _read_index(self, target_base: str, table_name: str) -> str:
+    async def _read_index(self, key: str, table_name: str) -> str:
         """Read the actual _INDEX.md file we wrote (not VLM summary).
 
         Uses OpenViking content/read API to get raw L2 content.
         """
-        uri = f"{target_base}/_tables/{table_name}/_INDEX.md"
+        uri = _table_index_uri(key, table_name)
         try:
             raw = await self._ov._get_raw("/api/v1/content/read", uri)
             if isinstance(raw, str):
@@ -286,7 +292,7 @@ class HDCRetriever:
     async def _retrieve_columns(
         self,
         user_input: str,
-        target_base: str,
+        key: str,
         table_name: str,
     ) -> list[str]:
         """Stage 2: 检索某张表的相关列描述（level=[2]，最多 6 列）。
@@ -296,7 +302,7 @@ class HDCRetriever:
         """
         result = await self._ov.find(
             query=user_input,
-            target_uri=f"{target_base}/_tables/{table_name}",
+            target_uri=_table_dir_uri(key, table_name),
             level=[2],
             limit=6,
         )
@@ -311,14 +317,14 @@ class HDCRetriever:
             if not col_name or col_name == "_INDEX":
                 continue
             # Read the original .md file for the short description we wrote
-            col_content = await self._read_column_file(target_base, table_name, col_name)
+            col_content = await self._read_column_file(key, table_name, col_name)
             if col_content:
                 columns.append(f"{col_name}: {col_content}")
         return columns
 
-    async def _read_column_file(self, target_base: str, table_name: str, column_name: str) -> str:
+    async def _read_column_file(self, key: str, table_name: str, column_name: str) -> str:
         """Read a column .md file to get the original short description."""
-        uri = f"{target_base}/_tables/{table_name}/{column_name}.md"
+        uri = f"{_table_dir_uri(key, table_name)}/{column_name}.md"
         try:
             raw = await self._ov._get_raw("/api/v1/content/read", uri)
             content = ""
@@ -335,9 +341,9 @@ class HDCRetriever:
         except Exception:
             return ""
 
-    async def _retrieve_database_summary(self, target_base: str) -> str:
+    async def _retrieve_database_summary(self, key: str) -> str:
         """读取数据库根目录的 _INDEX.md 获取摘要。"""
-        uri = f"{target_base}/_INDEX.md"
+        uri = _db_index_uri(key)
         try:
             raw = await self._ov._get_raw("/api/v1/content/read", uri)
             content = ""
@@ -368,7 +374,7 @@ class HDCRetriever:
     # ── Static helpers ──
 
     async def _fs_table_fallback(
-        self, target_base: str, user_input: str
+        self, tables_uri: str, user_input: str
     ) -> list[dict]:
         """文件系统 fallback：直接列出 _tables 目录，按关键词匹配 _INDEX.md。
 
@@ -379,7 +385,9 @@ class HDCRetriever:
         Returns:
             list of synthetic match dicts with table_name and score=0.0.
         """
-        tables_uri = f"{target_base}/_tables"
+        # Extract key from tables_uri: "viking://user/.../memories/hdc/{key}/_tables" → "{key}"
+        # _tables_dir_uri produces ".../hdc/{key}/_tables", so strip the "/_tables" suffix
+        key = tables_uri.removesuffix("/_tables").rsplit("/hdc/", 1)[-1] if "/hdc/" in tables_uri else tables_uri
         try:
             raw = await self._ov._get_raw("/api/v1/fs/ls", tables_uri)
         except Exception:
@@ -414,7 +422,7 @@ class HDCRetriever:
         keywords = user_input.lower().split()
         matches: list[dict] = []
         for table_name in table_dirs:
-            content = await self._read_index(target_base, table_name)
+            content = await self._read_index(key, table_name)
             if not content:
                 continue
             main_entity = ""
