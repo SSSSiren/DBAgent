@@ -53,10 +53,11 @@ class HDCRetriever:
     ) -> Optional[HDCContext]:
         """两阶段 HDC 检索，返回 HDCContext 或 None（降级）。
 
-        Stage 1: find(query, target_uri=".../hdc/{schemaId}/{db}/_tables",
-                       tags=["hdc_level=table"], level=[0,1], limit=10)
-        Stage 2: for top 5 tables, find(query, target_uri=".../hdc/{schemaId}/{db}/_tables/{table}",
-                                       level=[2], limit=6)
+        In the memory path, only file-level (level=2) embeddings exist;
+        directory-level (level=0,1) summaries are never generated (VLM is skipped).
+        Stage 1 searches level=2 files across all tables, then aggregates by
+        parent table directory. Stage 2 is a no-op since column-level data
+        is already returned from Stage 1.
 
         Returns:
             HDCContext with database_summary and matched_tables, or None on degradation.
@@ -64,36 +65,18 @@ class HDCRetriever:
         key = storage_key(schema_id, database_name)
         tables_uri = _tables_dir_uri(key)
 
-        # ── Stage 1: find matching tables ──
+        # ── Stage 1: find matching files (level=2) across all _tables ──
+        # Memory path only has file-level embeddings; no directory L0/L1 summaries.
         result = await self._ov.find(
             query=user_input,
             target_uri=tables_uri,
-            tags=["hdc_level=table"],
-            level=[0, 1],
-            limit=10,
+            level=[2],
+            limit=60,  # high limit: aggregate by table, need enough files for grouping
         )
 
         matches = self._extract_matches(result)
 
-        # Fallback: if tagged search returns nothing, retry without tags.
-        # This handles the case where set_tags() failed silently during upload
-        # or the OpenViking tags index is not yet populated.
-        if not matches:
-            log.warning(
-                "HDC retrieval: tagged find returned 0 matches for key=%s. "
-                "Tags may not be set on table directories. Retrying without tags.",
-                key,
-            )
-            result = await self._ov.find(
-                query=user_input,
-                target_uri=tables_uri,
-                level=[0, 1],
-                limit=10,
-            )
-            matches = self._extract_matches(result)
-        # Filesystem fallback: when embedding hasn't completed yet (wait=False
-        # during upload), find() returns empty. List _tables directory directly
-        # and match by main_entity substring in _INDEX.md content.
+        # Filesystem fallback: when embedding hasn't completed yet
         if not matches:
             log.info(
                 "HDC retrieval: find returned nothing for key=%s. "
@@ -466,22 +449,24 @@ class HDCRetriever:
     def _extract_table_name(match: dict) -> str:
         """从匹配项的 URI 中提取表名。
 
-        URI 格式: viking://resources/hdc/{db}/_tables/{table_name}
-        或:       viking://resources/hdc/{db}/_tables/{table_name}/.abstract.md
+        URI 格式 (level=0,1 — 旧 resources 路径):
+          viking://resources/hdc/{db}/_tables/{table_name}
+          或 viking://resources/hdc/{db}/_tables/{table_name}/.abstract.md
+        URI 格式 (level=2 — 新 memory 路径):
+          viking://user/.../memories/hdc/{key}/_tables/{table_name}/{column}.md
         """
         uri = match.get("uri", "")
         if uri:
             parts = uri.rstrip("/").split("/")
-            # If the last segment is a derived file (.abstract.md, .overview.md),
-            # the table name is the parent directory
             last = parts[-1] if parts else ""
+            # Derived files (.abstract.md, .overview.md) → table is parent dir
             if last in (".abstract.md", ".overview.md", ".abstract", ".overview"):
-                if len(parts) >= 2:
-                    return parts[-2]
-                return ""
-            if last.endswith(".md"):
-                last = last[:-3]
-            return last
+                return parts[-2] if len(parts) >= 2 else ""
+            # Column .md files (level=2) → table is parent dir
+            if last.endswith(".md") and last != "_INDEX.md":
+                return parts[-2] if len(parts) >= 2 else ""
+            # Directory name or _INDEX.md → this is the table name
+            return last.replace(".md", "")
         name = match.get("name", "")
         if name:
             if name in (".abstract", ".overview", ".abstract.md", ".overview.md"):
