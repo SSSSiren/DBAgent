@@ -234,11 +234,12 @@ class HDCUploader:
     # ── Embedding 等待 ──────────────────────────────────────────
 
     async def wait_for_embedding(
-        self, key: str, *, timeout: float = 10.0, interval: float = 0.5
+        self, key: str, *, timeout: float = 60.0, interval: float = 1.0
     ) -> bool:
-        """验证 embedding 就已。write(wait=True) 已确保 embedding 完成，
-        此方法作为冗余验证：轮询 find() 快速确认即可。
-        返回 True 表示 embedding 就已；超时返回 False。"""
+        """轮询 find(level=[2]) 直到 embedding 就绪。
+
+        Memory 路径只有文件级 embedding (level=2)，没有目录级 (level=0,1)。
+        """
         tables_uri = _tables_dir_uri(key)
         deadline = asyncio.get_event_loop().time() + timeout
 
@@ -247,13 +248,13 @@ class HDCUploader:
                 result = await self._ov.find(
                     query="test",
                     target_uri=tables_uri,
-                    level=[0, 1],
+                    level=[2],
                     limit=1,
                 )
                 if result:
                     entries = (
                         result if isinstance(result, list)
-                        else result.get("matches", []) if isinstance(result, dict)
+                        else result.get("memories", []) if isinstance(result, dict)
                         else []
                     )
                     if entries:
