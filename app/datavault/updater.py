@@ -217,6 +217,144 @@ class HDCUpdater:
 
         Requirements: 3.1, 3.2, 3.3, 3.4, 3.5, 1.11, 1.12
         """
+        key = storage_key(schema_id, database_name)
+
+        # ── 1. Collect current schema ──
+        db_raw = await self._collector.collect_database(schema_id)
+        current_tables: dict[str, Any] = {
+            t.name: t for t in db_raw.tables
+        }
+
+        # ── Filter: only check specified tables when tables param is provided ──
+        if tables is not None:
+            table_set = set(tables)
+            for t in tables:
+                if t not in current_tables:
+                    log.warning(
+                        "HDCUpdater: table '%s' not found in schema_id=%d, skipped",
+                        t, schema_id,
+                    )
+            current_tables = {
+                name: tbl for name, tbl in current_tables.items()
+                if name in table_set
+            }
+
+        # ── 2. Compute current hashes ──
+        current_hashes: dict[str, str] = {}
+        for name, table in current_tables.items():
+            current_hashes[name] = self._compute_columns_hash(table.columns)
+
+        # ── 3. Read stored state from OpenViking ──
+        stored_hashes, existing_tables = await self._get_stored_state(key)
+
+        # ── 4. Compare: identify new, changed, deleted ──
+        new_tables: list[str] = []
+        changed_tables: list[str] = []
+        needs_hash_store: list[str] = []
+
+        for name, current_hash in current_hashes.items():
+            if name not in existing_tables:
+                new_tables.append(name)
+            elif name not in stored_hashes:
+                needs_hash_store.append(name)
+            elif current_hash != stored_hashes[name]:
+                changed_tables.append(name)
+
+        deleted_tables: list[str] = [
+            name for name in stored_hashes if name not in current_hashes
+        ]
+        for name in existing_tables:
+            if name not in current_hashes and name not in deleted_tables:
+                deleted_tables.append(name)
+
+        # ── 5. No changes: return early (zero LLM calls) ──
+        for name in needs_hash_store:
+            await self._store_hash(key, name, current_hashes[name])
+
+        if not new_tables and not changed_tables and not deleted_tables:
+            log.info("HDCUpdater: no schema changes detected for '%s'", key)
+            return {"changed": False}
+
+        log.info(
+            "HDCUpdater: detected changes for '%s' — new=%d, changed=%d, deleted=%d",
+            key, len(new_tables), len(changed_tables), len(deleted_tables),
+        )
+
+        # ── 6-8. Re-generate + cascade (same logic as before) ──
+        regenerated_descriptions: dict[str, TableDescription] = {}
+        all_column_summaries: dict[str, list[ColumnSummary]] = {}
+        errors: list[str] = []
+
+        for table_name in new_tables + changed_tables:
+            table_raw = current_tables[table_name]
+            try:
+                col_map = await self._generator.generate_column_summaries([table_raw])
+                summaries = col_map.get(table_name, [])
+                desc = await self._generator._generate_one_table_description(table_raw, summaries)
+                if desc is None:
+                    errors.append(f"Table description generation failed for '{table_name}'")
+                    continue
+                regenerated_descriptions[table_name] = desc
+                twc = TableDescriptionWithColumns(
+                    table_name=desc.table_name, main_entity=desc.main_entity,
+                    table_type=desc.table_type, primary_key=desc.primary_key,
+                    key_attributes=desc.key_attributes, description=desc.description,
+                    usage_scenario=desc.usage_scenario, row_count_estimate=desc.row_count_estimate,
+                    columns=summaries,
+                )
+                await self._uploader.upload_table(key, twc)
+                await self._store_hash(key, table_name, current_hashes[table_name])
+                all_column_summaries[table_name] = summaries
+                log.info("HDCUpdater: regenerated table '%s/%s'", key, table_name)
+            except Exception as e:
+                errors.append(f"Failed to regenerate table '{table_name}': {e}")
+
+        for table_name in deleted_tables:
+            try:
+                await self._uploader.delete_table(key, table_name)
+            except Exception as e:
+                errors.append(f"Failed to delete table '{table_name}': {e}")
+
+        all_descriptions: list[TableDescription] = list(regenerated_descriptions.values())
+        for name, table_raw in current_tables.items():
+            if name in deleted_tables or name in regenerated_descriptions:
+                continue
+            all_descriptions.append(TableDescription(
+                table_name=name, main_entity=table_raw.comment or name,
+                table_type="fact", primary_key="", key_attributes=[],
+                description=table_raw.comment or "",
+                row_count_estimate=table_raw.row_count_estimate,
+            ))
+
+        relationships: list[TableRelationship] = []
+        try:
+            relationships = await self._generator.generate_relationships(
+                key, all_descriptions, all_column_summaries)
+        except Exception as e:
+            errors.append(f"Relationship regeneration failed: {e}")
+
+        db_summary = None
+        try:
+            db_summary = await self._generator.generate_database_summary(
+                database_name, all_descriptions, relationships)
+        except Exception as e:
+            errors.append(f"Database summary regeneration failed: {e}")
+
+        if db_summary is not None:
+            try:
+                await self._uploader.upload_cascade(key, db_summary, relationships)
+            except Exception as e:
+                errors.append(f"Cascade upload failed: {e}")
+
+        if errors:
+            log.warning("HDCUpdater: update completed with %d error(s) for '%s'", len(errors), key)
+
+        return {
+            "changed": True,
+            "new": len(new_tables),
+            "changed_tables": len(changed_tables),
+            "deleted": len(deleted_tables),
+        }
 
     async def rebuild_relationships(
         self, schema_id: int, database_name: str,
@@ -461,248 +599,4 @@ class HDCUpdater:
             len(relationships), duration,
         )
         return result
-        """Check for schema changes and perform incremental updates.
 
-        Workflow:
-        1. Collect current schema from OneDBA
-        2. Compute column signature hashes for each table
-        3. Read stored hashes from OpenViking
-        4. Compare: identify new, changed, and deleted tables
-        5. If no changes: return ``{"changed": False}`` (zero LLM calls)
-        6. Re-generate new/changed tables (column summaries + table description)
-        7. Delete removed tables from OpenViking
-        8. Cascade: re-generate relationships and database summary
-        9. Return change summary
-
-        Args:
-            schema_id: OneDBA schema ID.
-            database_name: Database name.
-
-        Returns:
-            ``{"changed": False}`` when no schema changes are detected.
-            ``{"changed": True, "new": N, "changed_tables": N, "deleted": N}``
-            when changes are detected and processed.
-
-        Requirements: 3.1, 3.2, 3.3, 3.4, 3.5
-        """
-        key = storage_key(schema_id, database_name)
-
-        # ── 1. Collect current schema ──
-        db_raw = await self._collector.collect_database(schema_id)
-        current_tables: dict[str, Any] = {
-            t.name: t for t in db_raw.tables
-        }
-
-        # ── Filter: only check specified tables when tables param is provided ──
-        if tables is not None:
-            table_set = set(tables)
-            for t in tables:
-                if t not in current_tables:
-                    log.warning(
-                        "HDCUpdater: table '%s' not found in schema_id=%d, skipped",
-                        t, schema_id,
-                    )
-            current_tables = {
-                name: tbl for name, tbl in current_tables.items()
-                if name in table_set
-            }
-
-        # ── 2. Compute current hashes ──
-        current_hashes: dict[str, str] = {}
-        for name, table in current_tables.items():
-            current_hashes[name] = self._compute_columns_hash(table.columns)
-
-        # ── 3. Read stored state from OpenViking ──
-        stored_hashes, existing_tables = await self._get_stored_state(key)
-
-        # ── 4. Compare: identify new, changed, deleted ──
-        new_tables: list[str] = []
-        changed_tables: list[str] = []
-        needs_hash_store: list[str] = []  # tables that exist but lack a hash tag
-
-        for name, current_hash in current_hashes.items():
-            if name not in existing_tables:
-                # Table directory does not exist in OpenViking → truly new
-                new_tables.append(name)
-            elif name not in stored_hashes:
-                # Table directory exists but no columns_hash tag yet
-                # (e.g. after initial generation via HDCGenerator.generate())
-                needs_hash_store.append(name)
-            elif current_hash != stored_hashes[name]:
-                changed_tables.append(name)
-
-        deleted_tables: list[str] = [
-            name for name in stored_hashes if name not in current_hashes
-        ]
-        # Also consider tables that exist in OpenViking but not in current schema
-        # (even without a hash tag)
-        for name in existing_tables:
-            if name not in current_hashes and name not in deleted_tables:
-                deleted_tables.append(name)
-
-        # ── 5. No changes: return early (zero LLM calls) ──
-        # Store hashes for any existing tables that lack them (no-op for change detection)
-        for name in needs_hash_store:
-            await self._store_hash(key, name, current_hashes[name])
-
-        if not new_tables and not changed_tables and not deleted_tables:
-            log.info(
-                "HDCUpdater: no schema changes detected for '%s'",
-                key,
-            )
-            return {"changed": False}
-
-        log.info(
-            "HDCUpdater: detected changes for '%s' — "
-            "new=%d, changed=%d, deleted=%d",
-            key,
-            len(new_tables),
-            len(changed_tables),
-            len(deleted_tables),
-        )
-
-        # ── 6. Re-generate new/changed tables ──
-        regenerated_descriptions: dict[str, TableDescription] = {}
-        regenerated_with_cols: list[TableDescriptionWithColumns] = []
-        all_column_summaries: dict[str, list[ColumnSummary]] = {}
-        errors: list[str] = []
-
-        for table_name in new_tables + changed_tables:
-            table_raw = current_tables[table_name]
-            try:
-                # Generate column summaries for this table
-                col_map = await self._generator.generate_column_summaries(
-                    [table_raw]
-                )
-                summaries = col_map.get(table_name, [])
-
-                # Generate table description
-                desc = await self._generator._generate_one_table_description(
-                    table_raw, summaries
-                )
-                if desc is None:
-                    error_msg = (
-                        f"Table description generation failed for '{table_name}'"
-                    )
-                    log.error("HDCUpdater: %s", error_msg)
-                    errors.append(error_msg)
-                    continue
-
-                regenerated_descriptions[table_name] = desc
-
-                # Build TableDescriptionWithColumns for upload
-                twc = TableDescriptionWithColumns(
-                    table_name=desc.table_name,
-                    main_entity=desc.main_entity,
-                    table_type=desc.table_type,
-                    primary_key=desc.primary_key,
-                    key_attributes=desc.key_attributes,
-                    description=desc.description,
-                    usage_scenario=desc.usage_scenario,
-                    row_count_estimate=desc.row_count_estimate,
-                    columns=summaries,
-                )
-                regenerated_with_cols.append(twc)
-                all_column_summaries[table_name] = summaries
-
-                # Upload to OpenViking
-                await self._uploader.upload_table(key, twc)
-
-                # Store the new hash
-                await self._store_hash(
-                    key, table_name, current_hashes[table_name]
-                )
-
-                log.info(
-                    "HDCUpdater: regenerated table '%s/%s'",
-                    key,
-                    table_name,
-                )
-            except Exception as e:
-                error_msg = f"Failed to regenerate table '{table_name}': {e}"
-                log.error("HDCUpdater: %s", error_msg)
-                errors.append(error_msg)
-
-        # ── 7. Delete removed tables ──
-        for table_name in deleted_tables:
-            try:
-                await self._uploader.delete_table(key, table_name)
-                log.info(
-                    "HDCUpdater: deleted table '%s/%s'",
-                    key,
-                    table_name,
-                )
-            except Exception as e:
-                error_msg = f"Failed to delete table '{table_name}': {e}"
-                log.error("HDCUpdater: %s", error_msg)
-                errors.append(error_msg)
-
-        # ── 8. Cascade: regenerate relationships and database summary ──
-        # Build the full set of table descriptions (regenerated + unchanged)
-        all_descriptions: list[TableDescription] = list(
-            regenerated_descriptions.values()
-        )
-
-        for name, table_raw in current_tables.items():
-            if name in deleted_tables:
-                continue
-            if name in regenerated_descriptions:
-                continue
-            # Unchanged table: create a minimal TableDescription from raw data
-            desc = TableDescription(
-                table_name=name,
-                main_entity=table_raw.comment or name,
-                table_type="fact",
-                primary_key="",
-                key_attributes=[],
-                description=table_raw.comment or "",
-                usage_scenario="",
-                row_count_estimate=table_raw.row_count_estimate,
-            )
-            all_descriptions.append(desc)
-
-        # Generate relationships using the full set
-        relationships = []
-        try:
-            relationships = await self._generator.generate_relationships(
-                key, all_descriptions, all_column_summaries,
-            )
-        except Exception as e:
-            error_msg = f"Relationship regeneration failed: {e}"
-            log.error("HDCUpdater: %s", error_msg)
-            errors.append(error_msg)
-
-        # Generate database summary
-        db_summary = None
-        try:
-            db_summary = await self._generator.generate_database_summary(
-                database_name, all_descriptions, relationships,
-            )
-        except Exception as e:
-            error_msg = f"Database summary regeneration failed: {e}"
-            log.error("HDCUpdater: %s", error_msg)
-            errors.append(error_msg)
-
-        # Upload cascade results (database summary + relationships only;
-        # individual tables were already uploaded above)
-        if db_summary is not None:
-            try:
-                await self._uploader.upload_cascade(key, db_summary, relationships)
-            except Exception as e:
-                error_msg = f"Cascade upload failed: {e}"
-                log.error("HDCUpdater: %s", error_msg)
-                errors.append(error_msg)
-
-        if errors:
-            log.warning(
-                "HDCUpdater: update completed with %d error(s) for '%s'",
-                len(errors),
-                key,
-            )
-
-        return {
-            "changed": True,
-            "new": len(new_tables),
-            "changed_tables": len(changed_tables),
-            "deleted": len(deleted_tables),
-        }
