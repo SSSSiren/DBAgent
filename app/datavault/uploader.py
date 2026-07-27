@@ -6,7 +6,7 @@ HDCUploader — 将 HDC 内容写入 OpenViking 资源目录结构并设置结�
     viking://resources/hdc/{schemaId}/{db}/_INDEX.md              # 数据库摘要
     viking://resources/hdc/{schemaId}/{db}/_tables/{table}/       # 表目录
     viking://resources/hdc/{schemaId}/{db}/_tables/{table}/_INDEX.md  # 表描述
-    viking://resources/hdc/{schemaId}/{db}/_tables/{table}/{col}.md   # 列详情
+    viking://resources/hdc/{schemaId}/{db}/_tables/{table}/_columns/{col}.md   # 列详情（独立子目录）
     viking://resources/hdc/{schemaId}/{db}/_relationships/{a}__{b}.md # 关系
 
 Tags（表目录级别）：
@@ -386,18 +386,20 @@ class HDCUploader:
         """上传单张表的 HDC 内容（用于增量更新）。
 
         流程：
-        1. mkdir 创建表目录
-        2. 写入各列 .md 文件（无 wait）
+        1. mkdir 创建表目录和 _columns/ 子目录
+        2. 写入各列 .md 文件到 _columns/ 子目录（无 wait）
         3. 写入 _INDEX.md（wait=True 触发 SemanticProcessor L0/L1 生成）
         4. 设置表目录 tags（hdc_level、main_entity、table_type、pk）
         """
         table_dir = _table_dir_uri(key, table_desc.table_name)
+        columns_dir = _columns_dir_uri(key, table_desc.table_name)
         await self._ov.mkdir(table_dir)
+        await self._ov.mkdir(columns_dir)
 
-        # 写入各列 .md 文件
+        # 写入各列 .md 文件到 _columns/ 子目录
         for col in table_desc.columns:
             col_content = _format_column_md(col)
-            col_uri = f"{table_dir}/{col.column_name}.md"
+            col_uri = f"{columns_dir}/{col.column_name}.md"
             await self._ov.write(col_uri, col_content, mode="create", wait=False)
 
         # 写入 _INDEX.md（wait=True 等 embedding 完成，timeout=60s 防止 VLM 超时阻塞）
