@@ -2,11 +2,11 @@
 HDC Retriever — 封装 OpenViking find API 调用，格式化 HDC 检索结果用于上下文注入。
 
 Two-stage retrieval:
-  Stage 1: find matching tables via L0/L1 semantic summaries (level=[0,1], limit=200, score_threshold=0.25)
+  Stage 1: find matching tables via L2 column-level file search (level=[2], limit=200, score_threshold=0.25)
   Stage 2: find relevant columns per table (level=[2], max 6 per table, from _columns/ subdirectory)
 
-Table scoring: sum of top-3 L0/L1 match scores, with entity-level explosion radius control (max 2 per entity).
-Backward compatibility: auto-fallback to level=[2] for old-format knowledge bases without L0/L1.
+Table scoring: sum of top-3 column match scores, with entity-level explosion radius control (max 2 per entity).
+Fallback: when L2 returns nothing, retry with level=[0,1] for knowledge bases with L0/L1 summaries.
 
 Graceful degradation: OpenViking unavailable → log warning, return None.
 
@@ -80,14 +80,15 @@ class HDCRetriever:
         key = storage_key(schema_id, database_name, namespace=namespace)
         tables_uri = _tables_dir_uri(key)
 
-        # ── Stage 1: find matching tables via L0/L1 semantic summaries ──
-        # level=[0,1] searches directory-level .abstract.md (L0) and .overview.md (L1).
-        # High limit and score_threshold ensure correct tables enter the candidate set
-        # even in large (400+ table) knowledge bases.
+        # ── Stage 1: find matching tables via L2 column-level file search ──
+        # level=[2] searches individual column .md files. Each column is a separate
+        # vector match, providing fine-grained semantic evidence. High limit and
+        # score_threshold ensure correct tables enter the candidate set even in
+        # large (400+ table) knowledge bases.
         result = await self._ov.find(
             query=user_input,
             target_uri=tables_uri,
-            level=[0, 1],
+            level=[2],
             limit=200,
             score_threshold=0.25,
         )
@@ -103,21 +104,23 @@ class HDCRetriever:
             )
             matches = await self._fs_table_fallback(tables_uri, user_input)
 
-        # ── Backward compatibility: retry with level=[2] for old-format knowledge bases ──
+        # ── L0/L1 fallback: when L2 returns nothing, try directory-level summaries ──
+        # This covers the case where a knowledge base has L0/L1 generated but
+        # column-level embeddings are not yet indexed.
         if not matches:
             log.info(
-                "HDC retrieval: L0/L1 find returned nothing for key=%s. "
-                "Retrying with level=[2] for old-format knowledge base compatibility.",
+                "HDC retrieval: L2 find returned nothing for key=%s. "
+                "Retrying with level=[0,1] (directory-level summaries).",
                 key,
             )
-            result_l2 = await self._ov.find(
+            result_l0l1 = await self._ov.find(
                 query=user_input,
                 target_uri=tables_uri,
-                level=[2],
+                level=[0, 1],
                 limit=200,
                 score_threshold=0.25,
             )
-            matches = self._extract_matches(result_l2)
+            matches = self._extract_matches(result_l0l1)
 
         if not matches:
             log.info(
@@ -127,11 +130,11 @@ class HDCRetriever:
             )
             return None
 
-        # ── Stage 2: score aggregation by table (sum of top-3 L0/L1 match scores) ──
-        # L0/L1 find() returns table-directory-level matches (.abstract.md + .overview.md).
-        # We collect ALL scores per table_name, then use sum(top-3) as the composite score.
-        # This accumulates multi-match evidence — a table with multiple relevant matches
-        # ranks higher than one with a single coincidental high score.
+        # ── Stage 2: score aggregation by table (sum of top-3 match scores) ──
+        # L2 find() returns per-column file matches. We collect ALL scores per
+        # table_name, then use sum(top-3) as the composite score. This accumulates
+        # multi-column evidence — a table with multiple relevant columns ranks
+        # higher than one with a single coincidental high-scoring column.
         table_scores: dict[str, list[float]] = {}
         for match in matches:
             table_name = self._extract_table_name(match)
