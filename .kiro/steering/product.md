@@ -32,4 +32,4 @@ DBAgent 是一个 **NL2SQL（自然语言转 SQL）智能数据库助手**，运
 - **流式交互体验**：SSE/WebSocket 实时展示 Agent 推理过程，提升透明度和信任感。
 
 ---
-_updated_at: 2026-07-22_
+_updated_at: 2026-07-26_

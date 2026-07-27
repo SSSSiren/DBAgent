@@ -12,8 +12,8 @@ HDC 知识库生成验证
   python tests/datavault/demo_hdc_generate.py [schema_id] [database_name] -v   # 详细日志
 
   验证持久化：
-  ov ls viking://user/hdc-system/memories/hdc/{database_name}
-  ov tree viking://user/hdc-system/memories/hdc/{database_name} -L 3
+  ov ls viking://resources/hdc/{database_name}
+  ov tree viking://resources/hdc/{database_name} -L 3
 """
 
 import argparse
@@ -45,14 +45,19 @@ parser.add_argument("schema_id", nargs="?", type=int, default=25800743, help="On
 parser.add_argument("database_name", nargs="?", type=str, default="dw_onedba", help="数据库名称")
 parser.add_argument("-v", "--verbose", action="store_true", help="输出详细中间日志（每张表/每个关系）")
 parser.add_argument("--tables", type=str, default=None, help="逗号分隔的目标表名列表（部分表生成模式）")
+parser.add_argument("--namespace", type=str, default=None, help="HDC 命名空间（用于隔离同一数据库的不同知识库变体，如 incomplete/complete/overcomplete）")
 _cli_args = parser.parse_args()
 
 TARGET_SCHEMA_ID = _cli_args.schema_id
 TARGET_DB_NAME = _cli_args.database_name
 VERBOSE = _cli_args.verbose
 TARGET_TABLES = [t.strip() for t in _cli_args.tables.split(",")] if _cli_args.tables else None
+HDC_NAMESPACE = _cli_args.namespace
 
-HDC_RESOURCE_BASE = f"viking://user/hdc-system/memories/hdc/{TARGET_SCHEMA_ID}/{TARGET_DB_NAME}"
+if HDC_NAMESPACE:
+    HDC_RESOURCE_BASE = f"viking://resources/hdc/{TARGET_SCHEMA_ID}/{TARGET_DB_NAME}/{HDC_NAMESPACE}"
+else:
+    HDC_RESOURCE_BASE = f"viking://resources/hdc/{TARGET_SCHEMA_ID}/{TARGET_DB_NAME}"
 
 OV_HEADERS = {
     "Content-Type": "application/json",
@@ -257,6 +262,7 @@ async def generate_hdc():
         TARGET_SCHEMA_ID, TARGET_DB_NAME,
         tables=TARGET_TABLES,
         progress_callback=_on_progress,
+        namespace=HDC_NAMESPACE,
     )
     elapsed = time.monotonic() - t0
 
@@ -398,7 +404,7 @@ async def verify_retrieval():
     all_ok = True
     for query, expectation in test_queries:
         print_sub(f"查询: \"{query}\" — {expectation}")
-        hdc_ctx = await retriever.retrieve(query, TARGET_SCHEMA_ID, TARGET_DB_NAME)
+        hdc_ctx = await retriever.retrieve(query, TARGET_SCHEMA_ID, TARGET_DB_NAME, namespace=HDC_NAMESPACE)
         if hdc_ctx and hdc_ctx.matched_tables:
             print(f"  ✅ 匹配 {len(hdc_ctx.matched_tables)} 张表:")
             for t in hdc_ctx.matched_tables:
@@ -469,8 +475,8 @@ async def main():
         print(f"\n  ⚠️  请先排查上述问题后再运行对比实验")
 
     print(f"\n  手动验证命令:")
-    print(f"     ov ls viking://user/hdc-system/memories/hdc/{TARGET_SCHEMA_ID}/{TARGET_DB_NAME}")
-    print(f"     ov tree viking://user/hdc-system/memories/hdc/{TARGET_SCHEMA_ID}/{TARGET_DB_NAME} -L 3")
+    print(f"     ov ls viking://resources/hdc/{TARGET_SCHEMA_ID}/{TARGET_DB_NAME}")
+    print(f"     ov tree viking://resources/hdc/{TARGET_SCHEMA_ID}/{TARGET_DB_NAME} -L 3")
 
 
 if __name__ == "__main__":

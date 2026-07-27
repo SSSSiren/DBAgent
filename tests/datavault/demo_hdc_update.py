@@ -101,8 +101,11 @@ async def ov_ls(uri: str) -> list:
 
 
 async def ov_read_attrs(uri: str) -> dict:
-    """Read directory attributes (tags) from OpenViking."""
-    raw = await ov_get("/fs/read", {"uri": uri})
+    """Read directory attributes (tags) from OpenViking.
+
+    Uses /api/v1/fs/attrs which returns {"attrs": {"tags": [...]}}.
+    """
+    raw = await ov_get("/fs/attrs", {"uri": uri})
     if isinstance(raw, dict):
         if raw.get("status") == "error":
             return {}
@@ -203,9 +206,10 @@ async def preview_changes():
 
     # 采集当前 schema
     print(f"  采集当前 schema...")
-    db_raw = await collector.collect_database(TARGET_SCHEMA_ID)
+    db_raw = await collector.collect_database(TARGET_SCHEMA_ID, tables=TARGET_TABLES)
     current_tables = {t.name: t for t in db_raw.tables}
-    print(f"  当前数据库: {len(current_tables)} 张表")
+    table_label = f"（过滤: {', '.join(TARGET_TABLES)}）" if TARGET_TABLES else ""
+    print(f"  当前数据库: {len(current_tables)} 张表{table_label}")
 
     # 计算当前 hash
     current_hashes = {}
@@ -224,13 +228,22 @@ async def preview_changes():
     for entry in (table_entries or []):
         if not entry.get("isDir"):
             continue
-        table_name = entry.get("name", "")
+        # OpenViking fs/ls returns name=null for directories; fall back to URI parse
+        table_name = (entry.get("name") or "").strip()
+        if not table_name:
+            uri = entry.get("uri", "")
+            table_name = uri.rstrip("/").split("/")[-1] if uri else ""
         if not table_name:
             continue
 
         table_dir = _table_dir_uri(key, table_name)
-        attrs = await ov_read_attrs(table_dir)
-        tags = attrs.get("tags", [])
+        # OpenViking persists tags only on files, not directories.
+        # Read _INDEX.md file's tags instead of the directory's.
+        index_uri = f"{table_dir}/_INDEX.md"
+        attrs_result = await ov_read_attrs(index_uri)
+        # /api/v1/fs/attrs returns {"attrs": {"tags": [...]}}
+        attrs = attrs_result.get("attrs", {})
+        tags = attrs.get("tags", []) if isinstance(attrs, dict) else []
         if not isinstance(tags, list):
             tags = []
 
@@ -261,12 +274,26 @@ async def preview_changes():
                 print(f"        新 hash: {current_hash[:16]}...")
 
     for name in stored_hashes:
+        # 如果指定了 TARGET_TABLES，只对比范围内表，其余表不检测删除
+        if TARGET_TABLES and name not in TARGET_TABLES:
+            continue
         if name not in current_hashes:
             deleted_tables.append(name)
 
-    # 同时检查 OpenViking 中有目录但不在当前 schema 中的表
-    ov_table_names = {e.get("name", "") for e in (table_entries or []) if e.get("isDir")}
+    # 同时检查 OpenViking 中有目录但不在当前 schema 中的表（同样受 TARGET_TABLES 限制）
+    ov_table_names = set()
+    for e in (table_entries or []):
+        if not e.get("isDir"):
+            continue
+        name = (e.get("name") or "").strip()
+        if not name:
+            uri = e.get("uri", "")
+            name = uri.rstrip("/").split("/")[-1] if uri else ""
+        if name:
+            ov_table_names.add(name)
     for name in ov_table_names:
+        if TARGET_TABLES and name not in TARGET_TABLES:
+            continue
         if name not in current_hashes and name not in deleted_tables:
             deleted_tables.append(name)
 

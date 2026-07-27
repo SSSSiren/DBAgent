@@ -130,15 +130,17 @@ class HDCUpdater:
 
             existing_names.add(table_name)
 
-            # Read the table directory's attributes to extract tags
+            # Read the _INDEX.md file's attributes to extract tags
+            # (OpenViking persists tags only on files, not directories)
             table_dir = _table_dir_uri(key, table_name)
+            index_uri = f"{table_dir}/_INDEX.md"
             try:
                 detail = await self._uploader._ov._get_raw(
-                    "/api/v1/fs/attrs", table_dir
+                    "/api/v1/fs/attrs", index_uri
                 )
             except Exception:
                 log.debug(
-                    "HDCUpdater: cannot read attrs for %s", table_dir
+                    "HDCUpdater: cannot read attrs for %s", index_uri
                 )
                 continue
 
@@ -161,17 +163,19 @@ class HDCUpdater:
     async def _store_hash(
         self, key: str, table_name: str, hash_value: str
     ) -> None:
-        """Store the column hash as a ``columns_hash:...`` tag on the table directory.
+        """Store the column hash as a ``columns_hash:...`` tag on the table's _INDEX.md file.
 
-        Uses ``mode="append"`` so that existing tags (hdc_level, main_entity, etc.)
-        are preserved and only the new columns_hash tag is added.
+        Uses ``mode="append"`` so that existing tags are preserved.
+        Tags must be set on a file (not a directory) — OpenViking ignores
+        set_tags calls on directory URIs.
         """
         from app.datavault.uploader import _table_dir_uri
 
         table_dir = _table_dir_uri(key, table_name)
+        index_uri = f"{table_dir}/_INDEX.md"
         try:
             await self._uploader._ov.set_tags(
-                table_dir,
+                index_uri,
                 [f"columns_hash={hash_value}"],
                 mode="append",
             )
@@ -190,6 +194,7 @@ class HDCUpdater:
         schema_id: int,
         database_name: str,
         tables: list[str] | None = None,
+        namespace: str | None = None,
     ) -> dict[str, Any]:
         """Check for schema changes and perform incremental updates.
 
@@ -209,6 +214,8 @@ class HDCUpdater:
             database_name: Database name.
             tables: Optional target table names. None checks all tables;
                 a list limits change detection to only those tables.
+            namespace: Optional HDC namespace variant.
+                When set, operates on the isolated directory.
 
         Returns:
             ``{"changed": False}`` when no schema changes are detected.
@@ -217,7 +224,7 @@ class HDCUpdater:
 
         Requirements: 3.1, 3.2, 3.3, 3.4, 3.5, 1.11, 1.12
         """
-        key = storage_key(schema_id, database_name)
+        key = storage_key(schema_id, database_name, namespace=namespace)
 
         # ── 1. Collect current schema ──
         db_raw = await self._collector.collect_database(schema_id, tables=tables)
@@ -326,12 +333,8 @@ class HDCUpdater:
                 row_count_estimate=table_raw.row_count_estimate,
             ))
 
+        # Skip table relationships (O(N²) cost, not used in online retrieval)
         relationships: list[TableRelationship] = []
-        try:
-            relationships = await self._generator.generate_relationships(
-                key, all_descriptions, all_column_summaries)
-        except Exception as e:
-            errors.append(f"Relationship regeneration failed: {e}")
 
         db_summary = None
         try:
@@ -359,6 +362,7 @@ class HDCUpdater:
     async def rebuild_relationships(
         self, schema_id: int, database_name: str,
         progress_callback: Callable[[str, dict[str, Any]], None] | None = None,
+        namespace: str | None = None,
     ) -> dict[str, Any]:
         """Force-rebuild relationships and database summary without touching tables.
 
@@ -371,13 +375,17 @@ class HDCUpdater:
         column names/types from OneDBA, then runs relationship detection and
         database summary generation.
 
+        Args:
+            namespace: Optional HDC namespace variant.
+                When set, operates on the isolated directory.
+
         Returns:
             {"relationships": N, "duration_seconds": float} on success.
         """
         import time as _time
         from app.datavault.uploader import _tables_dir_uri, _table_dir_uri
 
-        key = storage_key(schema_id, database_name)
+        key = storage_key(schema_id, database_name, namespace=namespace)
         start_time = _time.monotonic()
 
         # ── 1. Collect current schema from OneDBA ──
@@ -514,31 +522,14 @@ class HDCUpdater:
             )
 
         # ── 3. Regenerate relationships ──
+        # Skip table relationships (O(N²) cost, not used in online retrieval)
         relationships: list[TableRelationship] = []
         errors: list[str] = []
 
         if progress_callback:
             progress_callback("rebuild_relationships", {
                 "phase": 4, "phase_label": "检测表关系",
-                "status": "running",
-                "tables": len(all_descriptions),
-            })
-
-        try:
-            relationships = await self._generator.generate_relationships(
-                key, all_descriptions, all_column_summaries,
-                progress_callback=progress_callback,
-            )
-        except Exception as e:
-            error_msg = f"Relationship regeneration failed during rebuild: {e}"
-            log.error("HDCUpdater: %s", error_msg)
-            errors.append(error_msg)
-
-        if progress_callback:
-            progress_callback("rebuild_relationships", {
-                "phase": 4, "phase_label": "检测表关系",
-                "status": "done",
-                "count": len(relationships),
+                "status": "skipped", "count": 0,
             })
 
         # ── 4. Regenerate database summary ──

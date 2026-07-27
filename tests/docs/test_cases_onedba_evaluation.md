@@ -931,33 +931,6 @@ ORDER BY user_count DESC;
 
 ## 七、综合查询（多表JOIN）
 
----
-
-### TC-023 JOIN - 工单与提交人信息
-
-**自然语言问题：**
-```
-工单系统：查询工单及其提交人信息，通过 order_record LEFT JOIN account ON committer_id = feishu_user_id 关联，返回工单ID、工单类型、提交人姓名、提交人邮箱，按工单创建时间降序。
-```
-
-**参考答案 SQL：**
-```sql
-SELECT o.id, o.order_type, o.committer_name, a.email
-FROM order_record o
-LEFT JOIN account a ON o.committer_id = a.feishu_user_id
-ORDER BY o.create_time DESC;
-```
-
-> **注意**：两表关联字段可能存在字符集排序规则（collation）不一致的问题（utf8mb4_general_ci vs utf8mb4_0900_ai_ci），生产环境若报错需使用 COLLATE 子句统一排序规则。
-
-**预期结果：**
-- 应返回 1174 行
-- 包含工单和提交人信息
-
-**评判要点：**
-- 必须使用 `LEFT JOIN`
-- 关联条件是 `committer_id = feishu_user_id`
-- 排序方向为 DESC
 
 ---
 
@@ -1009,34 +982,6 @@ ORDER BY business_subdomain;
 **评判要点：**
 - 必须使用 `DISTINCT`
 - 必须使用 `level = 'critical'`
-
----
-
-### TC-026 窗口函数 - 各业务域告警排名
-
-**自然语言问题：**
-```
-告警系统：查询每个业务域内各告警指标的告警数量，使用 ROW_NUMBER() 按业务域分组并按告警数量降序排名，返回业务域、指标名、告警数量、排名。
-```
-
-**参考答案 SQL：**
-```sql
-SELECT business_subdomain,
-       metric_name,
-       COUNT(*) AS alert_count,
-       ROW_NUMBER() OVER (PARTITION BY business_subdomain ORDER BY COUNT(*) DESC) AS rn
-FROM db_alert_history
-GROUP BY business_subdomain, metric_name
-ORDER BY business_subdomain, rn;
-```
-
-**预期结果：**
-- 应返回多条记录
-- 每个业务域内的指标按告警数量排名
-
-**评判要点：**
-- 必须使用 `ROW_NUMBER()` 窗口函数
-- 必须使用 `PARTITION BY business_subdomain`
 
 ---
 
@@ -1464,18 +1409,6 @@ SELECT id, realname, email, feishu_name FROM account WHERE role = 0 ORDER BY id 
 SELECT role, COUNT(*) AS user_count FROM account GROUP BY role ORDER BY user_count DESC;
 ```
 
-### TC-023
-
-问题：
-```
-工单系统：查询工单及其提交人信息，通过 order_record LEFT JOIN account ON committer_id = feishu_user_id 关联，返回工单ID、工单类型、提交人姓名、提交人邮箱，按工单创建时间降序。
-```
-
-参考SQL：
-```sql
-SELECT o.id, o.order_type, o.committer_name, a.email FROM order_record o LEFT JOIN account a ON o.committer_id = a.feishu_user_id ORDER BY o.create_time DESC;
-```
-
 ### TC-024
 
 问题：
@@ -1498,18 +1431,6 @@ SELECT o.id, o.order_type, o.status_desc, w.status_desc AS workflow_status FROM 
 参考SQL：
 ```sql
 SELECT DISTINCT business_subdomain FROM db_alert_history WHERE level = 'critical' ORDER BY business_subdomain;
-```
-
-### TC-026
-
-问题：
-```
-告警系统：查询每个业务域内各告警指标的告警数量，使用 ROW_NUMBER() 按业务域分组并按告警数量降序排名，返回业务域、指标名、告警数量、排名。
-```
-
-参考SQL：
-```sql
-SELECT business_subdomain, metric_name, COUNT(*) AS alert_count, ROW_NUMBER() OVER (PARTITION BY business_subdomain ORDER BY COUNT(*) DESC) AS rn FROM db_alert_history GROUP BY business_subdomain, metric_name ORDER BY business_subdomain, rn;
 ```
 
 ### TC-027

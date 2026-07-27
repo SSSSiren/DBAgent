@@ -246,6 +246,42 @@ async def _execute_agent_stream(
             initial_state["_preferences"] = preferences
         initial_state["_preference_count"] = preference_count
 
+        # ── 检索 SQL 历史记忆 ──
+        sql_memories: list[dict[str, Any]] = []
+        sql_memory_count = 0
+        if getattr(get_settings(), "sql_memory_enabled", False):
+            try:
+                sql_mem_store = get_storage().sql_memory_store
+                if sql_mem_store is not None:
+                    user_input = initial_state.get("user_input", "")
+                    selected_db = initial_state.get("selected_database") or {}
+                    database_name = selected_db.get("schemaName", "")
+                    scope = getattr(get_settings(), "sql_memory_scope", "user")
+                    top_k = getattr(get_settings(), "sql_memory_top_k", 5)
+                    min_sim = getattr(get_settings(), "sql_memory_min_similarity", 0.0)
+
+                    from app.memory.sql_memory import embed_text
+                    query_embedding = await embed_text(user_input)
+                    if query_embedding is not None:
+                        sql_memories = await sql_mem_store.search_similar(
+                            user_id=user_id,
+                            query_embedding=query_embedding,
+                            database_name=database_name,
+                            scope=scope,
+                            limit=top_k,
+                            min_similarity=min_sim,
+                        )
+                    sql_memory_count = len(sql_memories)
+                    print(f"[SQLMem][OK] 检索: user={user_id} count={sql_memory_count} scope={scope}")
+                else:
+                    print(f"[SQLMem][WARN] SQL 记忆存储未初始化")
+            except Exception as e:
+                print(f"[SQLMem][ERROR] 检索失败: {type(e).__name__}: {e}")
+
+        if sql_memories:
+            initial_state["_sql_memories"] = sql_memories
+        initial_state["_sql_memory_count"] = sql_memory_count
+
         # ── 检索 HDC 数据底座 ──
         from app.config import get_settings as _get_hdc_settings
         _hdc_settings = _get_hdc_settings()
@@ -347,6 +383,91 @@ async def _execute_agent_stream(
                                         )
             except Exception as e:
                 print(f"[Pref][ERROR] 偏好记录失败: {type(e).__name__}: {e}")
+
+        # ── 记录 SQL 历史记忆 ──
+        if getattr(get_settings(), "sql_memory_enabled", False) and final_payload:
+            tool_calls = final_payload.get("tool_calls", [])
+            try:
+                sql_mem_store = get_storage().sql_memory_store
+                if sql_mem_store is not None:
+                    user_input = initial_state.get("user_input", "")
+                    updated = final_payload.get("updated_state") or {}
+                    db_info = updated.get("selected_database") or initial_state.get("selected_database") or {}
+                    database_name = db_info.get("schemaName", "")
+
+                    from app.memory.sql_memory import embed_text
+
+                    for tc in tool_calls:
+                        name = tc.get("name", "")
+                        if name not in ("query_database", "execute_sql"):
+                            continue
+
+                        args = tc.get("args", {})
+                        schema_id = args.get("schema_id", 0)
+                        table_name = args.get("table_name", "")
+
+                        if not database_name and schema_id > 0:
+                            database_name = str(schema_id)
+
+                        # 提取 SQL 文本
+                        sql_text = args.get("sql", "")
+                        if not sql_text and name == "query_database":
+                            sql_text = args.get("question", "")
+                            if sql_text:
+                                sql_text = f"[NL2SQL] {sql_text}"
+
+                        if not sql_text:
+                            continue
+
+                        # 提取执行结果
+                        result = tc.get("result")
+                        execution_status = "success"
+                        row_count = None
+                        column_names: list[str] = []
+                        data_preview: list[list[Any]] = []
+
+                        if result is None:
+                            execution_status = "error"
+                        elif isinstance(result, str):
+                            if "错误" in result or "error" in result.lower():
+                                execution_status = "error"
+                            elif "返回 0 行" in result or "empty" in result.lower():
+                                execution_status = "empty"
+                            else:
+                                # Try to parse row count from result text
+                                import re as _re
+                                row_match = _re.search(r"返回\s*(\d+)\s*行", result)
+                                if row_match:
+                                    row_count = int(row_match.group(1))
+                                    if row_count == 0:
+                                        execution_status = "empty"
+
+                        table_names = [t.strip() for t in table_name.split(",") if t.strip()] if table_name else []
+
+                        # Generate embedding
+                        sql_truncated_text = sql_text[:500] if len(sql_text) > 500 else sql_text
+                        embedding = await embed_text(sql_truncated_text)
+
+                        await sql_mem_store.record(
+                            user_id=user_id,
+                            question=user_input if user_input else sql_text[:200],
+                            sql=sql_text,
+                            table_names=table_names,
+                            database_name=database_name,
+                            schema_id=schema_id,
+                            execution_result={
+                                "row_count": row_count,
+                                "column_names": column_names,
+                                "data_preview": data_preview,
+                                "execution_status": execution_status,
+                            },
+                            embedding=embedding,
+                        )
+                    print(f"[SQLMem][OK] 记录完成: user={user_id} tool_calls={len(tool_calls)}")
+                else:
+                    print(f"[SQLMem][WARN] SQL 记忆存储未初始化，跳过记录")
+            except Exception as e:
+                print(f"[SQLMem][ERROR] 记录失败: {type(e).__name__}: {e}")
 
         # ── 记录对话到 OpenViking ──
         user_input = initial_state.get("user_input", "")

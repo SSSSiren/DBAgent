@@ -70,6 +70,20 @@ _TABLE_MAP: dict[str, list[str]] = {
     "TC-025": ["db_alert_history"], "TC-026": ["db_alert_history"],
     "TC-027": ["order_record"], "TC-028": ["db_alert_history"],
     "TC-029": ["db_alert_history"], "TC-030": ["order_record"],
+    # 孪生测例（映射到对应 TC 的难度/类别/表）
+    "TWIN-001": ["order_record"], "TWIN-002": ["order_record"], "TWIN-003": ["order_record"],
+    "TWIN-004": ["order_record"], "TWIN-005": ["order_record"], "TWIN-006": ["order_record"],
+    "TWIN-007": ["db_alert_history"], "TWIN-008": ["db_alert_history"],
+    "TWIN-009": ["db_alert_history"], "TWIN-010": ["db_alert_history"],
+    "TWIN-011": ["db_alert_history"], "TWIN-012": ["db_alert_history"],
+    "TWIN-013": ["effect_dba_domain_cost_v2"], "TWIN-014": ["effect_dba_domain_cost_v2"],
+    "TWIN-015": ["effect_dba_domain_cost_v2"], "TWIN-016": ["effect_dba_domain_cost_v2"],
+    "TWIN-017": ["effect_daily_work_v2"], "TWIN-018": ["effect_daily_work_v2"],
+    "TWIN-019": ["order_audit_record"], "TWIN-020": ["order_audit_record"],
+    "TWIN-021": ["account"], "TWIN-022": ["account"],
+    "TWIN-024": ["order_record", "order_audit_record"], "TWIN-025": ["db_alert_history"],
+    "TWIN-027": ["order_record"], "TWIN-028": ["db_alert_history"],
+    "TWIN-029": ["db_alert_history"], "TWIN-030": ["order_record"],
     # dw_onedba_cs 测试用例
     "CS-001": ["db_alert_history"], "CS-002": ["db_alert_history"],
     "CS-003": ["db_alert_history"], "CS-004": ["db_alert_history"],
@@ -166,9 +180,8 @@ def load_test_cases(markdown_path: str | None = None) -> list[TestCase]:
 
     cases: list[TestCase] = []
 
-    # 按 ### TC-XXX 分割主内容
-    # 先找到所有 TC- 标题的位置
-    pattern = r"### (TC-\d{3}|CS-\d{3})\b"
+    # 按 ### TC-XXX / CS-XXX / TWIN-XXX 分割主内容
+    pattern = r"### (TC-\d{3}|CS-\d{3}|TWIN-\d{3})\b"
     splits = list(re.finditer(pattern, main_content))
 
     for i, match in enumerate(splits):
@@ -179,15 +192,30 @@ def load_test_cases(markdown_path: str | None = None) -> list[TestCase]:
 
         # 提取自然语言问题
         question = ""
+        # 格式1: **自然语言问题：**\n```\n...```  （带代码块）
         q_match = re.search(r"\*\*自然语言问题：?\*\*\s*\n```\s*\n?(.*?)```", section, re.DOTALL)
         if q_match:
             question = q_match.group(1).strip()
+        else:
+            # 格式2: **自然语言问题：**\n...  （无代码块，孪生测例）
+            q_match = re.search(r"\*\*自然语言问题：?\*\*\s*\n(.*?)(?=\n\n|\n\*\*|\n###|\Z)", section, re.DOTALL)
+            if q_match:
+                question = q_match.group(1).strip()
 
         # 提取参考 SQL
         reference_sql = ""
+        # 格式1: ```sql\n...\n``` （带代码块）
         sql_match = re.search(r"\*\*参考答案 SQL[：:]\*\*\s*\n```sql\s*\n?(.*?)```", section, re.DOTALL)
         if sql_match:
             reference_sql = sql_match.group(1).strip()
+        else:
+            # 格式2: **参考答案 SQL：**\n... （无代码块，孪生测例）
+            sql_match = re.search(
+                r"\*\*参考答案 SQL[：:]\*\*\s*\n(.*?)(?=\n\n|\n\*\*|\n###|\Z)",
+                section, re.DOTALL,
+            )
+            if sql_match:
+                reference_sql = sql_match.group(1).strip().rstrip(";")
         # 备用：从快速复制区提取
         if not reference_sql and case_id in quick_sqls:
             reference_sql = quick_sqls[case_id]

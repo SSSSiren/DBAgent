@@ -113,10 +113,37 @@ def _render_markdown(report: EvaluationReport) -> str:
     lines.append("# Agent 性能评测报告")
     lines.append("")
     lines.append(f"**生成时间**: {report.generated_at.strftime('%Y-%m-%d %H:%M:%S')}")
-    lines.append(f"**测试数据库**: schemaId={report.schema_id}")
     lines.append(f"**LLM 模型**: {report.llm_model}")
     lines.append(f"**LLM Base URL**: {report.llm_base_url}")
+    if report.total_duration_ms > 0:
+        total_sec = report.total_duration_ms / 1000
+        if total_sec >= 60:
+            lines.append(f"**评测总耗时**: {total_sec/60:.1f} 分钟 ({report.total_duration_ms:,}ms)")
+        else:
+            lines.append(f"**评测总耗时**: {total_sec:.1f} 秒 ({report.total_duration_ms:,}ms)")
     lines.append("")
+
+    # ── 运行配置 ──
+    if report.run_config:
+        rc = report.run_config
+        lines.append("## ⚙️ 运行配置")
+        lines.append("")
+        lines.append("| 参数 | 值 |")
+        lines.append("|------|----|")
+        lines.append(f"| 数据库 | `{rc.db_name}` (schemaId={report.schema_id}) |")
+        lines.append(f"| 重复次数 | {rc.repeat} |")
+        lines.append(f"| 并发数 | {rc.concurrency} |")
+        lines.append(f"| HDC 数据底座 | {'启用' if rc.hdc_enabled else '禁用'} |")
+        if rc.hdc_enabled:
+            if rc.hdc_tables:
+                lines.append(f"| HDC 限定表 | `{', '.join(rc.hdc_tables)}` |")
+            if rc.hdc_namespace:
+                lines.append(f"| HDC 命名空间 | `{rc.hdc_namespace}` |")
+        lines.append(f"| LLM 评判 | {'启用' if rc.use_llm_judge else '禁用'} |")
+        lines.append(f"| 回答质量评判 | {'启用' if rc.use_quality_judge else '禁用'} |")
+        if rc.cli_command:
+            lines.append(f"| CLI 命令 | `{rc.cli_command}` |")
+        lines.append("")
 
     # 总览
     lines.append("## 📊 总览")
@@ -225,6 +252,9 @@ def _render_markdown(report: EvaluationReport) -> str:
             )
     lines.append("")
 
+    # ── Agent 中间过程（每次 LLM 调用 + 工具调用详情）──
+    _render_agent_intermediate_steps(lines, report)
+
     # 失败/错误用例详情
     failed = [c for c in report.case_results if not c.passed]
     if failed:
@@ -302,6 +332,67 @@ def _render_markdown(report: EvaluationReport) -> str:
     return "\n".join(lines)
 
 
+def _render_agent_intermediate_steps(lines: list[str], report: EvaluationReport) -> None:
+    """渲染 Agent 中间过程：每个用例的 LLM 调用记录和工具调用详情（折叠区块）。"""
+    lines.append("## 🤖 Agent 中间过程")
+    lines.append("")
+
+    for cr in report.case_results:
+        has_llm = bool(cr.llm_call_records)
+        has_tools = bool(cr.tool_call_records)
+        if not has_llm and not has_tools:
+            continue
+
+        status = "✅" if cr.passed else ("⚠️" if cr.error else "❌")
+        lines.append(f"### {cr.test_case.case_id} {status} — {cr.test_case.question[:60]}")
+        lines.append("")
+
+        # ── LLM 调用记录 ──
+        if has_llm:
+            lines.append("<details>")
+            lines.append(f"<summary>🧠 LLM 调用记录 ({len(cr.llm_call_records)} 轮)</summary>")
+            lines.append("")
+            for lc in cr.llm_call_records:
+                lines.append(f"**第 {lc.iteration + 1} 轮** [{lc.model}]")
+                # 完整 input messages
+                if lc.input_messages:
+                    lines.append("")
+                    lines.append("**输入 Messages**:")
+                    for msg in lc.input_messages:
+                        role = msg.get("role", "?")
+                        content = str(msg.get("content", ""))
+                        lines.append(f"- **{role}**: {content}")
+                # 完整 output
+                if lc.output_content:
+                    lines.append("")
+                    lines.append(f"**输出**:")
+                    lines.append(f"```\n{lc.output_content}\n```")
+                if lc.output_tool_calls:
+                    tc_names = ", ".join(tc.get("name", "?") for tc in lc.output_tool_calls)
+                    lines.append(f"- **请求工具**: {tc_names}")
+                lines.append(f"- **最终响应**: {'是' if lc.is_final else '否'}")
+                lines.append("")
+            lines.append("</details>")
+            lines.append("")
+
+        # ── 工具调用详情 ──
+        if has_tools:
+            lines.append("<details>")
+            lines.append(f"<summary>🔧 工具调用详情 ({len(cr.tool_call_records)} 次)</summary>")
+            lines.append("")
+            for i, tcr in enumerate(cr.tool_call_records):
+                lines.append(f"**{i+1}. {tcr.tool}**")
+                if tcr.args:
+                    args_str = json.dumps(tcr.args, ensure_ascii=False, indent=2)
+                    lines.append(f"**输入**:")
+                    lines.append(f"```json\n{args_str}\n```")
+                if tcr.result:
+                    lines.append(f"**输出**: {tcr.result}")
+                lines.append("")
+            lines.append("</details>")
+            lines.append("")
+
+
 # ═══════════════════════════════════════════════════════════════
 # HDC 对比报告
 # ═══════════════════════════════════════════════════════════════
@@ -364,6 +455,7 @@ def _compute_hdc_diff(
         "avg_turns": round(with_hdc.average_turns - no_hdc.average_turns, 2),
         "avg_tokens": round(with_hdc.average_tokens - no_hdc.average_tokens, 1),
         "passed_cases": with_hdc.passed_cases - no_hdc.passed_cases,
+        "total_duration_ms": with_hdc.total_duration_ms - no_hdc.total_duration_ms,  # 总耗时变化
     }
 
     # 维度评分差异
@@ -427,6 +519,59 @@ def _compute_hdc_diff(
         "dimensions": dim_diff,
         "by_difficulty": by_difficulty,
         "per_case": per_case_diff,
+        # HDC 聚合指标：首表命中率和幻觉率（由 _compute_hdc_diff 计算，确保 JSON 与 Markdown 一致）
+        "first_table_hit_rate": _compute_hdc_aggregates(with_hdc)["first_table_hit_rate"],
+        "hallucination_rate": _compute_hdc_aggregates(with_hdc)["hallucination_rate"],
+    }
+
+
+def _compute_hdc_aggregates(report: EvaluationReport) -> dict[str, float | None]:
+    """计算 HDC 聚合指标：首表命中率和幻觉率。
+
+    由 _compute_hdc_diff() 调用，计算后存入 diff 字典；
+    _render_hdc_audit() 从 diff 字典读取，确保 JSON 和 Markdown 报告中指标数值严格一致。
+    """
+    first_table_hits = 0
+    first_table_total = 0
+    hallucination_count = 0
+    hallucination_total = 0
+
+    with_by_id = {c.test_case.case_id: c for c in report.case_results}
+
+    for case_id in sorted(with_by_id.keys()):
+        cr = with_by_id[case_id]
+        if not cr.run_details:
+            continue
+
+        # 首表命中率：所有 run 都必须命中才算命中 (strict match across all runs)
+        ref_table = _extract_table_from_sql(cr.test_case.reference_sql)
+        if ref_table:
+            all_runs_hit = True
+            any_run_has_table = False
+            for rd in cr.run_details:
+                if rd.first_table_used:
+                    any_run_has_table = True
+                    if rd.first_table_used.lower() != ref_table.lower():
+                        all_runs_hit = False
+                        break
+            if any_run_has_table:
+                first_table_total += 1
+                if all_runs_hit:
+                    first_table_hits += 1
+
+        # 幻觉率：基于聚合后的 HdcVerificationData（已由 runner 做 OR/多数/保守 聚合）
+        if cr.hdc_verification:
+            hv = cr.hdc_verification
+            hallucination_total += 1
+            if hv.is_hallucination:
+                hallucination_count += 1
+
+    first_table_hit_rate = first_table_hits / first_table_total if first_table_total > 0 else None
+    hallucination_rate = hallucination_count / hallucination_total if hallucination_total > 0 else None
+
+    return {
+        "first_table_hit_rate": first_table_hit_rate,
+        "hallucination_rate": hallucination_rate,
     }
 
 def _extract_table_from_sql(sql: str) -> str:
@@ -499,10 +644,32 @@ def _render_hdc_comparison_md(
     lines.append("# HDC 数据底座对比评测报告")
     lines.append("")
     lines.append(f"**生成时间**: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
-    lines.append(f"**测试数据库**: schemaId={no_hdc.schema_id}")
     lines.append(f"**LLM 模型**: {no_hdc.llm_model}")
     lines.append(f"**用例数**: {no_hdc.total_cases}")
+    # 总耗时展示
+    if no_hdc.total_duration_ms > 0 or with_hdc.total_duration_ms > 0:
+        no_dur = f"{no_hdc.total_duration_ms/1000:.0f}s" if no_hdc.total_duration_ms > 0 else "N/A"
+        with_dur = f"{with_hdc.total_duration_ms/1000:.0f}s" if with_hdc.total_duration_ms > 0 else "N/A"
+        lines.append(f"**评测总耗时**: 基线 {no_dur} | HDC {with_dur}")
     lines.append("")
+
+    # ── 运行配置（从基线报告读取，两轮共用）──
+    if no_hdc.run_config:
+        rc = no_hdc.run_config
+        lines.append("## ⚙️ 运行配置")
+        lines.append("")
+        lines.append("| 参数 | 值 |")
+        lines.append("|------|----|")
+        lines.append(f"| 数据库 | `{rc.db_name}` (schemaId={no_hdc.schema_id}) |")
+        lines.append(f"| 重复次数 | {rc.repeat} |")
+        lines.append(f"| 并发数 | {rc.concurrency} |")
+        lines.append(f"| LLM 评判 | {'启用' if rc.use_llm_judge else '禁用'} |")
+        lines.append(f"| 回答质量评判 | {'启用' if rc.use_quality_judge else '禁用'} |")
+        if rc.hdc_tables:
+            lines.append(f"| HDC 限定表 | `{', '.join(rc.hdc_tables)}` |")
+        if rc.hdc_namespace:
+            lines.append(f"| HDC 命名空间 | `{rc.hdc_namespace}` |")
+        lines.append("")
 
     # 全局对比
     g = diff["global"]
@@ -515,9 +682,14 @@ def _render_hdc_comparison_md(
     _add_metric_row(lines, "平均分", no_hdc.average_score, with_hdc.average_score, g["avg_score"], is_pct=True)
     _add_metric_row(lines, "通过用例", no_hdc.passed_cases, with_hdc.passed_cases, g["passed_cases"], is_int=True)
     _add_metric_row(lines, "平均延迟", no_hdc.average_latency_ms, with_hdc.average_latency_ms, g["avg_latency_ms"], unit="ms", lower_is_better=True)
+    _add_metric_row(lines, "评测总耗时", no_hdc.total_duration_ms, with_hdc.total_duration_ms, g["total_duration_ms"], unit="ms", lower_is_better=True)
     _add_metric_row(lines, "平均工具调用", no_hdc.average_tool_calls, with_hdc.average_tool_calls, g["avg_tool_calls"], lower_is_better=True)
     _add_metric_row(lines, "平均 Turns", no_hdc.average_turns, with_hdc.average_turns, g["avg_turns"], lower_is_better=True)
-    _add_metric_row(lines, "平均 Token", no_hdc.average_tokens, with_hdc.average_tokens, g["avg_tokens"], lower_is_better=True)
+    _add_metric_row(lines, "平均 Token（运行时）", no_hdc.average_tokens, with_hdc.average_tokens, g["avg_tokens"], lower_is_better=True)
+    # 如果传入了 HDC 离线生成 token 数，展示一行
+    if with_hdc.hdc_generation_tokens is not None:
+        gen_tokens = with_hdc.hdc_generation_tokens
+        lines.append(f"| HDC 离线生成 Token | — | {gen_tokens:,} | —（一次性成本） | — |")
     lines.append("")
 
     # 维度对比
@@ -605,8 +777,8 @@ def _render_hdc_comparison_md(
     # 逐工具效率对比
     _render_per_tool_breakdown(lines, no_hdc, with_hdc)
 
-    # HDC 正确性审计
-    _render_hdc_audit(lines, with_hdc)
+    # HDC 正确性审计（传入 diff 以读取聚合指标，确保 JSON 和 Markdown 一致）
+    _render_hdc_audit(lines, with_hdc, diff=diff)
 
     # 结论
     lines.append("## 🏁 结论")
@@ -648,6 +820,10 @@ def _render_hdc_comparison_md(
     lines.append("> 💡 **解读**: HDC 数据底座通过向 Agent 注入数据库 Schema 知识（表名、字段含义、业务实体），")
     lines.append("> 减少了对 `list_tables` / `describe_table` 等探索性工具调用的依赖。")
     lines.append("> 正收益体现在更快定位目标表和更准确的列引用；负收益可能来自过时或错误的 HDC 知识。")
+    if with_hdc.hdc_generation_tokens is not None:
+        lines.append("> ")
+        lines.append(f"> 💰 **成本说明**: HDC 离线生成消耗 {with_hdc.hdc_generation_tokens:,} tokens，属于一次性成本。")
+        lines.append("> 随着查询次数增加，单次查询的 HDC 摊薄成本趋近于零。评估 HDC 净收益时需将运行时 token 节省与生成成本综合考量。")
 
     return "\n".join(lines)
 
@@ -765,6 +941,7 @@ def _render_per_tool_breakdown(
 def _render_hdc_audit(
     lines: list[str],
     with_hdc: EvaluationReport,
+    diff: dict | None = None,
 ) -> None:
     """Render HDC correctness audit table."""
     lines.append("## \U0001f50d HDC 正确性审计")
@@ -813,6 +990,22 @@ def _render_hdc_audit(
         lines.append(f"- HDC 上下文含正确表: {correct_in_context}/{total_cases} ({correct_in_context/total_cases:.1%})")
         lines.append(f"- Agent 采纳正确表: {agent_used_correct}/{total_cases} ({agent_used_correct/total_cases:.1%})")
         lines.append(f"- Agent 幻觉: {hallucination_count}/{total_cases} ({hallucination_count/total_cases:.1%})")
+        lines.append("")
+
+        # 从 diff 字典读取首表命中率和幻觉率聚合指标（确保 JSON 和 Markdown 一致）
+        # diff 由调用方传入，此处仅渲染
+        first_table_hit_rate = diff.get("first_table_hit_rate") if diff else None
+        hallucination_rate = diff.get("hallucination_rate") if diff else None
+
+        if first_table_hit_rate is not None:
+            lines.append(f"- **首表命中率**: {first_table_hit_rate:.1%}")
+        else:
+            lines.append(f"- **首表命中率**: N/A")
+
+        if hallucination_rate is not None:
+            lines.append(f"- **幻觉率**: {hallucination_rate:.1%}")
+        else:
+            lines.append(f"- **幻觉率**: N/A")
         lines.append("")
 
 

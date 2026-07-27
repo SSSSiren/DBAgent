@@ -1,6 +1,6 @@
 # SDK-DBAgent
 
-基于 **claude-agent-sdk** 构建的 NL2SQL 智能数据库助手，运行于 OneDBA 平台之上。
+基于 **OpenAI 兼容 API** 构建的 NL2SQL 智能数据库助手，运行于 OneDBA 平台之上。
 
 ## 功能
 
@@ -39,7 +39,7 @@ python -m app.main
 ## 架构
 
 ```
-用户 → FastAPI → SSE 路由 → claude-agent-sdk Agent → 工具集 → OneDBA API
+用户 → FastAPI → SSE 路由 → ReAct Agent → 工具集 → OneDBA API
                                                     ↓
                                               NL2SQL 管道
                                          (生成 → 验证 → 修复)
@@ -49,18 +49,20 @@ python -m app.main
 
 ```
 app/
-├── agent/          # Agent 层（SDK runner、prompt、上下文）
-├── tools/          # 7 个工具（list_databases、query_database 等）
+├── agent/          # Agent 层（ReAct runner、prompt、上下文、取消控制）
+├── tools/          # 工具注册（list_databases、find_table、describe_table、query_database 等）
 ├── nl2sql/         # NL2SQL 管道（生成、验证、修复、语义规则）
+├── datavault/      # HDC 数据底座（离线生成、在线检索、增量更新）
 ├── client/         # OneDBA HTTP 客户端
 ├── api/            # FastAPI 路由（SSE/WebSocket）
 ├── memory/         # 会话存储
+├── knowledge/      # OpenViking 长期记忆集成
 └── observation/    # Langfuse 可观测性
 ```
 
 ## 技术栈
 
-- **Agent 框架**: claude-agent-sdk
+- **Agent 框架**: 手写 ReAct 循环（基于 openai SDK）
 - **Web 框架**: FastAPI + SSE
 - **LLM**: DeepSeek (通过 OpenAI 兼容 API)
 - **数据库**: OneDBA 平台

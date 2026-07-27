@@ -29,6 +29,7 @@ async def judge_answer_quality(
     agent_response: str,
     reference_sql: str,
     llm_client: Any,
+    model: str = "deepseek-v4-flash-260425",
 ) -> QualityJudgeResult:
     """
     使用 LLM 评判 Agent 回答质量。
@@ -38,6 +39,7 @@ async def judge_answer_quality(
         agent_response: Agent 的最终回复文本
         reference_sql: 参考 SQL（用于准确性对比）
         llm_client: OpenAI 兼容客户端
+        model: 评判使用的 LLM 模型名（默认从 Settings.llm_model 读取，不应硬编码）
 
     Returns:
         QualityJudgeResult
@@ -65,7 +67,7 @@ Agent 回复：
 
     try:
         response = await llm_client.chat.completions.create(
-            model="deepseek-chat",
+            model=model,
             messages=[
                 {"role": "system", "content": QUALITY_JUDGE_PROMPT},
                 {"role": "user", "content": user_prompt},

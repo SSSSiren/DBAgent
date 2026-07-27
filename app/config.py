@@ -16,6 +16,7 @@ class Settings(BaseSettings):
     llm_api_key: str = ""
     llm_base_url: str = "https://dwai-data.dewu-inc.com/openai/v1"
     llm_model: str = "deepseek-v4-flash-260425"
+    llm_embedding_model: str = "text-embedding-3-small"
 
     # ========== OneDBA ==========
     onedba_base_url: str = "https://onedba.shizhuang-inc.com"
@@ -53,6 +54,16 @@ class Settings(BaseSettings):
 
     # ========== 操作记忆（查询偏好）==========
     preference_enabled: bool = True
+
+    # ========== SQL 历史记忆 ==========
+    sql_memory_enabled: bool = False
+    sql_memory_top_k: int = 5
+    sql_memory_token_budget: int = 1500
+    sql_memory_sql_max_length: int = 2000
+    sql_memory_ttl_days: int = 90
+    sql_memory_min_similarity: float = 0.0
+    sql_memory_pattern_min_records: int = 20
+    sql_memory_scope: str = "user"  # "user" / "database" / "mixed"
 
     # ========== HDC 数据底座 ==========
     hdc_enabled: bool = False

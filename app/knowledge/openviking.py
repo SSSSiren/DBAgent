@@ -28,6 +28,7 @@ OpenViking 会话记忆客户端 — 轻量 HTTP 封装
 
 from __future__ import annotations
 
+import asyncio
 import logging
 from typing import Any, Dict, Optional
 
@@ -246,7 +247,21 @@ class OpenVikingClient:
                 payload["context_type"] = context_type
             if tags is not None:
                 payload["tags"] = tags
-            return await self._post("/api/v1/search/find", payload)
+
+            max_retries = 3
+            for attempt in range(max_retries):
+                try:
+                    return await self._post("/api/v1/search/find", payload)
+                except (httpx.ReadError, httpx.RemoteProtocolError) as e:
+                    if attempt < max_retries - 1:
+                        wait = 0.5 * (attempt + 1)
+                        log.warning(
+                            "OpenViking find retry %d/%d after %.1fs: %s",
+                            attempt + 1, max_retries, wait, e,
+                        )
+                        await asyncio.sleep(wait)
+                    else:
+                        raise
         except Exception:
             log.warning("OpenViking find failed", exc_info=True)
             return {}

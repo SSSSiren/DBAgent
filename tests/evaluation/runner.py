@@ -9,7 +9,7 @@ import math
 import os
 import re
 import time
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import datetime
 from typing import Any
 
@@ -21,7 +21,7 @@ from app.client.onedba import get_onedba_client
 from app.config import get_settings
 from app.observation import flush_langfuse
 
-from .models import TestCase, CaseResult, RunDetail, SQLJudgeResult, EvaluationReport, DimensionScores, HdcVerificationData
+from .models import TestCase, CaseResult, RunDetail, SQLJudgeResult, EvaluationReport, DimensionScores, HdcVerificationData, RunConfig, ToolCallRecord, LLMCallRecord
 from .judges.sql_judge import judge_sql_correctness
 from .judges.quality_judge import judge_answer_quality
 from .judges.efficiency_judge import compute_efficiency_from_stats
@@ -39,6 +39,7 @@ class _AgentRunOutput:
     error: str | None
     duration_ms: int
     hdc_context: str = ""
+    llm_calls: list[dict[str, Any]] = field(default_factory=list)
 
 
 async def _execute_agent_once(
@@ -61,6 +62,7 @@ async def _execute_agent_once(
     final_response = ""
     stats: dict[str, Any] = {}
     error: str | None = None
+    llm_calls: list[dict[str, Any]] = []
 
     start_time = time.monotonic()
 
@@ -77,7 +79,7 @@ async def _execute_agent_once(
                     elif step.startswith("tool:"):
                         tool_name = step.replace("tool:", "")
                         if status == "running":
-                            tool_calls.append({"tool": tool_name, "args": data.get("input", {})})
+                            tool_calls.append({"tool": tool_name, "args": data.get("input", {}), "result": ""})
                             tool_call_details[tool_name] = tool_call_details.get(tool_name, 0) + 1
                             if verbose:
                                 tool_input = data.get("input", {})
@@ -87,16 +89,24 @@ async def _execute_agent_once(
                                     for k, v in tool_input.items()
                                 }
                                 print(f"{log_prefix}  [Tool] {tool_name}({tool_input_short})")
-                        elif status == "completed" and verbose:
+                        elif status == "completed":
+                            # 回填工具输出到对应的 tool_calls 条目
                             content = data.get("content", "")
-                            content_preview = str(content)[:120].replace("\n", " ")
-                            print(f"{log_prefix}          → {content_preview}{'...' if len(str(content)) > 120 else ''}")
+                            for tc in reversed(tool_calls):
+                                if tc.get("result") == "" and tc.get("tool") == tool_name:
+                                    tc["result"] = str(content)
+                                    break
+                            if verbose:
+                                content_preview = str(content)[:120].replace("\n", " ")
+                                print(f"{log_prefix}          → {content_preview}{'...' if len(str(content)) > 120 else ''}")
                 elif event_type == "sql":
                     sql_text = data.get("sql", "")
                     if sql_text:
                         sqls.append(sql_text)
                         if verbose:
                             print(f"{log_prefix}  [SQL] {sql_text[:200]}")
+                elif event_type == "llm_call":
+                    llm_calls.append(data)
                 elif event_type == "final":
                     final_response = data.get("response", "")
                     stats = data.get("stats", {})
@@ -126,6 +136,7 @@ async def _execute_agent_once(
         stats=stats,
         error=error,
         duration_ms=duration_ms,
+        llm_calls=llm_calls,
     )
 
 
@@ -152,6 +163,8 @@ async def _inject_hdc_context(
     database_name: str,
     schema_id: int,
     user_id: str = "evaluation",
+    hdc_tables: list[str] | None = None,
+    hdc_namespace: str | None = None,
 ) -> bool:
     """
     向 session_state 注入 HDC 数据底座上下文。
@@ -160,7 +173,13 @@ async def _inject_hdc_context(
     1. 检查 hdc_enabled 配置
     2. 创建 OpenViking 客户端 → HDCRetriever
     3. 检索 HDC 上下文并格式化为 [_hdc_context]
-    4. 静默降级：HDC 不可用时记录日志并返回 False
+    4. （可选）按 --hdc-tables 白名单过滤，模拟限定表知识库
+    5. 静默降级：HDC 不可用时记录日志并返回 False
+
+    Args:
+        hdc_tables: 可选的白名单表名列表。传入时仅保留匹配的 HDC 表上下文，
+                    未匹配的表对应的 ### section 会被移除。
+                    用于测试 Agent 在知识库缺少某些表时的行为。
 
     Returns:
         True 表示 HDC 上下文注入成功，False 表示降级或跳过。
@@ -179,7 +198,11 @@ async def _inject_hdc_context(
         await ov.start()
         try:
             retriever = HDCRetriever(ov)
-            hdc_ctx = await retriever.retrieve(user_input, schema_id, database_name)
+            hdc_ctx = await retriever.retrieve(
+                user_input, schema_id, database_name,
+                table_filter=hdc_tables,
+                namespace=hdc_namespace,
+            )
             if hdc_ctx:
                 session_state["_hdc_context"] = retriever.format_context(hdc_ctx)
                 return True
@@ -386,6 +409,9 @@ async def _run_single_case(
     db_name: str = "dw_onedba",
     verbose: bool = False,
     verbose_hdc: bool = False,
+    judge_model: str = "deepseek-v4-flash-260425",
+    hdc_tables: list[str] | None = None,
+    hdc_namespace: str | None = None,
 ) -> CaseResult:
     """
     执行单条测试用例，支持重复执行取平均。
@@ -402,30 +428,57 @@ async def _run_single_case(
     # 限制为 4，避免过多 Claude Code CLI 子进程（每个 Agent 一个子进程）耗尽系统资源。
     _repeat_semaphore = asyncio.Semaphore(4)
 
+    # HDC 检索结果缓存：同一条用例的多次 repeat 共享一次检索，
+    # 避免 N 个并发 find() 请求打满 OpenViking 连接池。
+    _hdc_cache: dict[str, str] = {}  # key: 缓存内容字符串
+    _hdc_cache_lock = asyncio.Lock()
+
+    async def _get_hdc_context() -> str:
+        """获取 HDC 上下文（带缓存，同用例多次 run 只检索一次）。"""
+        cache_key = f"{schema_id}:{db_name}:{hdc_namespace}:{test_case.question}"
+        async with _hdc_cache_lock:
+            if cache_key in _hdc_cache:
+                return _hdc_cache[cache_key]
+        # 未命中：执行检索
+        session_state = _make_session_state(schema_id, db_name)
+        hdc_ok = await _inject_hdc_context(
+            session_state,
+            test_case.question,
+            session_state["selected_database"]["schemaName"],
+            schema_id,
+            hdc_tables=hdc_tables,
+            hdc_namespace=hdc_namespace,
+        )
+        result = session_state.get("_hdc_context", "") if hdc_ok else ""
+        async with _hdc_cache_lock:
+            _hdc_cache[cache_key] = result
+        return result
+
     async def _run_one(run_index: int) -> _AgentRunOutput:
         async with _repeat_semaphore:
             session_state = _make_session_state(schema_id, db_name)
             hdc_context = ""
             if enable_hdc:
-                hdc_ok = await _inject_hdc_context(
-                    session_state,
-                    test_case.question,
-                    session_state["selected_database"]["schemaName"],
-                    schema_id,
-                )
-                if hdc_ok:
-                    hdc_context = session_state.get("_hdc_context", "")
-                    if verbose_hdc and run_index == 0:
+                hdc_context = await _get_hdc_context()
+                if hdc_context:
+                    session_state["_hdc_context"] = hdc_context
+                    if verbose_hdc:
                         chars = len(hdc_context)
                         ref_table = _extract_ref_table(test_case.reference_sql)
                         in_context = ref_table in hdc_context if ref_table else "N/A"
                         in_context_str = "yes" if in_context else "no"
-                        print(f"    [HDC] {test_case.case_id}: 已注入({chars}字符) | 正确表在上下文中={in_context_str}")
+                        # repeat>1 时打印 run_index 以区分各次运行
+                        if repeat > 1:
+                            print(f"    [HDC] {test_case.case_id}#{run_index}: 已注入({chars}字符) | 正确表在上下文中={in_context_str}")
+                        else:
+                            print(f"    [HDC] {test_case.case_id}: 已注入({chars}字符) | 正确表在上下文中={in_context_str}")
                     elif run_index == 0 and not verbose_hdc:
                         print(f"    [HDC] 上下文已注入")
                 else:
-                    if verbose_hdc and run_index == 0:
-                        print(f"    [HDC] {test_case.case_id}: 注入失败，跳过")
+                    # 降级：HDC 检索失败，Agent 将盲搜
+                    print(f"    [HDC] {test_case.case_id}#{run_index}: 降级 — 检索失败，Agent 将盲搜")
+                    if verbose_hdc:
+                        print(f"    [HDC] {test_case.case_id}#{run_index}: 注入失败，跳过")
             trace_name = f"eval/{test_case.case_id}/run-{run_index}"
             output = await _execute_agent_once(
                 test_case.question, session_state, timeout, trace_name=trace_name,
@@ -504,33 +557,103 @@ async def _run_single_case(
         "duration_ms": int(avg_duration),
     }
 
-    # SQL 正确性评判（仅对最后一次运行的 SQL）
-    generated_sql = last_run.sqls[-1] if last_run.sqls else ""
-    if not generated_sql and last_run.final_response:
-        extracted = extract_sql_from_text(last_run.final_response)
-        if extracted:
-            generated_sql = extracted
+    # 预构建 run_details（在 judge 循环之前，judge 循环会回填 sql_score / quality_score）
+    run_details = [_build_run_detail(r) for r in runs]
 
-    sql_judge = None
-    if generated_sql or test_case.reference_sql:
-        sql_judge = await judge_sql_correctness(
-            generated_sql=generated_sql,
-            reference_sql=test_case.reference_sql,
-            schema_id=schema_id,
-            question=test_case.question,
-            onedba_client=onedba_client,
-            llm_client=llm_client if use_llm_judge else None,
-        )
+    # SQL 正确性评判 & 回答质量评判：对所有运行分别评判后取平均
+    # repeat=1 时行为不变
+    per_run_sql_scores: list[float] = []       # 纳入均值计算的正常得分
+    per_run_quality_scores: list[float] = []
+    per_run_sql_judges: list = []               # 所有 judge 结果（用于取最后）
+    per_run_quality_judges: list = []
+    per_run_verifications: list = []             # 各次 HDC 验证结果（用于聚合）
 
-    # 回答质量评判（仅对最后一次运行的回复）
-    quality_judge = None
-    if use_quality_judge and llm_client and last_run.final_response:
-        quality_judge = await judge_answer_quality(
-            question=test_case.question,
-            agent_response=last_run.final_response,
-            reference_sql=test_case.reference_sql,
-            llm_client=llm_client,
-        )
+    for i, run in enumerate(runs):
+        # ── SQL 正确性评判 ──
+        gen_sql = run.sqls[-1] if run.sqls else ""
+        if not gen_sql and run.final_response:
+            extracted = extract_sql_from_text(run.final_response)
+            if extracted:
+                gen_sql = extracted
+
+        sj = None
+        if gen_sql or test_case.reference_sql:
+            try:
+                sj = await judge_sql_correctness(
+                    generated_sql=gen_sql,
+                    reference_sql=test_case.reference_sql,
+                    schema_id=schema_id,
+                    question=test_case.question,
+                    onedba_client=onedba_client,
+                    llm_client=llm_client if use_llm_judge else None,
+                    model=judge_model,
+                )
+            except Exception:
+                # judge 因外部服务不可用而失败 → 标记为异常值（None），不纳入均值
+                sj = None
+
+            if sj is not None:
+                per_run_sql_judges.append(sj)
+                # 若 judge 本身执行成功（进入了 tier），得分正常纳入
+                # tier==0 且 score==0 且无 explanation 表示 judge 失败（外部异常），不纳入
+                if sj.tier > 0 or (sj.score == 0.0 and sj.llm_judge_explanation):
+                    per_run_sql_scores.append(sj.score)
+                elif sj.tier > 0:
+                    per_run_sql_scores.append(sj.score)
+                else:
+                    # tier==0 且无补充说明 → 标记为异常值
+                    run_details[i].sql_score = None
+                    continue
+            else:
+                # judge 调用本身异常
+                run_details[i].sql_score = None
+                continue
+
+            run_details[i].sql_score = sj.score
+        else:
+            run_details[i].sql_score = None
+
+        # ── 回答质量评判 ──
+        qj = None
+        if use_quality_judge and llm_client and run.final_response:
+            try:
+                qj = await judge_answer_quality(
+                    question=test_case.question,
+                    agent_response=run.final_response,
+                    reference_sql=test_case.reference_sql,
+                    llm_client=llm_client,
+                    model=judge_model,
+                )
+            except Exception:
+                qj = None
+
+            if qj is not None:
+                per_run_quality_judges.append(qj)
+                per_run_quality_scores.append(qj.score)
+                run_details[i].quality_score = qj.score
+            else:
+                run_details[i].quality_score = None
+        else:
+            run_details[i].quality_score = None
+
+        # ── HDC 验证 ──
+        if enable_hdc and run.hdc_context:
+            hv = _verify_hdc_injection(run.hdc_context, test_case, run)
+            per_run_verifications.append(hv)
+
+    # 取最后一次 judge 作为 CaseResult 主 judge（保持结构兼容）
+    sql_judge = per_run_sql_judges[-1] if per_run_sql_judges else None
+    quality_judge = per_run_quality_judges[-1] if per_run_quality_judges else None
+
+    # repeat>1 时用平均值覆盖 score；排除异常值（None 得分）
+    if repeat > 1 and per_run_sql_scores:
+        avg_sql = sum(per_run_sql_scores) / len(per_run_sql_scores)
+        if sql_judge:
+            sql_judge.score = avg_sql
+    if repeat > 1 and per_run_quality_scores:
+        avg_quality = sum(per_run_quality_scores) / len(per_run_quality_scores)
+        if quality_judge:
+            quality_judge.score = avg_quality
 
     # 效率评判（基于平均指标）
     efficiency = compute_efficiency_from_stats(
@@ -545,18 +668,49 @@ async def _run_single_case(
     std_latency = _compute_std([float(d) for d in durations], avg_duration)
     std_turns = _compute_std(turn_values, avg_turns)
 
-    # 构建 run_details
-    run_details = [_build_run_detail(r) for r in runs]
-
-    # HDC 验证：取最后一次运行的 HDC 上下文
+    # HDC 验证：对各次运行结果聚合
     hdc_verification = None
-    if enable_hdc and last_run.hdc_context:
-        hdc_verification = _verify_hdc_injection(
-            last_run.hdc_context, test_case, last_run,
-        )
+    if enable_hdc and per_run_verifications:
+        # injected: 任意一次注入成功即为 True
+        injected = any(v.injected for v in per_run_verifications)
+        # correct_table_in_context: 任意一次匹配即为 True (OR)
+        correct_table = any(v.correct_table_in_context for v in per_run_verifications)
+        # agent_used_correct_table: 多数运行正确即为 True (majority vote)
+        agent_correct_votes = sum(1 for v in per_run_verifications if v.agent_used_correct_table)
+        agent_used = agent_correct_votes > len(per_run_verifications) / 2
+        # is_hallucination: 任意一次出现幻觉即为 True (保守策略)
+        hallucination = any(v.is_hallucination for v in per_run_verifications)
+        # 取最后一次的详细数据作为模板，覆盖聚合后的布尔值
+        hdc_verification = per_run_verifications[-1]
+        hdc_verification.injected = injected
+        hdc_verification.correct_table_in_context = correct_table
+        hdc_verification.agent_used_correct_table = agent_used
+        hdc_verification.is_hallucination = hallucination
 
     # 错误信息：取最后一次的错误
     error = last_run.error
+
+    # 构建 ToolCallRecord 和 LLMCallRecord 列表
+    tool_call_records = [
+        ToolCallRecord(
+            tool=tc.get("tool", ""),
+            args=tc.get("args", {}),
+            result=tc.get("result", ""),
+        )
+        for tc in last_run.tool_calls
+    ]
+
+    llm_call_records = [
+        LLMCallRecord(
+            iteration=lc.get("iteration", 0),
+            model=lc.get("model", ""),
+            input_messages=lc.get("input_messages", []),
+            output_content=lc.get("output_content", ""),
+            output_tool_calls=lc.get("output_tool_calls", []),
+            is_final=lc.get("is_final", False),
+        )
+        for lc in last_run.llm_calls
+    ]
 
     result = CaseResult(
         test_case=test_case,
@@ -577,6 +731,8 @@ async def _run_single_case(
         std_latency_ms=std_latency,
         std_turns=std_turns,
         hdc_verification=hdc_verification,
+        tool_call_records=tool_call_records,
+        llm_call_records=llm_call_records,
     )
 
     return score_case(result)
@@ -623,6 +779,10 @@ async def run_evaluation(
     db_name: str = "dw_onedba",
     verbose: bool = False,
     verbose_hdc: bool = False,
+    hdc_gen_tokens: int | None = None,
+    hdc_tables: list[str] | None = None,
+    hdc_namespace: str | None = None,
+    cli_command: str | None = None,
     progress_callback: Any = None,
 ) -> EvaluationReport:
     """
@@ -649,6 +809,9 @@ async def run_evaluation(
     if llm_model:
         _set_llm_model(llm_model)
 
+    # 记录评测开始时间
+    eval_start = time.monotonic()
+
     onedba_client = get_onedba_client()
     llm_client = _create_llm_client() if (use_llm_judge or use_quality_judge) else None
 
@@ -656,6 +819,8 @@ async def run_evaluation(
     settings = get_settings()
     effective_llm_model = settings.llm_model
     effective_llm_base_url = settings.llm_base_url
+    # judge 使用与 Agent 相同的模型（而非硬编码 "deepseek-chat"），确保在内部网关上有可用模型
+    judge_model = effective_llm_model
 
     if concurrency <= 1:
         # 顺序执行
@@ -667,7 +832,9 @@ async def run_evaluation(
             result = await _run_single_case(
                 tc, schema_id, timeout, repeat, onedba_client, llm_client,
                 use_llm_judge, use_quality_judge, enable_hdc=enable_hdc, db_name=db_name,
-                verbose=verbose, verbose_hdc=verbose_hdc,
+                verbose=verbose, verbose_hdc=verbose_hdc, judge_model=judge_model,
+                hdc_tables=hdc_tables,
+                hdc_namespace=hdc_namespace,
             )
             case_results.append(result)
             status = "✅" if result.passed else ("⚠️" if result.error else "❌")
@@ -690,7 +857,9 @@ async def run_evaluation(
                 result = await _run_single_case(
                     tc, schema_id, timeout, repeat, onedba_client, llm_client,
                     use_llm_judge, use_quality_judge, enable_hdc=enable_hdc, db_name=db_name,
-                    verbose=verbose, verbose_hdc=verbose_hdc,
+                    verbose=verbose, verbose_hdc=verbose_hdc, judge_model=judge_model,
+                    hdc_tables=hdc_tables,
+                    hdc_namespace=hdc_namespace,
                 )
                 results_map[idx] = result
                 status = "✅" if result.passed else ("⚠️" if result.error else "❌")
@@ -759,11 +928,26 @@ async def run_evaluation(
             sql_standard=sum(c.dimensions.sql_standard for c in case_results) / total,
         )
 
+    # 构建 RunConfig
+    run_config = RunConfig(
+        repeat=repeat,
+        concurrency=concurrency,
+        db_name=db_name,
+        hdc_enabled=enable_hdc,
+        hdc_tables=hdc_tables or [],
+        hdc_namespace=hdc_namespace,
+        use_llm_judge=use_llm_judge,
+        use_quality_judge=use_quality_judge,
+        cli_command=cli_command,
+    )
+
     return EvaluationReport(
         schema_id=schema_id,
         llm_model=effective_llm_model,
         llm_base_url=effective_llm_base_url,
         total_cases=total,
+        total_duration_ms=int((time.monotonic() - eval_start) * 1000),
+        run_config=run_config,
         passed_cases=passed,
         failed_cases=failed,
         error_cases=error_count,
@@ -779,4 +963,5 @@ async def run_evaluation(
         std_turns=avg_std_turns,
         dimension_averages=dim_avg,
         case_results=case_results,
+        hdc_generation_tokens=hdc_gen_tokens,
     )

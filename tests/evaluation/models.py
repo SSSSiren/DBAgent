@@ -83,6 +83,40 @@ class HdcVerificationData(BaseModel):
     is_hallucination: bool = Field(default=False, description="Agent 使用的表名是否在数据库 schema 中不存在（幻觉）")
 
 
+# ========== 运行时配置 ==========
+
+class RunConfig(BaseModel):
+    """评测运行时参数 — 记录在报告中便于事后追溯评测条件"""
+    repeat: int = Field(default=1, description="每条用例重复执行次数")
+    concurrency: int = Field(default=1, description="并发执行数")
+    db_name: str = Field(default="dw_onedba", description="数据库名称")
+    hdc_enabled: bool = Field(default=False, description="是否启用 HDC 数据底座")
+    hdc_tables: list[str] = Field(default_factory=list, description="HDC 限定表白名单（空=全部）")
+    hdc_namespace: Optional[str] = Field(default=None, description="HDC 知识库命名空间（用于变体隔离，如 incomplete/complete/overcomplete）")
+    use_llm_judge: bool = Field(default=True, description="是否启用 LLM 评判（Tier 3）")
+    use_quality_judge: bool = Field(default=True, description="是否启用回答质量评判")
+    cli_command: Optional[str] = Field(default=None, description="完整 CLI 命令（用于复现）")
+
+
+# ========== Agent 中间过程记录 ==========
+
+class ToolCallRecord(BaseModel):
+    """单次工具调用的完整记录（输入 + 输出）"""
+    tool: str = Field(default="", description="工具名称")
+    args: dict[str, Any] = Field(default_factory=dict, description="调用参数")
+    result: str = Field(default="", description="工具返回内容（截断至 2000 字符）")
+
+
+class LLMCallRecord(BaseModel):
+    """单次 LLM 调用的完整输入和输出（不截断）"""
+    iteration: int = Field(default=0, description="第几轮 LLM 调用（从 0 开始）")
+    model: str = Field(default="", description="LLM 模型名称")
+    input_messages: list[dict[str, Any]] = Field(default_factory=list, description="本轮输入 messages 列表 [{role, content}]")
+    output_content: str = Field(default="", description="LLM 回复文本（完整，不截断）")
+    output_tool_calls: list[dict[str, Any]] = Field(default_factory=list, description="LLM 请求的工具调用 [{name, arguments}]")
+    is_final: bool = Field(default=False, description="是否为最终响应")
+
+
 # ========== 维度评分 ==========
 
 class DimensionScores(BaseModel):
@@ -109,6 +143,9 @@ class RunDetail(BaseModel):
     first_tool: str = Field(default="", description="Agent 第一个调用的工具名称")
     first_table_used: str = Field(default="", description="Agent 第一个查询类工具使用的表名")
     called_find_table_before_query: bool = Field(default=False, description="首次查询前是否调用了 find_table")
+    # repeat 模式下的 judge 得分（可选，用于 N 次取平均）
+    sql_score: Optional[float] = Field(default=None, description="本次运行的 SQL 正确性得分")
+    quality_score: Optional[float] = Field(default=None, description="本次运行的 LLM 回答质量得分")
 
 
 class CaseResult(BaseModel):
@@ -136,6 +173,9 @@ class CaseResult(BaseModel):
     std_turns: float = Field(default=0.0, description="Turns 标准差")
     # HDC 验证
     hdc_verification: Optional[HdcVerificationData] = Field(default=None, description="HDC 上下文验证数据")
+    # Agent 中间过程记录
+    tool_call_records: list[ToolCallRecord] = Field(default_factory=list, description="完整工具调用记录（含输入输出）")
+    llm_call_records: list[LLMCallRecord] = Field(default_factory=list, description="LLM 调用记录（含提示词和回复摘要）")
 
 
 # ========== 评测报告 ==========
@@ -147,6 +187,8 @@ class EvaluationReport(BaseModel):
     llm_model: str = Field(default="", description="使用的 LLM 模型")
     llm_base_url: str = Field(default="", description="LLM API 地址")
     total_cases: int = Field(default=0)
+    total_duration_ms: int = Field(default=0, description="评测总耗时（毫秒，wall-clock）")
+    run_config: Optional[RunConfig] = Field(default=None, description="运行时参数配置")
     passed_cases: int = Field(default=0)
     failed_cases: int = Field(default=0)
     error_cases: int = Field(default=0)
@@ -163,3 +205,4 @@ class EvaluationReport(BaseModel):
     dimension_averages: DimensionScores = Field(default_factory=DimensionScores)
     case_results: list[CaseResult] = Field(default_factory=list)
     baseline_comparison: Optional[dict[str, Any]] = Field(default=None, description="与基线的对比数据")
+    hdc_generation_tokens: Optional[int] = Field(default=None, description="HDC 离线生成消耗的 token 数（用户通过 CLI 传入）")

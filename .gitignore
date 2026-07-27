@@ -30,6 +30,7 @@ data/
 data/*
 *.txt
 *.log
+tests/evaluation/output
 
 # Docker
 .docker/

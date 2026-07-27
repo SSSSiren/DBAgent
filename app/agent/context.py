@@ -95,6 +95,55 @@ def build_context(session_state: dict[str, Any]) -> str:
     if hdc_context:
         context_parts.append(str(hdc_context))
 
+    # 8. SQL 历史记忆 — 相关历史查询
+    sql_memories = session_state.get("_sql_memories", [])
+    if sql_memories:
+        from app.config import get_settings
+        settings = get_settings()
+        budget = getattr(settings, "sql_memory_token_budget", 1500)
+
+        mem_lines = [
+            "[SQL 历史记忆 — 相关查询]",
+            "以下是你或同事在此数据库上成功执行过的类似查询，可作为参考：",
+            "",
+        ]
+        total_len = len("\n".join(mem_lines))
+        entries = []
+
+        for m in sql_memories:
+            sql_text = m.get("sql_truncated", "") or m.get("sql_text", "")
+            if len(sql_text) > 500:
+                sql_text = sql_text[:500] + "..."
+
+            # 安全过滤：排除写操作
+            sql_upper = sql_text.upper()
+            dangerous = any(
+                kw in sql_upper
+                for kw in ["INSERT ", "UPDATE ", "DELETE ", "DROP ", "TRUNCATE ", "ALTER ", "CREATE "]
+            )
+            if dangerous:
+                continue
+
+            row_info = ""
+            row_count = m.get("row_count")
+            if row_count is not None:
+                column_names = m.get("column_names", [])
+                cols_str = ", ".join(column_names[:5]) if column_names else "?"
+                row_info = f"**结果**: {row_count} 行，列: [{cols_str}]"
+
+            entry = f"{len(entries) + 1}. **问题**: {m.get('question', '')}\n   **SQL**: {sql_text}"
+            if row_info:
+                entry += f"\n   {row_info}"
+
+            if total_len + len(entry) + 2 > budget:
+                break
+
+            entries.append(entry)
+            total_len += len(entry) + 1
+
+        if entries:
+            context_parts.append("\n".join(mem_lines + entries))
+
     return "\n\n".join(context_parts) if context_parts else ""
 
 

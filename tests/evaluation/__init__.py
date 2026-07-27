@@ -7,6 +7,9 @@ from .models import (
     DimensionScores,
     CaseResult,
     EvaluationReport,
+    RunConfig,
+    ToolCallRecord,
+    LLMCallRecord,
 )
 from .loader import load_test_cases, filter_test_cases
 from .runner import run_evaluation
@@ -23,6 +26,9 @@ __all__ = [
     "DimensionScores",
     "CaseResult",
     "EvaluationReport",
+    "RunConfig",
+    "ToolCallRecord",
+    "LLMCallRecord",
     # Loader
     "load_test_cases",
     "filter_test_cases",

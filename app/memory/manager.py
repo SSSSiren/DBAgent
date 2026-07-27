@@ -15,6 +15,7 @@ from app.config import get_settings
 if TYPE_CHECKING:
     from app.memory.store import StorageBackend
     from app.memory.preferences import PreferenceBackend
+    from app.memory.sql_memory import SqlMemoryBackend
 
 
 class StorageManager:
@@ -32,14 +33,17 @@ class StorageManager:
         *,
         session_store: StorageBackend,
         preference_store: PreferenceBackend | None = None,
+        sql_memory_store: SqlMemoryBackend | None = None,
     ) -> None:
         """
         Args:
             session_store: 会话存储后端实例（必需）
             preference_store: 偏好存储后端实例（可选，禁用时为 None）
+            sql_memory_store: SQL 记忆存储后端实例（可选，禁用时为 None）
         """
         self.session_store = session_store
         self.preference_store = preference_store
+        self.sql_memory_store = sql_memory_store
 
     async def initialize(self) -> None:
         """按序初始化所有已注册的存储后端。
@@ -50,6 +54,8 @@ class StorageManager:
         await self.session_store.initialize()
         if self.preference_store is not None:
             await self.preference_store.initialize()
+        if self.sql_memory_store is not None:
+            await self.sql_memory_store.initialize()
 
     async def close(self) -> None:
         """按逆序关闭所有已初始化的存储后端。
@@ -57,6 +63,8 @@ class StorageManager:
         先关闭偏好存储（若存在），再关闭会话存储。
         任一后端关闭失败时异常向上传播。
         """
+        if self.sql_memory_store is not None:
+            await self.sql_memory_store.close()
         if self.preference_store is not None:
             await self.preference_store.close()
         await self.session_store.close()
@@ -118,9 +126,20 @@ def get_storage() -> StorageManager:
             from app.memory.preferences import SqlitePreferenceStore
             preference_store = SqlitePreferenceStore(settings.storage_file_path)
 
+    # 创建 SQL 记忆后端（类型跟随会话后端）
+    sql_memory_store = None
+    if getattr(settings, "sql_memory_enabled", False):
+        if backend == "memory":
+            from app.memory.sql_memory import InMemorySqlMemoryStore
+            sql_memory_store = InMemorySqlMemoryStore()
+        elif backend == "sqlite":
+            from app.memory.sql_memory import SqliteSqlMemoryStore
+            sql_memory_store = SqliteSqlMemoryStore(settings.storage_file_path)
+
     _storage = StorageManager(
         session_store=session_store,
         preference_store=preference_store,
+        sql_memory_store=sql_memory_store,
     )
     return _storage
 

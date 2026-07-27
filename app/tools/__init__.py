@@ -615,7 +615,20 @@ class ToolRegistry:
         result: str
         try:
             wrapped = self._wrap_handler(tool)
-            raw_result = await wrapped(**kwargs)
+
+            # 过滤 LLM 幻觉参数：只保留 handler 签名中声明的参数。
+            # DeepSeek 有时会把 JSON Schema 的元字段名（如 "parameters"）
+            # 误当作实际参数传入，导致 TypeError。过滤后这些幻影参数被静默丢弃。
+            handler_params = set(inspect.signature(tool.handler).parameters.keys())
+            filtered_kwargs = {k: v for k, v in kwargs.items() if k in handler_params}
+            if len(filtered_kwargs) < len(kwargs):
+                dropped = set(kwargs.keys()) - set(filtered_kwargs.keys())
+                logger.warning(
+                    "%s [WARN] %s 过滤了 LLM 幻觉参数: %s",
+                    self.log_prefix, name, dropped,
+                )
+
+            raw_result = await wrapped(**filtered_kwargs)
             result = str(raw_result)
         except Exception as exc:
             # --- error hooks ---

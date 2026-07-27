@@ -63,7 +63,7 @@
 
 4. **NL2SQL 独立流水线**：`nl2sql/` 模块独立处理 SQL 生成→验证→修复闭环，与 Agent 循环解耦，包含语义规则注入（`semantics.py`）。
 
-5. **事件驱动的 SSE 流式架构**：API 层通过异步生成器链产生类型化 SSE 事件（`step`、`sql`、`final`），Agent runner 产出原始事件，routes 层包装为 SSE 格式。
+5. **事件驱动的 SSE 流式架构**：API 层通过异步生成器链产生类型化 SSE 事件（`step`、`sql`、`final`、`llm_call`），Agent runner 产出原始事件，routes 层包装为 SSE 格式。`llm_call` 事件完整记录每轮 LLM 调用的输入 messages 和输出（含 tool_calls），支持评测框架等外部消费者捕获 Agent 推理轨迹。
 
 6. **多层记忆系统**：三层记忆并存——会话级对话历史（存储后端）、长期记忆（OpenViking 外部知识库，每 N 轮延迟提交）、操作偏好（`query_preferences` 表记录表使用模式），每次 Agent 运行前注入上下文。
 
@@ -73,7 +73,9 @@
 
 9. **用户隔离的多租户会话**：所有会话操作使用 `(user_id, session_id)` 复合键，存储层实现多租户隔离。
 
-10. **独立评测框架**：`tests/evaluation/` 实现 CLI 驱动的批量评测系统——TestCase 模型定义用例（自然语言问题+参考 SQL+预期行数+难度分级+分类+涉及表名），多维度评判（SQL 正确性 judge、质量 judge、效率 judge）打分聚合为总分，支持 `--with-hdc` 单轮、`--compare-hdc` 对比、`--verbose-hdc` 实时注入输出三种模式，生成 JSON+Markdown 双格式报告。
+10. **独立评测框架**：`tests/evaluation/` 实现 CLI 驱动的批量评测系统——TestCase 模型定义用例（自然语言问题+参考 SQL+预期行数+难度分级+分类+涉及表名），多维度评判（SQL 正确性 judge、质量 judge、效率 judge）打分聚合为总分，支持 `--with-hdc` 单轮、`--compare-hdc` 对比、`--verbose-hdc` 实时注入输出三种模式，生成 JSON+Markdown 双格式报告。支持 `repeat`（多次取平均）、`--hdc-tables`（表白名单过滤）、`--hdc-namespace`（命名空间变体隔离）及 LLM 调用完整追踪（`ToolCallRecord`/`LLMCallRecord` 记录 Agent 中间推理过程）。
+
+11. **LLM 幻觉参数过滤**：`ToolRegistry` 在执行工具 handler 前，通过 `inspect.signature` 提取 handler 参数名，过滤掉 LLM 传入的幻影参数（如 JSON Schema 元字段名被误当作实际参数），避免 `TypeError`。过滤时记录 WARN 日志，不影响正常调用。这是针对 DeepSeek 等模型偶发幻觉的防御性措施。
 
 ---
-_updated_at: 2026-07-22_
+_updated_at: 2026-07-26_

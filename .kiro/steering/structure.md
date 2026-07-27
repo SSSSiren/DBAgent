@@ -24,7 +24,7 @@
 ### 工具注册 (`app/tools/`)
 **Purpose**: LLM 可调用的工具函数定义和执行  
 **Key modules**: `__init__.py`（工具注册表 + `TOOLS` 列表 + `TOOL_HANDLERS` 字典）+ 独立工具模块  
-**Pattern**: 中心化注册表是工具定义的唯一真相源，各工具模块为独立 async 函数
+**Pattern**: 中心化注册表是工具定义的唯一真相源，各工具模块为独立 async 函数。`ToolRegistry` 在执行 handler 前通过 `inspect.signature` 过滤 LLM 传入的幻影参数（幻觉防御），保证 handler 调用安全。
 
 ### 记忆与存储系统 (`app/memory/`)
 **Purpose**: 会话持久化、偏好存储、长期记忆、统一生命周期管理  
@@ -65,7 +65,7 @@
 **Purpose**: 单元测试、集成测试、E2E、HDC demo、独立评测框架  
 **Key modules**: 
 - `test_{module}.py` — 标准单元/集成/E2E 测试（镜像源模块命名）
-- `evaluation/` — 独立评测框架（CLI → loader → runner → judges → scorer → reporter），支持 `--with-hdc`/`--compare-hdc`/`--verbose-hdc` 模式，输出 JSON+Markdown 双格式报告
+- `evaluation/` — 独立评测框架（CLI → loader → runner → judges → scorer → reporter），支持 `--with-hdc`/`--compare-hdc`/`--verbose-hdc` 模式、`--repeat` 多次取平均、`--hdc-tables` 表白名单过滤、`--hdc-namespace` 命名空间变体隔离，输出 JSON+Markdown 双格式报告，含 `RunConfig` 运行时参数追溯和 `ToolCallRecord`/`LLMCallRecord` 完整 Agent 推理轨迹
 - `datavault/` — HDC 生成、更新、端到端验证的 demo 脚本
 - `docs/` — 评测用例 Markdown 规格文件  
 **Pattern**: 标准测试镜像源结构 + 独立评测子框架（自有 CLI、模型、运行器、评判器、渲染器）
@@ -122,4 +122,4 @@ from app.tools import TOOLS, TOOL_HANDLERS
 8. **中文文档**：模块级和函数级 docstring 使用中文，代码注释中英混合。
 
 ---
-_updated_at: 2026-07-22_
+_updated_at: 2026-07-26_

@@ -55,6 +55,9 @@ def cmd_list(args: argparse.Namespace) -> None:
 
 def cmd_run(args: argparse.Namespace) -> None:
     """运行评测"""
+    # 构建完整 CLI 命令（用于报告中复现）
+    cli_cmd = f"python -m tests.evaluation.cli {' '.join(sys.argv[1:])}"
+
     # 互斥参数校验
     if args.with_hdc and args.compare_hdc:
         print("错误: --with-hdc 和 --compare-hdc 互斥，请选择其中一个")
@@ -77,12 +80,24 @@ def cmd_run(args: argparse.Namespace) -> None:
         _run_compare_hdc(args, filtered)
         return
 
+    if args.compare_sql_memory:
+        # ── SQL 记忆对比模式：baseline → 填充孪生测例 → 有记忆重跑 ──
+        _run_compare_sql_memory(args, filtered)
+        return
+
     # ── 单次评测 ──
     print(f"\n开始评测 {len(filtered)} 条用例...")
     if args.repeat > 1:
         print(f"（每条用例重复 {args.repeat} 次，取平均值）")
     if args.with_hdc:
         print("（已启用 HDC 数据底座）")
+    hdc_tables: list[str] | None = None
+    if args.hdc_tables:
+        hdc_tables = [t.strip() for t in args.hdc_tables.split(",") if t.strip()]
+        print(f"（HDC 限定表: {', '.join(hdc_tables)}）")
+    hdc_namespace = args.hdc_namespace
+    if hdc_namespace:
+        print(f"（HDC 命名空间: {hdc_namespace}）")
     if args.no_llm_judge:
         print("（已跳过 LLM 评判 Tier 3）")
     if args.no_quality_judge:
@@ -112,6 +127,10 @@ def cmd_run(args: argparse.Namespace) -> None:
             db_name=args.db_name or "dw_onedba",
             verbose=args.verbose,
             verbose_hdc=args.verbose_hdc,
+            hdc_gen_tokens=args.hdc_gen_tokens,
+            hdc_tables=hdc_tables,
+            hdc_namespace=hdc_namespace,
+            cli_command=cli_cmd,
         )
 
         # 生成报告
@@ -128,6 +147,27 @@ def cmd_run(args: argparse.Namespace) -> None:
 
 def _run_compare_hdc(args: argparse.Namespace, filtered) -> None:
     """对比模式：先跑无 HDC 基线，再跑有 HDC，生成对比报告。"""
+    # 构建完整 CLI 命令（用于报告中复现）
+    cli_cmd = f"python -m tests.evaluation.cli {' '.join(sys.argv[1:])}"
+
+    # ── 前置校验：hdc_enabled 必须为 True ──
+    from app.config import get_settings as _cfg
+    settings = _cfg()
+    if not settings.hdc_enabled:
+        print("错误: --compare-hdc 需要启用 HDC，但当前 HDC_ENABLED 未设置或为 false")
+        print("请先运行: export HDC_ENABLED=true")
+        sys.exit(1)
+
+    # ── 预估耗时 ──
+    avg_seconds_per_run = 90  # 每次 Agent 执行平均耗时（秒）
+    total_runs = len(filtered) * args.repeat * 2  # 用例数 × repeat × 2 轮
+    estimated_minutes = (total_runs * avg_seconds_per_run) / 60
+    concurrency_note = ""
+    if args.concurrency > 1:
+        estimated_minutes /= args.concurrency
+        concurrency_note = f"（并发度 {args.concurrency}）"
+    print(f"\n预估耗时: ~{estimated_minutes:.0f} 分钟（{len(filtered)} 条用例 × 重复{args.repeat}次 × 2 轮{concurrency_note}）")
+
     print(f"\n{'='*60}")
     print("HDC 对比评测 — 第 1/2 轮：无 HDC（基线）")
     print(f"{'='*60}")
@@ -135,6 +175,15 @@ def _run_compare_hdc(args: argparse.Namespace, filtered) -> None:
     if args.repeat > 1:
         print(f"，每条重复 {args.repeat} 次", end="")
     print("\n")
+
+    # 解析 HDC 表白名单
+    hdc_tables: list[str] | None = None
+    if args.hdc_tables:
+        hdc_tables = [t.strip() for t in args.hdc_tables.split(",") if t.strip()]
+        print(f"（HDC 限定表: {', '.join(hdc_tables)}）")
+    hdc_namespace = args.hdc_namespace
+    if hdc_namespace:
+        print(f"（HDC 命名空间: {hdc_namespace}）")
 
     async def _run() -> None:
         # Round 1: 无 HDC 基线
@@ -152,6 +201,8 @@ def _run_compare_hdc(args: argparse.Namespace, filtered) -> None:
             db_name=args.db_name or "dw_onedba",
             verbose=args.verbose,
             verbose_hdc=args.verbose_hdc,
+            hdc_gen_tokens=args.hdc_gen_tokens,
+            cli_command=cli_cmd,
         )
 
         print(f"\n{'='*60}")
@@ -173,6 +224,10 @@ def _run_compare_hdc(args: argparse.Namespace, filtered) -> None:
             db_name=args.db_name or "dw_onedba",
             verbose=args.verbose,
             verbose_hdc=args.verbose_hdc,
+            hdc_gen_tokens=args.hdc_gen_tokens,
+            hdc_tables=hdc_tables,
+            hdc_namespace=hdc_namespace,
+            cli_command=cli_cmd,
         )
 
         # 生成对比报告
@@ -198,7 +253,252 @@ def _run_compare_hdc(args: argparse.Namespace, filtered) -> None:
     asyncio.run(_run())
 
 
-def _print_summary(report, json_path: str, md_path: str) -> None:
+def _run_compare_sql_memory(args: argparse.Namespace, filtered) -> None:
+    """SQL 记忆对比模式：baseline → 填充孪生测例 → 有记忆重跑。"""
+    cli_cmd = f"python -m tests.evaluation.cli {' '.join(sys.argv[1:])}"
+
+    # ── 前置校验：sql_memory_enabled 必须为 True ──
+    from app.config import get_settings as _cfg
+    settings = _cfg()
+    if not getattr(settings, "sql_memory_enabled", False):
+        print("错误: --compare-sql-memory 需要启用 SQL 记忆，但当前 SQL_MEMORY_ENABLED 未设置或为 false")
+        print("请先运行: export SQL_MEMORY_ENABLED=true")
+        sys.exit(1)
+
+    # ── 加载孪生测例 ──
+    from .loader import load_test_cases as _load
+    twin_cases = []
+    if not args.skip_seed:
+        twin_cases = _load(args.twin_cases)
+        if not twin_cases:
+            print(f"错误: 未找到孪生测例，请检查 --twin-cases 路径: {args.twin_cases}")
+            sys.exit(1)
+        print(f"已加载 {len(twin_cases)} 条孪生测例")
+    else:
+        print("--skip-seed: 跳过 Phase 2，使用已有 SQL 记忆记录")
+
+    print(f"\n{'='*60}")
+    print("SQL 记忆对比评测 — 第 1/3 轮：无记忆（基线）")
+    print(f"{'='*60}")
+    print(f"共 {len(filtered)} 条用例", end="")
+    if args.repeat > 1:
+        print(f"，每条重复 {args.repeat} 次", end="")
+    print("\n")
+
+    async def _run() -> None:
+        # Round 1: 无记忆基线
+        baseline_report = await run_evaluation(
+            test_cases=filtered,
+            schema_id=args.schema_id,
+            timeout=args.timeout,
+            concurrency=args.concurrency,
+            repeat=args.repeat,
+            use_llm_judge=not args.no_llm_judge,
+            use_quality_judge=not args.no_quality_judge,
+            keep_langfuse=args.keep_langfuse,
+            llm_model=args.llm_model,
+            enable_hdc=False,
+            db_name=args.db_name or "dw_onedba",
+            verbose=args.verbose,
+            cli_command=cli_cmd,
+        )
+
+        seed_count = 0
+        if not args.skip_seed and twin_cases:
+            print(f"\n{'='*60}")
+            print("SQL 记忆对比评测 — 第 2/3 轮：填充记忆库（孪生测例）")
+            print(f"{'='*60}")
+            print(f"共 {len(twin_cases)} 条孪生测例，用于填充 SQL 记忆\n")
+
+            # Round 2: 填充记忆库（孪生测例）
+            await run_evaluation(
+                test_cases=twin_cases,
+                schema_id=args.schema_id,
+                timeout=args.timeout,
+                concurrency=args.concurrency,
+                repeat=1,
+                use_llm_judge=not args.no_llm_judge,
+                use_quality_judge=not args.no_quality_judge,
+                keep_langfuse=args.keep_langfuse,
+                llm_model=args.llm_model,
+                enable_hdc=False,
+                db_name=args.db_name or "dw_onedba",
+                verbose=args.verbose,
+                cli_command=cli_cmd,
+            )
+
+            # 统计成功填充的记录数
+            from app.memory.manager import get_storage
+            store = get_storage().sql_memory_store
+            if store is not None:
+                seed_count = len(await store.list_by_user("default", limit=100))
+            print(f"\n  SQL 记忆库已填充 {seed_count} 条记录")
+        else:
+            # 使用已有记忆
+            from app.memory.manager import get_storage
+            store = get_storage().sql_memory_store
+            if store is not None:
+                seed_count = len(await store.list_by_user("default", limit=100))
+            print(f"\n  使用已有 SQL 记忆记录: {seed_count} 条")
+
+        round_label = "第 3/3 轮" if (not args.skip_seed and twin_cases) else "第 2/2 轮"
+        print(f"\n{'='*60}")
+        print(f"SQL 记忆对比评测 — {round_label}：有记忆")
+        print(f"{'='*60}\n")
+
+        # Round 3: 有记忆
+        memory_report = await run_evaluation(
+            test_cases=filtered,
+            schema_id=args.schema_id,
+            timeout=args.timeout,
+            concurrency=args.concurrency,
+            repeat=args.repeat,
+            use_llm_judge=not args.no_llm_judge,
+            use_quality_judge=not args.no_quality_judge,
+            keep_langfuse=args.keep_langfuse,
+            llm_model=args.llm_model,
+            enable_hdc=False,
+            db_name=args.db_name or "dw_onedba",
+            verbose=args.verbose,
+            cli_command=cli_cmd,
+        )
+
+        # ── 生成对比报告 ──
+        json_path, md_path = _generate_sql_memory_comparison_report(
+            baseline_report,
+            memory_report,
+            seed_count,
+            output_dir=args.output_dir,
+        )
+
+        print(f"\n{'='*60}")
+        print("SQL 记忆对比评测完成")
+        print(f"{'='*60}")
+        print(f"\n基线（无记忆）:")
+        _print_summary(baseline_report, "", "")
+        print(f"\n有记忆:")
+        _print_summary(memory_report, "", "")
+        print(f"\n记忆库记录数: {seed_count}")
+        print(f"\nJSON 报告: {json_path}")
+        print(f"Markdown 报告: {md_path}")
+
+    asyncio.run(_run())
+
+
+def _generate_sql_memory_comparison_report(
+    baseline_report,
+    memory_report,
+    seed_count: int,
+    output_dir: str = "tests/evaluation/output",
+) -> tuple[str, str]:
+    """生成 SQL 记忆对比报告（JSON + Markdown）。"""
+    import json
+    import os
+    from datetime import datetime
+
+    os.makedirs(output_dir, exist_ok=True)
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+
+    # 计算对比指标
+    baseline_avg_score = baseline_report.average_score
+    memory_avg_score = memory_report.average_score
+    score_delta = memory_avg_score - baseline_avg_score
+
+    baseline_avg_tools = baseline_report.average_tool_calls
+    memory_avg_tools = memory_report.average_tool_calls
+    tool_delta = memory_avg_tools - baseline_avg_tools
+
+    baseline_avg_tokens = baseline_report.average_tokens
+    memory_avg_tokens = memory_report.average_tokens
+    token_delta = memory_avg_tokens - baseline_avg_tokens
+
+    baseline_avg_latency = baseline_report.average_latency_ms
+    memory_avg_latency = memory_report.average_latency_ms
+    latency_delta = memory_avg_latency - baseline_avg_latency
+
+    # Per-case comparison
+    case_deltas = []
+    for b_case in baseline_report.case_results:
+        m_case = next(
+            (c for c in memory_report.case_results if c.test_case.case_id == b_case.test_case.case_id),
+            None,
+        )
+        if m_case:
+            delta = m_case.overall_score - b_case.overall_score
+            case_deltas.append({
+                "case_id": b_case.test_case.case_id,
+                "baseline_score": b_case.overall_score,
+                "memory_score": m_case.overall_score,
+                "delta": delta,
+                "direction": "improved" if delta > 0 else ("degraded" if delta < 0 else "unchanged"),
+            })
+
+    # Sort by delta (most improved first)
+    case_deltas.sort(key=lambda d: d["delta"], reverse=True)
+
+    improved_count = sum(1 for d in case_deltas if d["delta"] > 0)
+    degraded_count = sum(1 for d in case_deltas if d["delta"] < 0)
+    unchanged_count = sum(1 for d in case_deltas if d["delta"] == 0)
+
+    comparison_data = {
+        "timestamp": timestamp,
+        "seed_count": seed_count,
+        "summary": {
+            "baseline_avg_score": round(baseline_avg_score, 4),
+            "memory_avg_score": round(memory_avg_score, 4),
+            "score_delta": round(score_delta, 4),
+            "baseline_avg_tool_calls": round(baseline_avg_tools, 1),
+            "memory_avg_tool_calls": round(memory_avg_tools, 1),
+            "tool_call_delta": round(tool_delta, 1),
+            "baseline_avg_tokens": round(baseline_avg_tokens, 0),
+            "memory_avg_tokens": round(memory_avg_tokens, 0),
+            "token_delta": round(token_delta, 0),
+            "baseline_avg_latency_ms": round(baseline_avg_latency, 0),
+            "memory_avg_latency_ms": round(memory_avg_latency, 0),
+            "latency_delta_ms": round(latency_delta, 0),
+            "improved_count": improved_count,
+            "degraded_count": degraded_count,
+            "unchanged_count": unchanged_count,
+            "total_cases": len(case_deltas),
+        },
+        "per_case": case_deltas,
+    }
+
+    # Write JSON
+    json_path = os.path.join(output_dir, f"sql_memory_comparison_{timestamp}.json")
+    with open(json_path, "w", encoding="utf-8") as f:
+        json.dump(comparison_data, f, ensure_ascii=False, indent=2)
+
+    # Write Markdown
+    md_path = os.path.join(output_dir, f"sql_memory_comparison_{timestamp}.md")
+    with open(md_path, "w", encoding="utf-8") as f:
+        s = comparison_data["summary"]
+        f.write(f"# SQL Memory 对比评测报告\n\n")
+        f.write(f"**生成时间**: {timestamp}\n")
+        f.write(f"**记忆库记录数**: {seed_count}\n\n")
+
+        f.write("## 全局对比\n\n")
+        f.write("| 指标 | 无记忆（基线） | 有记忆 | 变化 |\n")
+        f.write("|------|---------------|--------|------|\n")
+        f.write(f"| 平均 SQL 分数 | {s['baseline_avg_score']:.2%} | {s['memory_avg_score']:.2%} | {s['score_delta']:+.2%} |\n")
+        f.write(f"| 平均工具调用 | {s['baseline_avg_tool_calls']:.1f} | {s['memory_avg_tool_calls']:.1f} | {s['tool_call_delta']:+.1f} |\n")
+        f.write(f"| 平均 Token | {s['baseline_avg_tokens']:.0f} | {s['memory_avg_tokens']:.0f} | {s['token_delta']:+.0f} |\n")
+        f.write(f"| 平均延迟 (ms) | {s['baseline_avg_latency_ms']:.0f} | {s['memory_avg_latency_ms']:.0f} | {s['latency_delta_ms']:+.0f} |\n\n")
+
+        f.write(f"## Memory Impact 汇总\n\n")
+        f.write(f"- 改进用例: {improved_count}\n")
+        f.write(f"- 退化用例: {degraded_count}\n")
+        f.write(f"- 不变用例: {unchanged_count}\n")
+        f.write(f"- 改进率: {improved_count}/{s['total_cases']} ({improved_count/s['total_cases']:.1%})\n\n")
+
+        f.write("## 逐用例对比\n\n")
+        f.write("| 用例 | 基线分数 | 记忆分数 | 变化 | 方向 |\n")
+        f.write("|------|---------|---------|------|------|\n")
+        for d in case_deltas:
+            emoji = "🟢" if d["direction"] == "improved" else ("🔴" if d["direction"] == "degraded" else "⚪")
+            f.write(f"| {d['case_id']} | {d['baseline_score']:.2%} | {d['memory_score']:.2%} | {d['delta']:+.2%} | {emoji} |\n")
+
+    return json_path, md_path
     """打印评测摘要。"""
     print(f"通过: {report.passed_cases}/{report.total_cases} ({report.overall_pass_rate:.1%})")
     print(f"平均分: {report.average_score:.2%}")
@@ -309,12 +609,36 @@ def main() -> None:
         help="HDC 对比模式：自动跑两轮（无 HDC 基线 + 有 HDC），生成对比报告。与 --with-hdc 互斥",
     )
     run_parser.add_argument(
+        "--compare-sql-memory", action="store_true",
+        help="SQL 记忆对比模式：baseline → 孪生测例填充记忆 → 有记忆重跑，生成对比报告",
+    )
+    run_parser.add_argument(
+        "--twin-cases", type=str, default="tests/docs/sql_memory_twin_cases.md",
+        help="孪生测例文件路径（默认 tests/docs/sql_memory_twin_cases.md）",
+    )
+    run_parser.add_argument(
+        "--skip-seed", action="store_true",
+        help="跳过 Phase 2（填充记忆库），直接使用已有的 SQL 记忆记录",
+    )
+    run_parser.add_argument(
         "--verbose", "-v", action="store_true",
         help="详细日志模式：输出 Agent 中间过程（工具调用、SQL 生成、思考过程）",
     )
     run_parser.add_argument(
         "--verbose-hdc", action="store_true",
         help="详细 HDC 日志模式：输出每个用例的 HDC 注入状态（字符数、正确表是否在上下文中）",
+    )
+    run_parser.add_argument(
+        "--hdc-gen-tokens", type=int, default=None,
+        help="HDC 离线生成消耗的 token 数（用于报告中展示总成本，不传则不展示）",
+    )
+    run_parser.add_argument(
+        "--hdc-tables", type=str, default=None,
+        help="限定 HDC 知识库使用的表名白名单（逗号分隔，如 order_record,account）。仅保留匹配的表上下文，用于测试知识库缺失场景",
+    )
+    run_parser.add_argument(
+        "--hdc-namespace", type=str, default=None,
+        help="HDC 知识库命名空间，用于隔离同一 (schema_id, database_name) 下的不同 HDC 变体（如 incomplete/complete/overcomplete）",
     )
     run_parser.add_argument(
         "--output-dir", type=str, default="tests/evaluation/output",

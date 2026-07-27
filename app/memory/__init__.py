@@ -10,6 +10,14 @@ from app.memory.preferences import (
     QueryPreferenceStore,
     SqlitePreferenceStore,
 )
+from app.memory.sql_memory import (
+    InMemorySqlMemoryStore,
+    SqlMemoryBackend,
+    SqliteSqlMemoryStore,
+    embed_text,
+    get_sql_memory_store,
+    reset_sql_memory_store,
+)
 from app.memory.manager import (
     StorageManager,
     get_storage,
@@ -66,6 +74,13 @@ __all__ = [
     "SqlitePreferenceStore",
     "get_preference_store",
     "reset_preference_store",
+    # SQL 历史记忆
+    "InMemorySqlMemoryStore",
+    "SqlMemoryBackend",
+    "SqliteSqlMemoryStore",
+    "embed_text",
+    "get_sql_memory_store",
+    "reset_sql_memory_store",
     # 统一存储管理
     "StorageManager",
     "get_storage",

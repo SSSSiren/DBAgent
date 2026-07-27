@@ -158,6 +158,23 @@ async def _run_agent(
         choice = response.choices[0]
         message = choice.message
 
+        # ── 产出 LLM 调用事件（完整记录本轮 LLM 输入/输出，不截断）──
+        yield {
+            "type": "llm_call",
+            "iteration": iteration,
+            "model": settings.llm_model,
+            "input_messages": [
+                {"role": m.get("role"), "content": m.get("content", "")}
+                for m in messages
+            ],
+            "output_content": message.content or "",
+            "output_tool_calls": [
+                {"name": tc.function.name, "arguments": tc.function.arguments}
+                for tc in (message.tool_calls or [])
+            ],
+            "is_final": choice.finish_reason == "stop",
+        }
+
         # LLM 决定调用工具
         if message.tool_calls:
             # 添加助手消息（含工具调用）。
@@ -375,13 +392,14 @@ async def run_agent_stream(
                 tool_name = event.get("name", "unknown")
                 call_index = tool_call_counter.get(tool_name, 0)
                 tool_call_counter[tool_name] = call_index + 1
+
+                tool_input = event.get("input", {})
                 yield "step", {
                     "step": f"tool:{tool_name}",
                     "status": "running",
                     "call_index": call_index,
+                    "input": tool_input,
                 }
-
-                tool_input = event.get("input", {})
                 sql = _extract_sql_from_tool_input(tool_name, tool_input)
                 if sql:
                     yield "sql", {"sql": sql}
@@ -406,6 +424,7 @@ async def run_agent_stream(
                     "step": f"tool:{tool_name}",
                     "status": "completed",
                     "call_index": max(call_index, 0),
+                    "content": content,
                 }
 
                 sql = _extract_sql_from_tool_result(tool_name, content)
@@ -425,6 +444,10 @@ async def run_agent_stream(
                     row_count=row_count,
                     col_count=col_count,
                 )
+
+            elif event_type == "llm_call":
+                # 转发 LLM 调用事件给外层 consumer（评测框架等）
+                yield "llm_call", event
 
             elif event_type == "final":
                 final_response = event.get("content", "")

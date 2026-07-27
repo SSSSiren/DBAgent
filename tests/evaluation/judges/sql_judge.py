@@ -188,6 +188,7 @@ async def judge_sql_correctness(
     question: str,
     onedba_client: Any,
     llm_client: Any = None,
+    model: str = "deepseek-v4-flash-260425",
 ) -> SQLJudgeResult:
     """
     3 层 SQL 正确性评判。
@@ -264,7 +265,7 @@ async def judge_sql_correctness(
                 generated_sql, reference_sql, question,
                 gen_result, ref_result, gen_error, ref_error,
                 "; ".join(diff_parts), partial_score, llm_client,
-                table_match, column_match,
+                table_match, column_match, model,
             )
         return SQLJudgeResult(
             tier=2, passed=False, score=partial_score,
@@ -294,7 +295,7 @@ async def judge_sql_correctness(
             generated_sql, reference_sql, question,
             gen_result, ref_result, None, None,
             diff_desc, partial_score, llm_client,
-            table_match, column_match,
+            table_match, column_match, model,
         )
 
     return SQLJudgeResult(
@@ -319,6 +320,7 @@ async def _llm_judge(
     llm_client: Any,
     table_match: float = 0.0,
     column_match: float = 0.0,
+    model: str = "deepseek-v4-flash-260425",
 ) -> SQLJudgeResult:
     """Tier 3: 使用 LLM 判断语义等价性"""
     import json
@@ -361,7 +363,7 @@ async def _llm_judge(
 
     try:
         response = await llm_client.chat.completions.create(
-            model="deepseek-chat",
+            model=model,
             messages=[
                 {"role": "system", "content": "你是一个精确的 SQL 语义分析专家。只回复 JSON。"},
                 {"role": "user", "content": prompt},

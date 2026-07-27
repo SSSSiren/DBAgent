@@ -716,9 +716,10 @@ class HDCGenerator:
     ) -> list[str]:
         """Stage 1: Use OpenViking find to get top 5 candidate tables for a source table.
 
-        Requires that tables have been uploaded to OpenViking (via upload_tables())
-        before this method is called. The upload_tables() call triggers SemanticProcessor
-        which generates L0/L1 vector embeddings used by find().
+        In the memory path, only file-level (level=2) embeddings exist;
+        directory-level (level=0,1) summaries are never generated (VLM is skipped).
+        So we search level=2 files, then aggregate by parent table directory
+        — same strategy as HDCRetriever.retrieve().
 
         Falls back to empty list if find() fails or returns no results, which
         triggers _local_coarse_candidates() in the caller.
@@ -740,9 +741,12 @@ class HDCGenerator:
             result = await self._uploader._ov.find(
                 query=query,
                 target_uri=target_uri,
-                tags=["hdc_level=table"],
-                level=[0, 1],
-                limit=10,
+                # Memory path only has L2 (file-level) embeddings.
+                # Directory L0/L1 are never generated (VLM skipped).
+                level=[2],
+                # High limit: find returns one entry per column file,
+                # need enough to aggregate into distinct tables.
+                limit=60,
             )
         except Exception as e:
             logger.warning(
@@ -750,18 +754,25 @@ class HDCGenerator:
             )
             return []
 
-        # Extract candidate table names from find results
+        # Extract and aggregate candidate table names from find results.
+        # Level=2 URIs: .../hdc/{key}/_tables/{table_name}/{column}.md
+        # The table name is the parent directory of the matched file.
+        # Reuse HDCRetriever._extract_matches for multi-format response parsing
+        # (memory path returns {"memories": [...]}, resources path returns list).
+        from app.datavault.retriever import HDCRetriever
         candidates: list[str] = []
-        items = result if isinstance(result, list) else result.get("items", [])
-        for item in items:
+        for item in HDCRetriever._extract_matches(result):
             if not isinstance(item, dict):
                 continue
-            # The find result's uri looks like .../hdc/{db}/_tables/{table_name}
             uri = item.get("uri", "")
-            # Extract table name from the URI path
             parts = uri.rstrip("/").split("/")
-            if parts:
-                candidate_name = parts[-1]
+            # Level=2 returns files: last segment is {col}.md or _INDEX.md,
+            # the parent dir (parts[-2]) is the table name.
+            if len(parts) >= 2:
+                candidate_name = parts[-2]
+                # Skip non-table directories (like _tables, _relationships)
+                if candidate_name.startswith("_"):
+                    continue
                 if candidate_name and candidate_name != table_name and candidate_name not in candidates:
                     candidates.append(candidate_name)
 
@@ -1183,6 +1194,7 @@ class HDCGenerator:
         database_name: str,
         tables: list[str] | None = None,
         progress_callback: Callable[[str, dict[str, Any]], None] | None = None,
+        namespace: str | None = None,
     ) -> dict[str, Any]:
         """Orchestrate the full HDC generation pipeline.
 
@@ -1211,6 +1223,9 @@ class HDCGenerator:
                 a list for partial-table mode.
             progress_callback: Optional callback(step_name, info_dict) called at
                 each pipeline step boundary for real-time progress reporting.
+            namespace: Optional HDC namespace variant (e.g., incomplete/complete/
+                overcomplete). When set, generates into an isolated directory
+                under {schemaId}/{databaseName}/{namespace}.
 
         Returns:
             Stats dict:
@@ -1228,7 +1243,7 @@ class HDCGenerator:
         """
         start_time = time.time()
         errors: list[str] = []
-        key = storage_key(schema_id, database_name)
+        key = storage_key(schema_id, database_name, namespace=namespace)
 
         # ── Step 1: Collect schema ──
         if not self._collector:
@@ -1383,32 +1398,16 @@ class HDCGenerator:
                     "tables": tables_succeeded,
                 })
 
-        # ── Step 4: Table relationships (cross-table, needs all descriptions) ──
+        # ── Step 4-5: Database summary (skip table relationships for cost) ──
+        # Table relationships are O(N²) LLM calls and not used in online retrieval.
+        # Database summary falls back to alphabetical ordering when relationships=[]
         relationships: list[TableRelationship] = []
         if progress_callback:
             progress_callback("relationships", {
                 "phase": 4, "phase_label": "检测表关系",
-                "status": "running",
-                "tables_with_desc": tables_succeeded,
-            })
-        try:
-            relationships = await self.generate_relationships(
-                key, table_descriptions, column_summaries,
-                progress_callback=progress_callback,
-            )
-        except Exception as e:
-            error_msg = f"Relationship generation failed: {e}"
-            logger.error(error_msg)
-            errors.append(error_msg)
-
-        if progress_callback:
-            progress_callback("relationships", {
-                "phase": 4, "phase_label": "检测表关系",
-                "status": "done",
-                "count": len(relationships),
+                "status": "skipped", "count": 0,
             })
 
-        # ── Step 5: Database summary ──
         db_summary: DatabaseSummary | None = None
         if progress_callback:
             progress_callback("database_summary", {
@@ -1431,16 +1430,16 @@ class HDCGenerator:
                 "domain_hint": db_summary.domain_hint if db_summary else "",
             })
 
-        # ── Step 6: Upload cascade (database summary + relationships) ──
+        # ── Step 6: Upload database summary (skip _relationships for cost) ──
         if self._uploader and db_summary:
             if progress_callback:
                 progress_callback("upload_cascade", {
-                    "phase": 6, "phase_label": "上传摘要和关系",
+                    "phase": 6, "phase_label": "上传数据库摘要",
                     "status": "running",
-                    "relationships": len(relationships),
+                    "relationships": 0,
                 })
             try:
-                await self._uploader.upload_cascade(key, db_summary, relationships)
+                await self._uploader.upload_cascade(key, db_summary, [])
             except Exception as e:
                 error_msg = f"Upload cascade failed: {e}"
                 logger.error(error_msg)
@@ -1449,10 +1448,10 @@ class HDCGenerator:
             if progress_callback:
                 upload_ok = not any("Upload cascade failed" in e for e in errors)
                 progress_callback("upload_cascade", {
-                    "phase": 6, "phase_label": "上传摘要和关系",
+                    "phase": 6, "phase_label": "上传数据库摘要",
                     "status": "done",
                     "success": upload_ok,
-                    "relationships": len(relationships),
+                    "relationships": 0,
                 })
 
         # ── Determine final status ──
