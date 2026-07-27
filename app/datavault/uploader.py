@@ -33,46 +33,56 @@ if TYPE_CHECKING:
 log = logging.getLogger("vkdbagent.datavault.uploader")
 
 # Base URI prefix for all HDC content in OpenViking.
-# Using user/memories/hdc path to route writes through _write_memory_with_refresh,
-# which skips VLM L0/L1 generation (semantic_status="skipped") while still
-# triggering embedding vectorization. This avoids VLM connection pool exhaustion
-# that occurs with the resources/ path (which forces VLM via SemanticProcessor).
-# See: .kiro/specs/hdc-datavault-knowledge-base/research.md § Design Decisions 2026-07-23
-_HDC_ROOT = "viking://user/hdc-system/memories/hdc"
+# Using resources path to route writes through _write_direct_with_refresh,
+# which triggers SemanticProcessor to automatically generate L0 (.abstract.md)
+# and L1 (.overview.md) semantic summaries for each table directory.
+# These hierarchical summaries enable table-level semantic search via find(level=[0,1]).
+# See: .kiro/specs/hdc-retrieval-optimization/requirements.md § Requirement 1
+_HDC_ROOT = "viking://resources/hdc"
 
 
-def storage_key(schema_id: int, database_name: str) -> str:
-    """{schemaId}/{database_name} — 唯一标识一个数据库实例，解决重名问题。"""
-    return f"{schema_id}/{database_name}"
+def storage_key(schema_id: int, database_name: str, *, namespace: str | None = None) -> str:
+    """{schemaId}/{database_name}[/{namespace}] — 唯一标识一个数据库实例 + 可选的HDC变体。
+
+    Args:
+        schema_id: OneDBA schema ID
+        database_name: 数据库名称
+        namespace: 可选的HDC命名空间，用于同一(schema_id, database_name)下隔离不同知识库变体
+                   （如 incomplete/complete/overcomplete）。None 时行为不变。
+    """
+    base = f"{schema_id}/{database_name}"
+    if namespace:
+        return f"{base}/{namespace}"
+    return base
 
 
 def _db_uri(key: str) -> str:
-    """viking://user/hdc-system/memories/hdc/{schemaId}/{db}/"""
+    """viking://resources/hdc/{schemaId}/{db}/"""
     return f"{_HDC_ROOT}/{key}"
 
 
 def _tables_dir_uri(key: str) -> str:
-    """viking://user/hdc-system/memories/hdc/{schemaId}/{db}/_tables/"""
+    """viking://resources/hdc/{schemaId}/{db}/_tables/"""
     return f"{_db_uri(key)}/_tables"
 
 
 def _relations_dir_uri(key: str) -> str:
-    """viking://user/hdc-system/memories/hdc/{schemaId}/{db}/_relationships/"""
+    """viking://resources/hdc/{schemaId}/{db}/_relationships/"""
     return f"{_db_uri(key)}/_relationships"
 
 
 def _table_dir_uri(key: str, table_name: str) -> str:
-    """viking://user/hdc-system/memories/hdc/{schemaId}/{db}/_tables/{table}/"""
+    """viking://resources/hdc/{schemaId}/{db}/_tables/{table}/"""
     return f"{_tables_dir_uri(key)}/{table_name}"
 
 
 def _db_index_uri(key: str) -> str:
-    """viking://user/hdc-system/memories/hdc/{schemaId}/{db}/_INDEX.md"""
+    """viking://resources/hdc/{schemaId}/{db}/_INDEX.md"""
     return f"{_db_uri(key)}/_INDEX.md"
 
 
 def _table_index_uri(key: str, table_name: str) -> str:
-    """viking://user/hdc-system/memories/hdc/{schemaId}/{db}/_tables/{table}/_INDEX.md"""
+    """viking://resources/hdc/{schemaId}/{db}/_tables/{table}/_INDEX.md"""
     return f"{_table_dir_uri(key, table_name)}/_INDEX.md"
 
 
@@ -238,7 +248,7 @@ class HDCUploader:
     ) -> bool:
         """轮询 find(level=[2]) 直到 embedding 就绪。
 
-        Memory 路径只有文件级 embedding (level=2)，没有目录级 (level=0,1)。
+        Resources 路径有文件级 embedding (level=2) 和目录级 (level=0,1)。
         """
         tables_uri = _tables_dir_uri(key)
         deadline = asyncio.get_event_loop().time() + timeout
