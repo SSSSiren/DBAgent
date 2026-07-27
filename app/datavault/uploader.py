@@ -251,9 +251,11 @@ class HDCUploader:
     async def wait_for_embedding(
         self, key: str, *, timeout: float = 60.0, interval: float = 1.0
     ) -> bool:
-        """轮询 find(level=[2]) 直到 embedding 就绪。
+        """Poll find(level=[0,1]) until L0/L1 summaries are retrievable.
 
-        Resources 路径有文件级 embedding (level=2) 和目录级 (level=0,1)。
+        Resources path generates L0/L1 asynchronously via SemanticProcessor
+        after L2 embedding completes, so L0/L1 readiness is the more restrictive
+        condition and the correct signal that all levels are ready.
         """
         tables_uri = _tables_dir_uri(key)
         deadline = asyncio.get_event_loop().time() + timeout
@@ -263,7 +265,7 @@ class HDCUploader:
                 result = await self._ov.find(
                     query="test",
                     target_uri=tables_uri,
-                    level=[2],
+                    level=[0, 1],
                     limit=1,
                 )
                 if result:
