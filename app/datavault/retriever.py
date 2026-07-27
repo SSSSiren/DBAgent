@@ -393,7 +393,7 @@ class HDCRetriever:
         the old format (table directory) for backward compatibility.
         """
         # New format: columns are in _columns/ subdirectory
-        uri = f"{_columns_dir_uri(key, table_name)}{column_name}.md"
+        uri = f"{_columns_dir_uri(key, table_name)}/{column_name}.md"
         try:
             raw = await self._ov._get_raw("/api/v1/content/read", uri)
             content = ""
