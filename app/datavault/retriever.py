@@ -362,19 +362,21 @@ class HDCRetriever:
             limit=6,
         )
 
-        if not result:
-            # Fallback to old format: columns are in the table directory itself
+        matches = self._extract_matches(result)
+        if not matches:
+            # Fallback to old format: columns are in the table directory itself.
+            # We check extracted matches rather than result, because find() returns
+            # a non-empty dict even for non-existent directories (e.g. with empty lists).
             result = await self._ov.find(
                 query=user_input,
                 target_uri=_table_dir_uri(key, table_name),
                 level=[2],
                 limit=6,
             )
+            matches = self._extract_matches(result)
 
-        if not result:
+        if not matches:
             return []
-
-        matches = self._extract_matches(result)
         columns: list[str] = []
         for match in matches[:6]:
             col_name = self._extract_column_name(match)
@@ -392,8 +394,25 @@ class HDCRetriever:
         Tries the new format (_columns/ subdirectory) first, then falls back to
         the old format (table directory) for backward compatibility.
         """
-        # New format: columns are in _columns/ subdirectory
-        uri = f"{_columns_dir_uri(key, table_name)}/{column_name}.md"
+        # Try new format: columns are in _columns/ subdirectory
+        new_uri = f"{_columns_dir_uri(key, table_name)}/{column_name}.md"
+        content = await self._try_read_file(new_uri)
+        if content:
+            return content
+
+        # Fallback to old format: columns are in the table directory itself
+        old_uri = f"{_table_dir_uri(key, table_name)}/{column_name}.md"
+        content = await self._try_read_file(old_uri)
+        if content:
+            return content
+
+        return ""
+
+    async def _try_read_file(self, uri: str) -> str:
+        """Read a file and extract the first meaningful line after the heading.
+
+        Returns empty string on any error.
+        """
         try:
             raw = await self._ov._get_raw("/api/v1/content/read", uri)
             content = ""
