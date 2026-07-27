@@ -86,6 +86,11 @@ def _table_index_uri(key: str, table_name: str) -> str:
     return f"{_table_dir_uri(key, table_name)}/_INDEX.md"
 
 
+def _columns_dir_uri(key: str, table_name: str) -> str:
+    """viking://resources/hdc/{schemaId}/{db}/_tables/{table}/_columns/"""
+    return f"{_table_dir_uri(key, table_name)}/_columns"
+
+
 def _format_table_index(table: "TableDescriptionWithColumns") -> str:
     """Format the _INDEX.md content for a table.
 

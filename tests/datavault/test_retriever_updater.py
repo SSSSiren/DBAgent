@@ -5,6 +5,46 @@ import pytest
 from app.datavault.models import HDCContext, TableMatch, ColumnSummary, TableDescription
 
 
+class TestURIHelpers:
+    """Tests for uploader URI helper functions."""
+
+    def test_storage_key(self):
+        from app.datavault.uploader import storage_key
+        assert storage_key(142, "dwd_trade") == "142/dwd_trade"
+
+    def test_storage_key_with_namespace(self):
+        from app.datavault.uploader import storage_key
+        assert storage_key(142, "dwd_trade", namespace="complete") == "142/dwd_trade/complete"
+
+    def test_db_uri(self):
+        from app.datavault.uploader import _db_uri
+        assert _db_uri("142/dwd_trade") == "viking://resources/hdc/142/dwd_trade"
+
+    def test_tables_dir_uri(self):
+        from app.datavault.uploader import _tables_dir_uri
+        assert _tables_dir_uri("142/dwd_trade") == "viking://resources/hdc/142/dwd_trade/_tables"
+
+    def test_relations_dir_uri(self):
+        from app.datavault.uploader import _relations_dir_uri
+        assert _relations_dir_uri("142/dwd_trade") == "viking://resources/hdc/142/dwd_trade/_relationships"
+
+    def test_table_dir_uri(self):
+        from app.datavault.uploader import _table_dir_uri
+        assert _table_dir_uri("142/dwd_trade", "order_info") == "viking://resources/hdc/142/dwd_trade/_tables/order_info"
+
+    def test_db_index_uri(self):
+        from app.datavault.uploader import _db_index_uri
+        assert _db_index_uri("142/dwd_trade") == "viking://resources/hdc/142/dwd_trade/_INDEX.md"
+
+    def test_table_index_uri(self):
+        from app.datavault.uploader import _table_index_uri
+        assert _table_index_uri("142/dwd_trade", "order_info") == "viking://resources/hdc/142/dwd_trade/_tables/order_info/_INDEX.md"
+
+    def test_columns_dir_uri(self):
+        from app.datavault.uploader import _columns_dir_uri
+        assert _columns_dir_uri("142/dwd_trade", "order_info") == "viking://resources/hdc/142/dwd_trade/_tables/order_info/_columns"
+
+
 class MockOVClient:
     """Mock OpenViking client for testing."""
 
