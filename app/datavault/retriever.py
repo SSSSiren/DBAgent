@@ -387,8 +387,13 @@ class HDCRetriever:
         return columns
 
     async def _read_column_file(self, key: str, table_name: str, column_name: str) -> str:
-        """Read a column .md file to get the original short description."""
-        uri = f"{_table_dir_uri(key, table_name)}/{column_name}.md"
+        """Read a column .md file to get the original short description.
+
+        Tries the new format (_columns/ subdirectory) first, then falls back to
+        the old format (table directory) for backward compatibility.
+        """
+        # New format: columns are in _columns/ subdirectory
+        uri = f"{_columns_dir_uri(key, table_name)}{column_name}.md"
         try:
             raw = await self._ov._get_raw("/api/v1/content/read", uri)
             content = ""
