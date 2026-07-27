@@ -14,6 +14,11 @@ HDC 知识库生成验证
   验证持久化：
   ov ls viking://resources/hdc/{database_name}
   ov tree viking://resources/hdc/{database_name} -L 3
+
+
+example:
+    python tests/datavault/demo_hdc_generate.py 65938636 dw_onedba     --namespace recall_overcomplete     --tables "order_record,db_alert_history,effect_dba_domain_cost_v2,effect_daily_work_v2,order_audit_record,db_account,db_alert_daily,effect_alert_v2,order_task,effect_project_cost,daily_report"
+    python tests/datavault/demo_hdc_generate.py 65938636 dw_onedba     --namespace recall_complete     --tables "order_record,db_alert_history,effect_dba_domain_cost_v2,effect_daily_work_v2,order_audit_record,db_account" -v
 """
 
 import argparse
@@ -173,8 +178,39 @@ async def generate_hdc():
     uploader = HDCUploader(ov)
     generator = HDCGenerator(llm_client=llm, collector=collector, uploader=uploader)
 
-    print(f"\n  正在生成 HDC（预计 1-3 分钟，取决于表数量和 LLM 速度）...")
-    print(f"  管线: 采集 schema → 列摘要 → 表描述 → 上传表 → 表关系 → 数据库摘要 → 上传摘要和关系\n")
+    # ── 耗时预测：先采集表数，再估算 ──
+    # 基准：每表 ~60s 串行。upload_tables 并发度 8 → ~7.5s/表有效速率
+    # LLM 列摘要+表描述生成阶段已并发，上传才是串行瓶颈
+    CONCURRENT = 8  # 与 uploader.py 的 MAX_CONCURRENT 保持一致
+    SECONDS_PER_TABLE = 60  # 串行基准
+    EFFECTIVE_SECONDS = SECONDS_PER_TABLE / CONCURRENT  # 并发有效速率 ~7.5s/表
+    print(f"\n  正在评估表规模...")
+    if TARGET_TABLES:
+        table_count = len(TARGET_TABLES)
+        print(f"  --tables 指定了 {table_count} 张表")
+    else:
+        try:
+            raw = await collector.collect_database(TARGET_SCHEMA_ID)
+            # 只取表名不实际生成列摘要，快速计数
+            table_count = len(raw.tables)
+            print(f"  SHOW TABLE STATUS 返回 {table_count} 张表")
+        except Exception:
+            table_count = 0
+            print(f"  ⚠️ 无法连接 OneDBA 获取表数，跳过预测")
+
+    if table_count > 0:
+        total = table_count * SECONDS_PER_TABLE  # 串行预估
+        concurrent_total = total / CONCURRENT    # 并发有效耗时
+        if concurrent_total < 60:
+            prediction = f"{concurrent_total:.0f}s"
+        elif concurrent_total < 3600:
+            prediction = f"{concurrent_total/60:.1f} 分钟"
+        else:
+            prediction = f"{concurrent_total/3600:.1f} 小时"
+        print(f"  预计耗时: {prediction}（{table_count} 表 × {SECONDS_PER_TABLE}s/表 ÷ {CONCURRENT}并发，含 L0/L1）")
+    print()
+
+    print(f"  管线: 采集 schema → 列摘要 → 表描述 → 上传表 → 数据库摘要 → 上传摘要\n")
 
     # ── 实时进度回调 ──
     # 每个步骤开始时打印 "[INFO] 正在执行...", 完成时打印 "[OK] 完成"

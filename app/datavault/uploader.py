@@ -249,9 +249,14 @@ class HDCUploader:
     # ── Embedding 等待 ──────────────────────────────────────────
 
     async def wait_for_embedding(
-        self, key: str, *, timeout: float = 60.0, interval: float = 1.0
+        self, key: str, *, timeout: float = 60.0, interval: float = 1.0,
+        expected_tables: int = 0,
     ) -> bool:
         """Poll find(level=[0,1]) until L0/L1 summaries are retrievable.
+
+        When expected_tables > 0, polls until at least that many unique table
+        directories appear in the results. When 0 (default), returns as soon
+        as any entry appears (backward-compatible single-table wait).
 
         Resources path generates L0/L1 asynchronously via SemanticProcessor
         after L2 embedding completes, so L0/L1 readiness is the more restrictive
@@ -266,20 +271,43 @@ class HDCUploader:
                     query="test",
                     target_uri=tables_uri,
                     level=[0, 1],
-                    limit=1,
+                    limit=max(200, expected_tables * 3),
                 )
                 if result:
                     entries = (
                         result if isinstance(result, list)
-                        else result.get("memories", []) if isinstance(result, dict)
+                        else result.get("resources", []) if isinstance(result, dict)
                         else []
                     )
                     if entries:
-                        log.info(
-                            "HDCUploader: embedding ready for key=%s after %.1fs",
-                            key, timeout - (deadline - asyncio.get_event_loop().time()),
-                        )
-                        return True
+                        # Count unique table directories in results
+                        table_dirs = set()
+                        for e in entries:
+                            uri = e.get("uri", "")
+                            # URI: .../hdc/{key}/_tables/{table}/.abstract.md
+                            # Table dir is the parent of .abstract.md / .overview.md
+                            parts = uri.rstrip("/").split("/")
+                            if len(parts) >= 2 and parts[-1] in (".abstract.md", ".overview.md"):
+                                table_dirs.add(parts[-2])
+                            elif len(parts) >= 1:
+                                table_dirs.add(parts[-1].replace(".md", ""))
+
+                        ready = len(table_dirs)
+                        target = expected_tables or 1
+                        if ready >= target:
+                            log.info(
+                                "HDCUploader: L0/L1 ready for key=%s "
+                                "(%d/%d tables) after %.1fs",
+                                key, ready, target,
+                                timeout - (deadline - asyncio.get_event_loop().time()),
+                            )
+                            return True
+                        else:
+                            log.debug(
+                                "HDCUploader: L0/L1 partial for key=%s "
+                                "(%d/%d tables)",
+                                key, ready, target,
+                            )
             except Exception:
                 pass  # find() 可能抛异常，重试
             await asyncio.sleep(interval)
@@ -308,15 +336,31 @@ class HDCUploader:
         await self._ov.mkdir(_db_uri(key))
         await self._ov.mkdir(_tables_dir_uri(key))
 
-        # 2. 逐表上传（单表失败不中断）
-        for table in tables:
-            try:
-                await self.upload_table(key, table)
-            except Exception:
-                log.warning(
-                    "HDCUploader: upload table failed for %s/%s",
-                    key, table.table_name, exc_info=True,
-                )
+        # 2. 并发上传（Semaphore 限流，单表失败不中断）
+        # 串行瓶颈在 write(wait=True) 等 SemanticProcessor，并发可大幅缩短总耗时
+        MAX_CONCURRENT = 8  # 并发数平衡 API 压力和总耗时
+        sem = asyncio.Semaphore(MAX_CONCURRENT)
+        done, failed = 0, 0
+
+        async def _upload_one(table: "TableDescriptionWithColumns") -> None:
+            nonlocal done, failed
+            async with sem:
+                try:
+                    await self.upload_table(key, table)
+                    done += 1
+                except Exception:
+                    failed += 1
+                    log.warning(
+                        "HDCUploader: upload table failed for %s/%s",
+                        key, table.table_name, exc_info=True,
+                    )
+
+        await asyncio.gather(*[_upload_one(t) for t in tables], return_exceptions=True)
+        if failed:
+            log.warning(
+                "HDCUploader: %d/%d tables failed for %s",
+                failed, len(tables), key,
+            )
 
         # 3. 写入 _tables/_INDEX.md 目录汇总，触发 SemanticProcessor 生成 L0/L1
         # 没有此文件时，_tables/.abstract.md 永远为 "[Directory overview is not generated]"
@@ -332,6 +376,14 @@ class HDCUploader:
             "HDCUploader: uploaded %d tables for %s",
             len(tables), key,
         )
+
+        # 4. 统一等待所有表的 L0/L1 就绪
+        # SemanticProcessor 并行处理（max_concurrent=64），等待总时间 ≈ 单表最慢时间
+        # 而非 N表 × 单表时间
+        if tables:
+            await self.wait_for_embedding(
+                key, timeout=300.0, interval=2.0, expected_tables=len(tables),
+            )
 
     async def upload_cascade(
         self,
@@ -390,7 +442,7 @@ class HDCUploader:
         流程：
         1. mkdir 创建表目录和 _columns/ 子目录
         2. 写入各列 .md 文件到 _columns/ 子目录（无 wait）
-        3. 写入 _INDEX.md（wait=True 触发 SemanticProcessor L0/L1 生成）
+        3. 写入 _INDEX.md（wait=False，由 upload_tables 统一等待 L0/L1）
         4. 设置表目录 tags（hdc_level、main_entity、table_type、pk）
         """
         table_dir = _table_dir_uri(key, table_desc.table_name)
@@ -404,14 +456,12 @@ class HDCUploader:
             col_uri = f"{columns_dir}/{col.column_name}.md"
             await self._ov.write(col_uri, col_content, mode="create", wait=False)
 
-        # 写入 _INDEX.md（wait=True 等 embedding 完成，timeout=60s 防止 VLM 超时阻塞）
-        # HDC 内容已是 LLM 精炼描述，VLM 摘要可有可无
-        # 60s 足够 embedding 向量化完成，VLM 超时在服务端日志中记录但不影响上传
+        # 写入 _INDEX.md（wait=False，SemanticProcessor 异步处理）
+        # L0/L1 就绪由 upload_tables() 末尾的 wait_for_embedding 统一保证
         index_content = _format_table_index(table_desc)
         index_uri = f"{table_dir}/_INDEX.md"
         await self._ov.write(
-            index_uri, index_content, mode="create", wait=True,
-            timeout=60.0,
+            index_uri, index_content, mode="create", wait=False,
         )
 
         # 设置 tags（OpenViking 要求 k=v 格式）
