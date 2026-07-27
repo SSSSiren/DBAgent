@@ -2,8 +2,11 @@
 HDC Retriever — 封装 OpenViking find API 调用，格式化 HDC 检索结果用于上下文注入。
 
 Two-stage retrieval:
-  Stage 1: find matching tables via tags+vector (level=[0,1])
-  Stage 2: find relevant columns per table (level=[2], max 6 per table)
+  Stage 1: find matching tables via L0/L1 semantic summaries (level=[0,1], limit=200, score_threshold=0.25)
+  Stage 2: find relevant columns per table (level=[2], max 6 per table, from _columns/ subdirectory)
+
+Table scoring: sum of top-3 L0/L1 match scores, with entity-level explosion radius control (max 2 per entity).
+Backward compatibility: auto-fallback to level=[2] for old-format knowledge bases without L0/L1.
 
 Graceful degradation: OpenViking unavailable → log warning, return None.
 
@@ -19,6 +22,7 @@ from typing import Optional
 
 from app.datavault.models import HDCContext, TableMatch
 from app.datavault.uploader import (
+    _columns_dir_uri,
     _db_index_uri,
     _table_dir_uri,
     _table_index_uri,
@@ -34,8 +38,11 @@ class HDCRetriever:
     """封装 OpenViking find API 调用，格式化 HDC 检索结果用于上下文注入。
 
     两阶段检索：
-    1. 通过 tags 精确过滤 + 向量语义检索匹配表（level=[0,1]）
-    2. 对 top 5 表检索相关列（level=[2]，每表最多 6 列）
+    1. 通过 L0/L1 层级语义摘要匹配表（level=[0,1]，limit=200，score_threshold=0.25）
+    2. 对 top 5 表检索相关列（level=[2]，每表最多 6 列，从 _columns/ 子目录）
+
+    表评分使用 top-3 匹配分数累积求和，并进行业务实体爆炸半径控制（每实体最多 2 表）。
+    旧格式知识库自动回退到 level=[2] 检索。
 
     静默降级：OpenViking 不可用时记录警告日志并返回 None，不阻塞对话流程。
     """
@@ -50,6 +57,8 @@ class HDCRetriever:
         user_input: str,
         schema_id: int,
         database_name: str,
+        table_filter: list[str] | None = None,
+        namespace: str | None = None,
     ) -> Optional[HDCContext]:
         """两阶段 HDC 检索，返回 HDCContext 或 None（降级）。
 
@@ -59,19 +68,28 @@ class HDCRetriever:
         parent table directory. Stage 2 is a no-op since column-level data
         is already returned from Stage 1.
 
+        Args:
+            table_filter: 可选的白名单表名列表。传入时，只有匹配的表会进入 Top 5
+                          排序，未匹配的表被跳过。用于限定知识库范围。
+            namespace: 可选的HDC命名空间，用于检索特定变体的知识库
+                       （如 incomplete/complete/overcomplete）。
+
         Returns:
             HDCContext with database_summary and matched_tables, or None on degradation.
         """
-        key = storage_key(schema_id, database_name)
+        key = storage_key(schema_id, database_name, namespace=namespace)
         tables_uri = _tables_dir_uri(key)
 
-        # ── Stage 1: find matching files (level=2) across all _tables ──
-        # Memory path only has file-level embeddings; no directory L0/L1 summaries.
+        # ── Stage 1: find matching tables via L0/L1 semantic summaries ──
+        # level=[0,1] searches directory-level .abstract.md (L0) and .overview.md (L1).
+        # High limit and score_threshold ensure correct tables enter the candidate set
+        # even in large (400+ table) knowledge bases.
         result = await self._ov.find(
             query=user_input,
             target_uri=tables_uri,
-            level=[2],
-            limit=60,  # high limit: aggregate by table, need enough files for grouping
+            level=[0, 1],
+            limit=200,
+            score_threshold=0.25,
         )
 
         matches = self._extract_matches(result)
@@ -84,6 +102,23 @@ class HDCRetriever:
                 key,
             )
             matches = await self._fs_table_fallback(tables_uri, user_input)
+
+        # ── Backward compatibility: retry with level=[2] for old-format knowledge bases ──
+        if not matches:
+            log.info(
+                "HDC retrieval: L0/L1 find returned nothing for key=%s. "
+                "Retrying with level=[2] for old-format knowledge base compatibility.",
+                key,
+            )
+            result_l2 = await self._ov.find(
+                query=user_input,
+                target_uri=tables_uri,
+                level=[2],
+                limit=200,
+                score_threshold=0.25,
+            )
+            matches = self._extract_matches(result_l2)
+
         if not matches:
             log.info(
                 "HDC retrieval: no matching tables for key=%s query=%s",
@@ -92,15 +127,12 @@ class HDCRetriever:
             )
             return None
 
-        # ── Stage 2: for top 5 tables, read _INDEX.md for real metadata ──
-        # find() returns derived files (.abstract.md/.overview.md) which
-        # are VLM summaries — they don't carry our tags. Instead, read
-        # the actual _INDEX.md files we wrote for real metadata.
-        #
-        # Sort matches by score (desc) so that most relevant tables appear first,
-        # then dedup by table_name (a single table may have multiple returned files
-        # like .abstract.md + .overview.md).
-        candidates: list[tuple[str, float]] = []  # (table_name, best_score)
+        # ── Stage 2: score aggregation by table (sum of top-3 L0/L1 match scores) ──
+        # L0/L1 find() returns table-directory-level matches (.abstract.md + .overview.md).
+        # We collect ALL scores per table_name, then use sum(top-3) as the composite score.
+        # This accumulates multi-match evidence — a table with multiple relevant matches
+        # ranks higher than one with a single coincidental high score.
+        table_scores: dict[str, list[float]] = {}
         for match in matches:
             table_name = self._extract_table_name(match)
             if not table_name:
@@ -109,20 +141,40 @@ class HDCRetriever:
             if table_name.startswith("_"):
                 continue
             score = match.get("score", 0.0)
-            # Keep the highest score for each table
-            existing = next((c for c in candidates if c[0] == table_name), None)
-            if existing is None:
-                candidates.append((table_name, score))
-            else:
-                idx = candidates.index(existing)
-                if score > existing[1]:
-                    candidates[idx] = (table_name, score)
+            table_scores.setdefault(table_name, []).append(score)
 
-        # Sort by score descending
+        candidates = [
+            (tn, sum(sorted(scores, reverse=True)[:3]))
+            for tn, scores in table_scores.items()
+        ]
+
+        # Sort by composite score descending
         candidates.sort(key=lambda x: x[1], reverse=True)
 
+        # ── Table filter: 限定白名单后取 Top 5 ──
+        if table_filter is not None:
+            whitelist_lower = {t.lower() for t in table_filter}
+            candidates = [(n, s) for n, s in candidates if n.lower() in whitelist_lower]
+
+        # ── Entity dedup: enforce explosion radius per business entity ──
+        # To avoid confusing the LLM with multiple similar tables from the same
+        # business entity, limit each entity to at most MAX_PER_ENTITY tables.
+        # The main_entity is extracted from the first line of _INDEX.md;
+        # when unreadable, fall back to the table name itself as entity identifier.
+        MAX_PER_ENTITY = 2
+        entity_counts: dict[str, int] = {}
+        diversified: list[tuple[str, float]] = []
+        for table_name, score in candidates:
+            entity = await self._get_main_entity(key, table_name)
+            count = entity_counts.get(entity, 0)
+            if count < MAX_PER_ENTITY:
+                entity_counts[entity] = count + 1
+                diversified.append((table_name, score))
+            if len(diversified) >= 5:
+                break
+
         table_matches: list[TableMatch] = []
-        for table_name, score in candidates[:5]:
+        for table_name, score in diversified:
             # Read _INDEX.md to get real metadata we wrote
             index_content = await self._read_index(key, table_name)
             main_entity, table_type, description, usage_scenario = self._parse_index(index_content)
@@ -197,6 +249,23 @@ class HDCRetriever:
         return "\n".join(lines)
 
     # ── Private helpers ──
+
+    async def _get_main_entity(self, key: str, table_name: str) -> str:
+        """Extract the business entity identifier from _INDEX.md first line.
+
+        Reads the first line of _INDEX.md via existing _read_index(). If the
+        line is non-empty and does not start with "#", returns it as the
+        entity label. Otherwise falls back to table_name as the entity id.
+
+        This is used by entity dedup (explosion radius control) to group
+        similar tables from the same business domain.
+        """
+        content = await self._read_index(key, table_name)
+        if content:
+            first_line = content.split("\n")[0].strip()
+            if first_line and not first_line.startswith("#"):
+                return first_line
+        return table_name
 
     async def _read_index(self, key: str, table_name: str) -> str:
         """Read the actual _INDEX.md file we wrote (not VLM summary).
@@ -282,13 +351,25 @@ class HDCRetriever:
 
         使用 find(level=[2]) 定位相关列名，再读取原始 .md 文件获取简洁描述。
         检索失败时返回空列表，不中断整体流程。
+
+        优先从 _columns/ 子目录检索（新格式），若子目录不存在则回退到表目录。
         """
+        # Try new format: columns are in _columns/ subdirectory
         result = await self._ov.find(
             query=user_input,
-            target_uri=_table_dir_uri(key, table_name),
+            target_uri=_columns_dir_uri(key, table_name),
             level=[2],
             limit=6,
         )
+
+        if not result:
+            # Fallback to old format: columns are in the table directory itself
+            result = await self._ov.find(
+                query=user_input,
+                target_uri=_table_dir_uri(key, table_name),
+                level=[2],
+                limit=6,
+            )
 
         if not result:
             return []
@@ -449,16 +530,22 @@ class HDCRetriever:
     def _extract_table_name(match: dict) -> str:
         """从匹配项的 URI 中提取表名。
 
-        URI 格式 (level=0,1 — 旧 resources 路径):
+        URI 格式 (level=0,1 — resources 路径):
           viking://resources/hdc/{db}/_tables/{table_name}
           或 viking://resources/hdc/{db}/_tables/{table_name}/.abstract.md
-        URI 格式 (level=2 — 新 memory 路径):
+        URI 格式 (level=2 — memory 路径):
           viking://user/.../memories/hdc/{key}/_tables/{table_name}/{column}.md
+        URI 格式（新 — _columns/ 子目录）:
+          viking://resources/hdc/{db}/_tables/{table_name}/_columns/{col}.md
+          → 表名为 _columns 的父目录（parts[-3]）
         """
         uri = match.get("uri", "")
         if uri:
             parts = uri.rstrip("/").split("/")
             last = parts[-1] if parts else ""
+            # _columns/ subdirectory: table is parent of _columns (parts[-3])
+            if len(parts) >= 3 and parts[-2] == "_columns":
+                return parts[-3]
             # Derived files (.abstract.md, .overview.md) → table is parent dir
             if last in (".abstract.md", ".overview.md", ".abstract", ".overview"):
                 return parts[-2] if len(parts) >= 2 else ""
@@ -478,7 +565,8 @@ class HDCRetriever:
     def _extract_column_name(match: dict) -> str:
         """从匹配项的 URI 中提取列名。
 
-        URI 格式: viking://resources/hdc/{db}/_tables/{table}/{column}.md
+        URI 格式（新）: viking://resources/hdc/{db}/_tables/{table}/_columns/{column}.md
+        URI 格式（旧）: viking://resources/hdc/{db}/_tables/{table}/{column}.md
         跳过 .abstract.md 和 .overview.md
         """
         uri = match.get("uri", "")
