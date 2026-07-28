@@ -156,31 +156,63 @@ def _render_markdown(report: EvaluationReport) -> str:
     # 总览
     lines.append("## 📊 总览")
     lines.append("")
-    lines.append(f"| 指标 | 值 |")
-    lines.append(f"|------|----|")
+
+    # ── 评分 ──
+    lines.append("### 评分")
+    lines.append("")
+    lines.append("| 指标 | 值 |")
+    lines.append("|------|----|")
     lines.append(f"| 总用例数 | {report.total_cases} |")
     lines.append(f"| 通过 | {report.passed_cases} |")
     lines.append(f"| 失败 | {report.failed_cases} |")
     lines.append(f"| 错误 | {report.error_cases} |")
     lines.append(f"| 通过率 | {report.overall_pass_rate:.1%} |")
     lines.append(f"| 平均分 | {report.average_score:.2%} |")
-    lines.append(f"| 平均延迟 | {report.average_latency_ms:.0f}ms |")
-    lines.append(f"| 平均准备耗时 (prep) | {report.average_prep_ms:.0f}ms |")
+    lines.append("")
+
+    # ── 延迟 ──
+    lines.append("### 延迟")
+    lines.append("")
+    lines.append("| 指标 | 值 | 说明 |")
+    lines.append("|------|----|------|")
+    lines.append(f"| 端到端延迟 | {report.average_latency_ms:.0f}ms | 完整 ReAct 循环墙钟时间 |")
+    lines.append(f"| 准备耗时 (prep) | {report.average_prep_ms:.0f}ms | 4路检索 + context 组装 |")
     if report.average_ttfb_ms is not None:
-        lines.append(f"| 平均 TTFB | {report.average_ttfb_ms:.0f}ms |")
+        lines.append(f"| TTFB | {report.average_ttfb_ms:.0f}ms | 首个 LLM 响应或工具调用到达时间 |")
+    lines.append("")
+
+    # ── 工具调用 ──
+    lines.append("### 工具调用")
+    lines.append("")
+    lines.append("| 指标 | 值 |")
+    lines.append("|------|----|")
     lines.append(f"| 平均工具调用 | {report.average_tool_calls:.1f} |")
     lines.append(f"| 平均 Turns | {report.average_turns:.1f} |")
-    lines.append(f"| 平均 Token | {report.average_tokens:.0f} |")
-    lines.append(f"| 平均输入 Token | {report.average_input_tokens:.0f} |")
-    lines.append(f"| 平均输出 Token | {report.average_output_tokens:.0f} |")
-    if report.std_tool_calls > 0 or report.std_tokens > 0:
-        lines.append(f"| 工具调用波动 (σ) | ±{report.std_tool_calls:.1f} |")
-        lines.append(f"| Token 波动 (σ) | ±{report.std_tokens:.0f} |")
-        lines.append(f"| 输入 Token 波动 (σ) | ±{report.std_input_tokens:.0f} |")
-        lines.append(f"| 输出 Token 波动 (σ) | ±{report.std_output_tokens:.0f} |")
-        lines.append(f"| 延迟波动 (σ) | ±{report.std_latency_ms:.0f}ms |")
-        lines.append(f"| Turns 波动 (σ) | ±{report.std_turns:.1f} |")
     lines.append("")
+
+    # ── Token 消耗 ──
+    lines.append("### Token 消耗")
+    lines.append("")
+    lines.append("| 指标 | 值 | 说明 |")
+    lines.append("|------|----|------|")
+    lines.append(f"| 总 Token | {report.average_tokens:.0f} | input + output |")
+    lines.append(f"| 输入 Token | {report.average_input_tokens:.0f} | prompt（系统提示词 + 上下文 + 对话历史） |")
+    lines.append(f"| 输出 Token | {report.average_output_tokens:.0f} | completion（推理 + 工具调用决策） |")
+    lines.append("")
+
+    # ── 波动（仅 repeat>1 时显示）──
+    if report.std_tool_calls > 0 or report.std_tokens > 0:
+        lines.append("### 波动 (σ)")
+        lines.append("")
+        lines.append("| 指标 | 标准差 |")
+        lines.append("|------|--------|")
+        lines.append(f"| 工具调用 | ±{report.std_tool_calls:.1f} |")
+        lines.append(f"| 总 Token | ±{report.std_tokens:.0f} |")
+        lines.append(f"| 输入 Token | ±{report.std_input_tokens:.0f} |")
+        lines.append(f"| 输出 Token | ±{report.std_output_tokens:.0f} |")
+        lines.append(f"| 延迟 | ±{report.std_latency_ms:.0f}ms |")
+        lines.append(f"| Turns | ±{report.std_turns:.1f} |")
+        lines.append("")
 
     # 维度平均分
     lines.append("## 📐 维度平均分")
@@ -378,23 +410,33 @@ def _render_agent_intermediate_steps(lines: list[str], report: EvaluationReport)
             lines.append("")
             for lc in cr.llm_call_records:
                 lines.append(f"**第 {lc.iteration + 1} 轮** [{lc.model}]")
-                # 完整 input messages
+                # 只显示 user 和 assistant 消息，跳过 system prompt（太长且每轮重复）
                 if lc.input_messages:
-                    lines.append("")
-                    lines.append("**输入 Messages**:")
-                    for msg in lc.input_messages:
-                        role = msg.get("role", "?")
-                        content = str(msg.get("content", ""))
-                        lines.append(f"- **{role}**: {content}")
-                # 完整 output
+                    non_system = [m for m in lc.input_messages if m.get("role") != "system"]
+                    if non_system:
+                        # 只显示最后一条 user 消息（用户问题）和最近一条 assistant
+                        user_msgs = [m for m in non_system if m.get("role") == "user"]
+                        if user_msgs:
+                            last_user = user_msgs[-1]
+                            content = str(last_user.get("content", ""))
+                            # 只显示用户问题部分，跳过上下文
+                            if "用户问题:" in content:
+                                content = content.split("用户问题:")[-1].strip()
+                            lines.append(f"- 用户问题: {content[:200]}")
+                        # 上一轮 assistant 做了什么
+                        assistant_msgs = [m for m in non_system if m.get("role") == "assistant"]
+                        if assistant_msgs:
+                            last_assistant = assistant_msgs[-1]
+                            ac = str(last_assistant.get("content", ""))
+                            if ac:
+                                lines.append(f"- 上一轮回复: {ac[:150]}")
+                # 本轮输出
                 if lc.output_content:
-                    lines.append("")
-                    lines.append(f"**输出**:")
-                    lines.append(f"```\n{lc.output_content}\n```")
+                    lines.append(f"- 本轮回复: {lc.output_content[:200]}")
                 if lc.output_tool_calls:
                     tc_names = ", ".join(tc.get("name", "?") for tc in lc.output_tool_calls)
-                    lines.append(f"- **请求工具**: {tc_names}")
-                lines.append(f"- **最终响应**: {'是' if lc.is_final else '否'}")
+                    lines.append(f"- 请求工具: {tc_names}")
+                lines.append(f"- 最终响应: {'是' if lc.is_final else '否'}")
                 lines.append("")
             lines.append("</details>")
             lines.append("")
@@ -406,25 +448,36 @@ def _render_agent_intermediate_steps(lines: list[str], report: EvaluationReport)
             lines.append("")
             for i, tcr in enumerate(cr.tool_call_records):
                 lines.append(f"**{i+1}. {tcr.tool}**")
+                # 耗时（一行，醒目）
                 if tcr.elapsed_ms is not None:
-                    lines.append(f"- ⏱ 耗时: {tcr.elapsed_ms:.0f}ms")
+                    lines.append(f"  ⏱ 耗时: **{tcr.elapsed_ms:.0f}ms**")
+                # NL2SQL 阶段耗时
                 if tcr.nl2sql_timings:
                     nl2 = tcr.nl2sql_timings
-                    lines.append(f"- 📊 NL2SQL 阶段耗时:")
+                    lines.append(f"  📊 NL2SQL 阶段耗时:")
                     if nl2.get("describe_ms", 0) > 0:
-                        lines.append(f"  - DESCRIBE: {nl2['describe_ms']:.0f}ms")
+                        lines.append(f"    - DESCRIBE: {nl2['describe_ms']:.0f}ms")
                     if nl2.get("generate_ms", 0) > 0:
-                        lines.append(f"  - 生成 SQL: {nl2['generate_ms']:.0f}ms")
+                        lines.append(f"    - 生成 SQL: {nl2['generate_ms']:.0f}ms")
                     if nl2.get("validate_ms", 0) > 0:
-                        lines.append(f"  - 校验 SQL: {nl2['validate_ms']:.0f}ms")
+                        lines.append(f"    - 校验 SQL: {nl2['validate_ms']:.0f}ms")
                     if nl2.get("repair_ms", 0) > 0:
-                        lines.append(f"  - 修复 SQL: {nl2['repair_ms']:.0f}ms")
+                        lines.append(f"    - 修复 SQL: {nl2['repair_ms']:.0f}ms")
+                # 输入参数（折叠）
                 if tcr.args:
+                    lines.append(f"  📥 输入:")
                     args_str = json.dumps(tcr.args, ensure_ascii=False, indent=2)
-                    lines.append(f"**输入**:")
-                    lines.append(f"```json\n{args_str}\n```")
+                    lines.append(f"     ```json\n{args_str}\n     ```")
+                # 输出（截断）
                 if tcr.result:
-                    lines.append(f"**输出**: {tcr.result}")
+                    # 截断工具输出 — 只显示前 5 行
+                    result_lines = tcr.result.split("\n")
+                    if len(result_lines) > 5:
+                        result_preview = "\n".join(result_lines[:5]) + f"\n... (共 {len(result_lines)} 行)"
+                    else:
+                        result_preview = tcr.result
+                    lines.append(f"  📤 输出:")
+                    lines.append(f"     ```\n{result_preview}\n     ```")
                 lines.append("")
             lines.append("</details>")
             lines.append("")
