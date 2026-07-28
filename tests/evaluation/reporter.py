@@ -76,6 +76,8 @@ def _compute_baseline_diff(
     b_avg_tools = baseline.get("average_tool_calls", 0.0)
     b_avg_turns = baseline.get("average_turns", 0.0)
     b_avg_tokens = baseline.get("average_tokens", 0.0)
+    b_avg_input_tokens = baseline.get("average_input_tokens", 0.0)
+    b_avg_output_tokens = baseline.get("average_output_tokens", 0.0)
 
     diff_pass_rate = current.overall_pass_rate - b_pass_rate
     diff_avg_score = current.average_score - b_avg_score
@@ -83,6 +85,8 @@ def _compute_baseline_diff(
     diff_tools = current.average_tool_calls - b_avg_tools
     diff_turns = current.average_turns - b_avg_turns
     diff_tokens = current.average_tokens - b_avg_tokens
+    diff_input_tokens = current.average_input_tokens - b_avg_input_tokens
+    diff_output_tokens = current.average_output_tokens - b_avg_output_tokens
 
     return {
         "baseline": {
@@ -94,6 +98,8 @@ def _compute_baseline_diff(
             "avg_tool_calls": b_avg_tools,
             "avg_turns": b_avg_turns,
             "avg_tokens": b_avg_tokens,
+            "avg_input_tokens": b_avg_input_tokens,
+            "avg_output_tokens": b_avg_output_tokens,
         },
         "diff": {
             "pass_rate": round(diff_pass_rate, 4),
@@ -102,6 +108,8 @@ def _compute_baseline_diff(
             "avg_tool_calls": round(diff_tools, 2),
             "avg_turns": round(diff_turns, 2),
             "avg_tokens": round(diff_tokens, 1),
+            "avg_input_tokens": round(diff_input_tokens, 1),
+            "avg_output_tokens": round(diff_output_tokens, 1),
         },
     }
 
@@ -160,9 +168,13 @@ def _render_markdown(report: EvaluationReport) -> str:
     lines.append(f"| 平均工具调用 | {report.average_tool_calls:.1f} |")
     lines.append(f"| 平均 Turns | {report.average_turns:.1f} |")
     lines.append(f"| 平均 Token | {report.average_tokens:.0f} |")
+    lines.append(f"| 平均输入 Token | {report.average_input_tokens:.0f} |")
+    lines.append(f"| 平均输出 Token | {report.average_output_tokens:.0f} |")
     if report.std_tool_calls > 0 or report.std_tokens > 0:
         lines.append(f"| 工具调用波动 (σ) | ±{report.std_tool_calls:.1f} |")
         lines.append(f"| Token 波动 (σ) | ±{report.std_tokens:.0f} |")
+        lines.append(f"| 输入 Token 波动 (σ) | ±{report.std_input_tokens:.0f} |")
+        lines.append(f"| 输出 Token 波动 (σ) | ±{report.std_output_tokens:.0f} |")
         lines.append(f"| 延迟波动 (σ) | ±{report.std_latency_ms:.0f}ms |")
         lines.append(f"| Turns 波动 (σ) | ±{report.std_turns:.1f} |")
     lines.append("")
@@ -215,17 +227,17 @@ def _render_markdown(report: EvaluationReport) -> str:
     has_repeat = any(cr.repeat_count > 1 for cr in report.case_results)
     if has_repeat:
         lines.append(
-            f"| 用例 | 难度 | 类别 | 通过 | 总分 | SQL | 工具调用 | Token | 延迟 |"
+            f"| 用例 | 难度 | 类别 | 通过 | 总分 | SQL | 工具调用 | Token(总) | 输入Token | 输出Token | 延迟 |"
         )
         lines.append(
-            f"|------|------|------|------|------|-----|----------|-------|------|"
+            f"|------|------|------|------|------|-----|----------|----------|----------|---------|------|"
         )
     else:
         lines.append(
-            f"| 用例 | 难度 | 类别 | 通过 | 总分 | SQL | 质量 | 效率 | 延迟 | 工具调用 |"
+            f"| 用例 | 难度 | 类别 | 通过 | 总分 | SQL | 质量 | 效率 | 延迟 | 工具调用 | 输入/输出Token |"
         )
         lines.append(
-            f"|------|------|------|------|------|-----|------|------|------|---------|"
+            f"|------|------|------|------|------|-----|------|------|------|---------|----------------|"
         )
     for cr in report.case_results:
         sql_score = cr.sql_judge.score if cr.sql_judge else 0.0
@@ -233,22 +245,28 @@ def _render_markdown(report: EvaluationReport) -> str:
         eff_score = cr.efficiency.score if cr.efficiency else 0.0
         eff_tools = cr.efficiency.tool_call_count if cr.efficiency else 0
         eff_tokens = cr.efficiency.total_tokens if cr.efficiency else 0
+        eff_input_tokens = cr.efficiency.input_tokens if cr.efficiency else 0
+        eff_output_tokens = cr.efficiency.output_tokens if cr.efficiency else 0
         status = "✅" if cr.passed else ("❌" if cr.error is None else "⚠️")
         if has_repeat:
             tools_str = f"{eff_tools}±{cr.std_tool_calls:.0f}" if cr.repeat_count > 1 else str(eff_tools)
             tokens_str = f"{eff_tokens}±{cr.std_tokens:.0f}" if cr.repeat_count > 1 else str(eff_tokens)
+            input_tokens_str = f"{eff_input_tokens}±{cr.std_input_tokens:.0f}" if cr.repeat_count > 1 else str(eff_input_tokens)
+            output_tokens_str = f"{eff_output_tokens}±{cr.std_output_tokens:.0f}" if cr.repeat_count > 1 else str(eff_output_tokens)
             latency_str = f"{cr.duration_ms}±{cr.std_latency_ms:.0f}ms" if cr.repeat_count > 1 else f"{cr.duration_ms}ms"
             lines.append(
                 f"| {cr.test_case.case_id} | {cr.test_case.difficulty.value} | "
                 f"{cr.test_case.category} | {status} | {cr.overall_score:.2%} | "
-                f"{sql_score:.2%} | {tools_str} | {tokens_str} | {latency_str} |"
+                f"{sql_score:.2%} | {tools_str} | {tokens_str} | "
+                f"{input_tokens_str} | {output_tokens_str} | {latency_str} |"
             )
         else:
+            input_output_str = f"{eff_input_tokens}/{eff_output_tokens}"
             lines.append(
                 f"| {cr.test_case.case_id} | {cr.test_case.difficulty.value} | "
                 f"{cr.test_case.category} | {status} | {cr.overall_score:.2%} | "
                 f"{sql_score:.2%} | {quality_score:.2%} | {eff_score:.2%} | "
-                f"{cr.duration_ms}ms | {eff_tools} |"
+                f"{cr.duration_ms}ms | {eff_tools} | {input_output_str} |"
             )
     lines.append("")
 
@@ -284,8 +302,8 @@ def _render_markdown(report: EvaluationReport) -> str:
         lines.append("")
         lines.append("标准差越小表示 Agent 对该用例的回答越稳定。")
         lines.append("")
-        lines.append(f"| 用例 | 工具调用 (σ) | Token (σ) | 延迟 (σ) | Turns (σ) | 各次工具调用 |")
-        lines.append(f"|------|-------------|-----------|----------|-----------|-------------|")
+        lines.append(f"| 用例 | 工具调用 (σ) | Token (σ) | 输入Token (σ) | 输出Token (σ) | 延迟 (σ) | Turns (σ) | 各次工具调用 |")
+        lines.append(f"|------|-------------|-----------|--------------|--------------|----------|-----------|-------------|")
         for cr in report.case_results:
             if cr.repeat_count <= 1:
                 continue
@@ -294,7 +312,8 @@ def _render_markdown(report: EvaluationReport) -> str:
             )
             lines.append(
                 f"| {cr.test_case.case_id} | ±{cr.std_tool_calls:.1f} | "
-                f"±{cr.std_tokens:.0f} | ±{cr.std_latency_ms:.0f}ms | "
+                f"±{cr.std_tokens:.0f} | ±{cr.std_input_tokens:.0f} | "
+                f"±{cr.std_output_tokens:.0f} | ±{cr.std_latency_ms:.0f}ms | "
                 f"±{cr.std_turns:.1f} | {per_run_tools} |"
             )
         lines.append("")
@@ -327,6 +346,8 @@ def _render_markdown(report: EvaluationReport) -> str:
         lines.append(f"| 平均工具调用 | {baseline.get('avg_tool_calls', 0):.1f} | {report.average_tool_calls:.1f} | {diff.get('avg_tool_calls', 0):+.1f} |")
         lines.append(f"| 平均 Turns | {baseline.get('avg_turns', 0):.1f} | {report.average_turns:.1f} | {diff.get('avg_turns', 0):+.1f} |")
         lines.append(f"| 平均 Token | {baseline.get('avg_tokens', 0):.0f} | {report.average_tokens:.0f} | {diff.get('avg_tokens', 0):+.0f} |")
+        lines.append(f"| 平均输入 Token | {baseline.get('avg_input_tokens', 0):.0f} | {report.average_input_tokens:.0f} | {diff.get('avg_input_tokens', 0):+.0f} |")
+        lines.append(f"| 平均输出 Token | {baseline.get('avg_output_tokens', 0):.0f} | {report.average_output_tokens:.0f} | {diff.get('avg_output_tokens', 0):+.0f} |")
         lines.append("")
 
     return "\n".join(lines)
@@ -454,6 +475,8 @@ def _compute_hdc_diff(
         "avg_tool_calls": round(with_hdc.average_tool_calls - no_hdc.average_tool_calls, 2),
         "avg_turns": round(with_hdc.average_turns - no_hdc.average_turns, 2),
         "avg_tokens": round(with_hdc.average_tokens - no_hdc.average_tokens, 1),
+        "avg_input_tokens": round(with_hdc.average_input_tokens - no_hdc.average_input_tokens, 1),
+        "avg_output_tokens": round(with_hdc.average_output_tokens - no_hdc.average_output_tokens, 1),
         "passed_cases": with_hdc.passed_cases - no_hdc.passed_cases,
         "total_duration_ms": with_hdc.total_duration_ms - no_hdc.total_duration_ms,  # 总耗时变化
     }
@@ -499,6 +522,10 @@ def _compute_hdc_diff(
         with_tools = with_c.efficiency.tool_call_count if with_c.efficiency else 0
         no_tokens = no_c.efficiency.total_tokens if no_c.efficiency else 0
         with_tokens = with_c.efficiency.total_tokens if with_c.efficiency else 0
+        no_input_tokens = no_c.efficiency.input_tokens if no_c.efficiency else 0
+        with_input_tokens = with_c.efficiency.input_tokens if with_c.efficiency else 0
+        no_output_tokens = no_c.efficiency.output_tokens if no_c.efficiency else 0
+        with_output_tokens = with_c.efficiency.output_tokens if with_c.efficiency else 0
 
         per_case_diff.append({
             "case_id": case_id,
@@ -511,6 +538,8 @@ def _compute_hdc_diff(
             "score_diff": round(with_c.overall_score - no_c.overall_score, 4),
             "tool_call_diff": with_tools - no_tools,
             "token_diff": with_tokens - no_tokens,
+            "input_token_diff": with_input_tokens - no_input_tokens,
+            "output_token_diff": with_output_tokens - no_output_tokens,
             "latency_diff_ms": with_c.duration_ms - no_c.duration_ms,
         })
 
@@ -686,6 +715,8 @@ def _render_hdc_comparison_md(
     _add_metric_row(lines, "平均工具调用", no_hdc.average_tool_calls, with_hdc.average_tool_calls, g["avg_tool_calls"], lower_is_better=True)
     _add_metric_row(lines, "平均 Turns", no_hdc.average_turns, with_hdc.average_turns, g["avg_turns"], lower_is_better=True)
     _add_metric_row(lines, "平均 Token（运行时）", no_hdc.average_tokens, with_hdc.average_tokens, g["avg_tokens"], lower_is_better=True)
+    _add_metric_row(lines, "平均输入 Token", no_hdc.average_input_tokens, with_hdc.average_input_tokens, g.get("avg_input_tokens", 0), lower_is_better=True)
+    _add_metric_row(lines, "平均输出 Token", no_hdc.average_output_tokens, with_hdc.average_output_tokens, g.get("avg_output_tokens", 0), lower_is_better=True)
     # 如果传入了 HDC 离线生成 token 数，展示一行
     if with_hdc.hdc_generation_tokens is not None:
         gen_tokens = with_hdc.hdc_generation_tokens
@@ -738,26 +769,24 @@ def _render_hdc_comparison_md(
     if per_case:
         lines.append("## 📝 逐用例对比")
         lines.append("")
-        lines.append("| 用例 | 难度 | 类别 | 无 HDC | 有 HDC | 分数变化 | 工具调用变化 | Token 变化 | 首轮正确 |")
-        lines.append("|------|------|------|--------|--------|----------|-------------|-----------|---------|")
-
-        # Build lookup maps for CaseResult by case_id
-        no_by_id = {c.test_case.case_id: c for c in no_hdc.case_results}
-        with_by_id = {c.test_case.case_id: c for c in with_hdc.case_results}
+        lines.append("| 用例 | 难度 | 类别 | 无 HDC | 有 HDC | 分数变化 | 工具调用变化 | Token变化 | 输入Token变化 | 输出Token变化 | 首轮正确 |")
+        lines.append("|------|------|------|--------|--------|----------|-------------|----------|-------------|-------------|---------|")
 
         for pc in per_case:
             no_status = "✅" if pc["no_hdc_passed"] else "❌"
             with_status = "✅" if pc["with_hdc_passed"] else "❌"
             tool_arrow = f"{pc['tool_call_diff']:+d}" if pc["tool_call_diff"] != 0 else "0"
             token_arrow = f"{pc['token_diff']:+d}" if pc["token_diff"] != 0 else "0"
-            # Build first-table correctness
+            input_token_arrow = f"{pc.get('input_token_diff', 0):+d}" if pc.get("input_token_diff", 0) != 0 else "0"
+            output_token_arrow = f"{pc.get('output_token_diff', 0):+d}" if pc.get("output_token_diff", 0) != 0 else "0"
             no_cr = no_by_id.get(pc['case_id'])
             with_cr = with_by_id.get(pc['case_id'])
             first_correct = _compute_first_table_correct(pc['case_id'], no_cr, with_cr)
             lines.append(
                 f"| {pc['case_id']} | {pc['difficulty']} | {pc['category']} | "
                 f"{no_status} {pc['no_hdc_score']:.2%} | {with_status} {pc['with_hdc_score']:.2%} | "
-                f"{pc['score_diff']:+.2%} | {tool_arrow} | {token_arrow} | {first_correct} |"
+                f"{pc['score_diff']:+.2%} | {tool_arrow} | {token_arrow} | "
+                f"{input_token_arrow} | {output_token_arrow} | {first_correct} |"
             )
         lines.append("")
 

@@ -223,6 +223,12 @@ def _build_run_detail(run: _AgentRunOutput) -> RunDetail:
     tokens = stats.get("tokens", 0)
     if isinstance(tokens, dict):
         tokens = tokens.get("value", 0)
+    input_tokens = stats.get("input_tokens", 0)
+    if isinstance(input_tokens, dict):
+        input_tokens = input_tokens.get("value", 0)
+    output_tokens = stats.get("output_tokens", 0)
+    if isinstance(output_tokens, dict):
+        output_tokens = output_tokens.get("value", 0)
 
     first_tool, first_table_used, called_find_table = _extract_first_tool_info(run)
 
@@ -232,6 +238,8 @@ def _build_run_detail(run: _AgentRunOutput) -> RunDetail:
         tool_call_details=run.tool_call_details,
         turns=int(turns) if turns else 0,
         total_tokens=int(tokens) if tokens else 0,
+        input_tokens=int(input_tokens) if input_tokens else 0,
+        output_tokens=int(output_tokens) if output_tokens else 0,
         generated_sqls=run.sqls,
         error=run.error,
         first_tool=first_tool,
@@ -467,7 +475,6 @@ async def _run_single_case(
                         ref_table = _extract_ref_table(test_case.reference_sql)
                         in_context = ref_table in hdc_context if ref_table else "N/A"
                         in_context_str = "yes" if in_context else "no"
-                        # repeat>1 时打印 run_index 以区分各次运行
                         if repeat > 1:
                             print(f"    [HDC] {test_case.case_id}#{run_index}: 已注入({chars}字符) | 正确表在上下文中={in_context_str}")
                         else:
@@ -475,10 +482,50 @@ async def _run_single_case(
                     elif run_index == 0 and not verbose_hdc:
                         print(f"    [HDC] 上下文已注入")
                 else:
-                    # 降级：HDC 检索失败，Agent 将盲搜
                     print(f"    [HDC] {test_case.case_id}#{run_index}: 降级 — 检索失败，Agent 将盲搜")
                     if verbose_hdc:
                         print(f"    [HDC] {test_case.case_id}#{run_index}: 注入失败，跳过")
+
+            # ── SQL 记忆检索（参照 routes.py 逻辑）──
+            from app.config import get_settings as _eval_cfg
+            _eval_settings = _eval_cfg()
+            if getattr(_eval_settings, "sql_memory_enabled", False):
+                try:
+                    from app.memory.manager import get_storage as _eval_storage
+                    from app.memory.sql_memory import embed_text as _eval_embed
+
+                    store = _eval_storage().sql_memory_store
+                    if store is not None:
+                        scope = getattr(_eval_settings, "sql_memory_scope", "user")
+                        top_k = getattr(_eval_settings, "sql_memory_top_k", 5)
+                        min_sim = getattr(_eval_settings, "sql_memory_min_similarity", 0.0)
+                        db_name_selected = db_name or ""
+                        user_id = "default"
+
+                        query_embedding = await _eval_embed(test_case.question)
+                        if query_embedding is not None:
+                            sql_memories = await store.search_similar(
+                                user_id=user_id,
+                                query_embedding=query_embedding,
+                                database_name=db_name_selected,
+                                scope=scope,
+                                limit=top_k,
+                                min_similarity=min_sim,
+                            )
+                            if sql_memories:
+                                session_state["_sql_memories"] = sql_memories
+                                print(f"    [SQLMem] {test_case.case_id}#{run_index}: 注入 {len(sql_memories)} 条记忆")
+                                for i, m in enumerate(sql_memories):
+                                    sql_preview = (m.get("sql_truncated") or m.get("sql_text", ""))[:80]
+                                    print(f"      {i+1}. sim={m.get('similarity', 0):.4f} | {m.get('question', '')[:50]} | {sql_preview}")
+                            elif run_index == 0:
+                                print(f"    [SQLMem] {test_case.case_id}#{run_index}: 未找到相关记忆")
+                        elif run_index == 0:
+                            print(f"    [SQLMem] {test_case.case_id}#{run_index}: embedding 不可用，降级")
+                except Exception as e:
+                    if run_index == 0:
+                        print(f"    [SQLMem] {test_case.case_id}#{run_index}: 检索失败 ({type(e).__name__})")
+
             trace_name = f"eval/{test_case.case_id}/run-{run_index}"
             output = await _execute_agent_once(
                 test_case.question, session_state, timeout, trace_name=trace_name,
@@ -535,8 +582,12 @@ async def _run_single_case(
     # turns 和 tokens 取平均
     avg_turns = 0
     avg_tokens = 0
+    avg_input_tokens = 0
+    avg_output_tokens = 0
     turn_values: list[float] = []
     token_values: list[float] = []
+    input_token_values: list[float] = []
+    output_token_values: list[float] = []
     for r in runs:
         stats = r.stats
         t = stats.get("num_turns", 0)
@@ -545,15 +596,27 @@ async def _run_single_case(
         tok = stats.get("tokens", 0)
         if isinstance(tok, dict):
             tok = tok.get("value", 0)
+        itok = stats.get("input_tokens", 0)
+        if isinstance(itok, dict):
+            itok = itok.get("value", 0)
+        otok = stats.get("output_tokens", 0)
+        if isinstance(otok, dict):
+            otok = otok.get("value", 0)
         turn_values.append(float(t or 0))
         token_values.append(float(tok or 0))
+        input_token_values.append(float(itok or 0))
+        output_token_values.append(float(otok or 0))
     avg_turns = sum(turn_values) / len(turn_values) if turn_values else 0
     avg_tokens = sum(token_values) / len(token_values) if token_values else 0
+    avg_input_tokens = sum(input_token_values) / len(input_token_values) if input_token_values else 0
+    avg_output_tokens = sum(output_token_values) / len(output_token_values) if output_token_values else 0
 
     # 构建平均 stats（用于效率评判）
     avg_stats = {
         "num_turns": int(avg_turns),
         "tokens": int(avg_tokens),
+        "input_tokens": int(avg_input_tokens),
+        "output_tokens": int(avg_output_tokens),
         "duration_ms": int(avg_duration),
     }
 
@@ -665,6 +728,8 @@ async def _run_single_case(
     # 计算标准差
     std_tool = _compute_std([float(c) for c in tool_counts], avg_tool_count)
     std_tokens = _compute_std(token_values, avg_tokens)
+    std_input_tokens = _compute_std(input_token_values, avg_input_tokens)
+    std_output_tokens = _compute_std(output_token_values, avg_output_tokens)
     std_latency = _compute_std([float(d) for d in durations], avg_duration)
     std_turns = _compute_std(turn_values, avg_turns)
 
@@ -728,6 +793,8 @@ async def _run_single_case(
         run_details=run_details,
         std_tool_calls=std_tool,
         std_tokens=std_tokens,
+        std_input_tokens=std_input_tokens,
+        std_output_tokens=std_output_tokens,
         std_latency_ms=std_latency,
         std_turns=std_turns,
         hdc_verification=hdc_verification,
@@ -904,12 +971,24 @@ async def run_evaluation(
     tokens = [c.efficiency.total_tokens if c.efficiency else 0 for c in case_results]
     avg_tokens = sum(tokens) / total if total > 0 else 0.0
 
+    input_tokens = [c.efficiency.input_tokens if c.efficiency else 0 for c in case_results]
+    avg_input_tokens = sum(input_tokens) / total if total > 0 else 0.0
+
+    output_tokens = [c.efficiency.output_tokens if c.efficiency else 0 for c in case_results]
+    avg_output_tokens = sum(output_tokens) / total if total > 0 else 0.0
+
     # 跨用例标准差平均
     std_tools = [c.std_tool_calls for c in case_results]
     avg_std_tools = sum(std_tools) / total if total > 0 else 0.0
 
     std_tokens_list = [c.std_tokens for c in case_results]
     avg_std_tokens = sum(std_tokens_list) / total if total > 0 else 0.0
+
+    std_input_tokens_list = [c.std_input_tokens for c in case_results]
+    avg_std_input_tokens = sum(std_input_tokens_list) / total if total > 0 else 0.0
+
+    std_output_tokens_list = [c.std_output_tokens for c in case_results]
+    avg_std_output_tokens = sum(std_output_tokens_list) / total if total > 0 else 0.0
 
     std_latency_list = [c.std_latency_ms for c in case_results]
     avg_std_latency = sum(std_latency_list) / total if total > 0 else 0.0
@@ -957,8 +1036,12 @@ async def run_evaluation(
         average_tool_calls=avg_tools,
         average_turns=avg_turns,
         average_tokens=avg_tokens,
+        average_input_tokens=avg_input_tokens,
+        average_output_tokens=avg_output_tokens,
         std_tool_calls=avg_std_tools,
         std_tokens=avg_std_tokens,
+        std_input_tokens=avg_std_input_tokens,
+        std_output_tokens=avg_std_output_tokens,
         std_latency_ms=avg_std_latency,
         std_turns=avg_std_turns,
         dimension_averages=dim_avg,

@@ -41,7 +41,9 @@ def compute_efficiency_metrics(
     tool_call_details: dict[str, int],
     turns: int,
     total_tokens: int,
-    latency_ms: int,
+    input_tokens: int = 0,
+    output_tokens: int = 0,
+    latency_ms: int = 0,
     thresholds: EfficiencyThresholds | None = None,
 ) -> EfficiencyMetrics:
     """
@@ -52,6 +54,8 @@ def compute_efficiency_metrics(
         tool_call_details: 各工具调用次数分布
         turns: Agent 循环轮次
         total_tokens: 总 token 消耗
+        input_tokens: 输入 token 消耗（prompt）
+        output_tokens: 输出 token 消耗（completion）
         latency_ms: 端到端延迟（毫秒）
         thresholds: 阈值配置，None 使用默认值
 
@@ -74,6 +78,8 @@ def compute_efficiency_metrics(
         tool_call_details=tool_call_details,
         turns=turns,
         total_tokens=total_tokens,
+        input_tokens=input_tokens,
+        output_tokens=output_tokens,
         latency_ms=latency_ms,
         score=round(overall_score, 4),
     )
@@ -103,6 +109,8 @@ def compute_efficiency_from_stats(
         turns = turns.get("value", 0) if isinstance(turns, dict) else 0
 
     total_tokens = stats.get("tokens", 0)
+    input_tokens = stats.get("input_tokens", 0)
+    output_tokens = stats.get("output_tokens", 0)
     latency_ms = stats.get("duration_ms", 0)
 
     return compute_efficiency_metrics(
@@ -110,6 +118,8 @@ def compute_efficiency_from_stats(
         tool_call_details=tool_call_details,
         turns=int(turns),
         total_tokens=int(total_tokens) if total_tokens else 0,
+        input_tokens=int(input_tokens) if input_tokens else 0,
+        output_tokens=int(output_tokens) if output_tokens else 0,
         latency_ms=int(latency_ms) if latency_ms else 0,
         thresholds=thresholds,
     )

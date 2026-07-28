@@ -278,75 +278,82 @@ def _run_compare_sql_memory(args: argparse.Namespace, filtered) -> None:
         print("--skip-seed: 跳过 Phase 2，使用已有 SQL 记忆记录")
 
     print(f"\n{'='*60}")
-    print("SQL 记忆对比评测 — 第 1/3 轮：无记忆（基线）")
+    if args.skip_baseline:
+        print(f"SQL 记忆对比评测 — 跳过基线，直接测试增量效果")
+    else:
+        print("SQL 记忆对比评测 — 第 1/3 轮：无记忆（基线）")
     print(f"{'='*60}")
-    print(f"共 {len(filtered)} 条用例", end="")
-    if args.repeat > 1:
-        print(f"，每条重复 {args.repeat} 次", end="")
-    print("\n")
+    if not args.skip_baseline:
+        print(f"共 {len(filtered)} 条用例", end="")
+        if args.repeat > 1:
+            print(f"，每条重复 {args.repeat} 次", end="")
+        print("\n")
+
+    use_hdc = args.with_hdc  # 同时测试 SQL memory + HDC 时传入 --with-hdc
+    hdc_label = " + HDC" if use_hdc else ""
+    no_mem_label = f"无记忆{'+HDC' if use_hdc else ''}（基线）"
+    with_mem_label = f"有记忆{hdc_label}"
 
     async def _run() -> None:
-        # Round 1: 无记忆基线
-        baseline_report = await run_evaluation(
-            test_cases=filtered,
-            schema_id=args.schema_id,
-            timeout=args.timeout,
-            concurrency=args.concurrency,
-            repeat=args.repeat,
-            use_llm_judge=not args.no_llm_judge,
-            use_quality_judge=not args.no_quality_judge,
-            keep_langfuse=args.keep_langfuse,
-            llm_model=args.llm_model,
-            enable_hdc=False,
-            db_name=args.db_name or "dw_onedba",
-            verbose=args.verbose,
-            cli_command=cli_cmd,
-        )
-
-        seed_count = 0
-        if not args.skip_seed and twin_cases:
-            print(f"\n{'='*60}")
-            print("SQL 记忆对比评测 — 第 2/3 轮：填充记忆库（孪生测例）")
-            print(f"{'='*60}")
-            print(f"共 {len(twin_cases)} 条孪生测例，用于填充 SQL 记忆\n")
-
-            # Round 2: 填充记忆库（孪生测例）
-            await run_evaluation(
-                test_cases=twin_cases,
+        # Round 1: 基线（可从已有报告加载，也可跳过）
+        baseline_report = None
+        if args.skip_baseline:
+            if not args.baseline:
+                print("错误: --skip-baseline 需要配合 --baseline 指定基线 JSON 文件路径")
+                sys.exit(1)
+            import json as _json
+            from .models import EvaluationReport as _ER
+            with open(args.baseline, encoding="utf-8") as _bf:
+                baseline_data = _json.load(_bf)
+            baseline_report = _ER.model_validate(baseline_data)
+            print(f"从基线 JSON 加载: {args.baseline}")
+            print(f"  用例数: {baseline_report.total_cases}, 平均分: {baseline_report.average_score:.2%}")
+        else:
+            baseline_report = await run_evaluation(
+                test_cases=filtered,
                 schema_id=args.schema_id,
                 timeout=args.timeout,
                 concurrency=args.concurrency,
-                repeat=1,
+                repeat=args.repeat,
                 use_llm_judge=not args.no_llm_judge,
                 use_quality_judge=not args.no_quality_judge,
                 keep_langfuse=args.keep_langfuse,
                 llm_model=args.llm_model,
-                enable_hdc=False,
+                enable_hdc=use_hdc,
                 db_name=args.db_name or "dw_onedba",
                 verbose=args.verbose,
                 cli_command=cli_cmd,
             )
 
-            # 统计成功填充的记录数
-            from app.memory.manager import get_storage
-            store = get_storage().sql_memory_store
-            if store is not None:
-                seed_count = len(await store.list_by_user("default", limit=100))
-            print(f"\n  SQL 记忆库已填充 {seed_count} 条记录")
+        seed_count = 0
+        if not args.skip_seed and twin_cases:
+            print(f"\n{'='*60}")
+            print(f"SQL 记忆对比评测 — 第 2/3 轮：填充记忆库（孪生测例）")
+            print(f"{'='*60}")
+            print(f"共 {len(twin_cases)} 条孪生测例，直接灌入记忆库\n")
+
+            seed_count = await _seed_sql_memory_from_twin_cases(
+                twin_cases=twin_cases,
+                schema_id=args.schema_id,
+                db_name=args.db_name or "dw_onedba",
+                user_id="default",
+            )
+            print(f"  SQL 记忆库已灌入 {seed_count} 条记录（使用孪生测例的参考答案 SQL）")
         else:
             # 使用已有记忆
             from app.memory.manager import get_storage
             store = get_storage().sql_memory_store
             if store is not None:
+                await store.initialize()
                 seed_count = len(await store.list_by_user("default", limit=100))
             print(f"\n  使用已有 SQL 记忆记录: {seed_count} 条")
 
         round_label = "第 3/3 轮" if (not args.skip_seed and twin_cases) else "第 2/2 轮"
         print(f"\n{'='*60}")
-        print(f"SQL 记忆对比评测 — {round_label}：有记忆")
+        print(f"SQL 记忆对比评测 — {round_label}：{with_mem_label}")
         print(f"{'='*60}\n")
 
-        # Round 3: 有记忆
+        # Round 3: 有记忆（可能有 HDC）
         memory_report = await run_evaluation(
             test_cases=filtered,
             schema_id=args.schema_id,
@@ -357,7 +364,7 @@ def _run_compare_sql_memory(args: argparse.Namespace, filtered) -> None:
             use_quality_judge=not args.no_quality_judge,
             keep_langfuse=args.keep_langfuse,
             llm_model=args.llm_model,
-            enable_hdc=False,
+            enable_hdc=use_hdc,
             db_name=args.db_name or "dw_onedba",
             verbose=args.verbose,
             cli_command=cli_cmd,
@@ -369,20 +376,80 @@ def _run_compare_sql_memory(args: argparse.Namespace, filtered) -> None:
             memory_report,
             seed_count,
             output_dir=args.output_dir,
+            hdc_enabled=use_hdc,
         )
 
         print(f"\n{'='*60}")
-        print("SQL 记忆对比评测完成")
+        print(f"SQL 记忆对比评测完成{'（含 HDC）' if use_hdc else ''}")
         print(f"{'='*60}")
-        print(f"\n基线（无记忆）:")
+        if args.skip_baseline:
+            print(f"\n基线（来自 {args.baseline}）:")
+        else:
+            print(f"\n基线（{no_mem_label}）:")
         _print_summary(baseline_report, "", "")
-        print(f"\n有记忆:")
+        print(f"\n{with_mem_label}:")
         _print_summary(memory_report, "", "")
         print(f"\n记忆库记录数: {seed_count}")
         print(f"\nJSON 报告: {json_path}")
         print(f"Markdown 报告: {md_path}")
 
+        # 清理：关闭 SQLite 连接，避免 aiosqlite 后台线程阻塞进程退出
+        from app.memory.manager import get_storage as _gs
+        store = _gs().sql_memory_store
+        if store is not None:
+            await store.close()
+
     asyncio.run(_run())
+
+
+async def _seed_sql_memory_from_twin_cases(
+    twin_cases: list,
+    schema_id: int,
+    db_name: str,
+    user_id: str = "default",
+) -> int:
+    """
+    直接使用孪生测例的参考答案 SQL 灌入 SQL 记忆库，不经过 Agent 执行。
+
+    每条孪生测例的 reference_sql 作为记忆内容写入，保证经验百分之百正确。
+    """
+    from app.memory.manager import get_storage
+    from app.memory.sql_memory import embed_text
+
+    store = get_storage().sql_memory_store
+    if store is None:
+        print("[SQLMem][WARN] SQL 记忆存储未初始化，无法灌入")
+        return 0
+
+    # 确保 store 已初始化（eval CLI 不经过 FastAPI lifespan，StorageManager.initialize() 可能未被调用）
+    await store.initialize()
+
+    count = 0
+    for tc in twin_cases:
+        if not tc.reference_sql or not tc.question:
+            continue
+
+        sql_truncated = tc.reference_sql[:500] if len(tc.reference_sql) > 500 else tc.reference_sql
+        embedding = await embed_text(tc.question + " " + sql_truncated)
+
+        await store.record(
+            user_id=user_id,
+            question=tc.question,
+            sql=tc.reference_sql,
+            table_names=tc.tables,
+            database_name=db_name,
+            schema_id=schema_id,
+            execution_result={
+                "row_count": tc.expected_row_count,
+                "column_names": [],
+                "data_preview": [],
+                "execution_status": "success",
+            },
+            embedding=embedding,
+        )
+        count += 1
+
+    return count
 
 
 def _generate_sql_memory_comparison_report(
@@ -390,6 +457,7 @@ def _generate_sql_memory_comparison_report(
     memory_report,
     seed_count: int,
     output_dir: str = "tests/evaluation/output",
+    hdc_enabled: bool = False,
 ) -> tuple[str, str]:
     """生成 SQL 记忆对比报告（JSON + Markdown）。"""
     import json
@@ -411,6 +479,14 @@ def _generate_sql_memory_comparison_report(
     baseline_avg_tokens = baseline_report.average_tokens
     memory_avg_tokens = memory_report.average_tokens
     token_delta = memory_avg_tokens - baseline_avg_tokens
+
+    baseline_avg_input_tokens = baseline_report.average_input_tokens
+    memory_avg_input_tokens = memory_report.average_input_tokens
+    input_token_delta = memory_avg_input_tokens - baseline_avg_input_tokens
+
+    baseline_avg_output_tokens = baseline_report.average_output_tokens
+    memory_avg_output_tokens = memory_report.average_output_tokens
+    output_token_delta = memory_avg_output_tokens - baseline_avg_output_tokens
 
     baseline_avg_latency = baseline_report.average_latency_ms
     memory_avg_latency = memory_report.average_latency_ms
@@ -453,6 +529,12 @@ def _generate_sql_memory_comparison_report(
             "baseline_avg_tokens": round(baseline_avg_tokens, 0),
             "memory_avg_tokens": round(memory_avg_tokens, 0),
             "token_delta": round(token_delta, 0),
+            "baseline_avg_input_tokens": round(baseline_avg_input_tokens, 0),
+            "memory_avg_input_tokens": round(memory_avg_input_tokens, 0),
+            "input_token_delta": round(input_token_delta, 0),
+            "baseline_avg_output_tokens": round(baseline_avg_output_tokens, 0),
+            "memory_avg_output_tokens": round(memory_avg_output_tokens, 0),
+            "output_token_delta": round(output_token_delta, 0),
             "baseline_avg_latency_ms": round(baseline_avg_latency, 0),
             "memory_avg_latency_ms": round(memory_avg_latency, 0),
             "latency_delta_ms": round(latency_delta, 0),
@@ -473,9 +555,11 @@ def _generate_sql_memory_comparison_report(
     md_path = os.path.join(output_dir, f"sql_memory_comparison_{timestamp}.md")
     with open(md_path, "w", encoding="utf-8") as f:
         s = comparison_data["summary"]
-        f.write(f"# SQL Memory 对比评测报告\n\n")
+        f.write(f"# SQL Memory 对比评测报告{'（含 HDC）' if hdc_enabled else ''}\n\n")
         f.write(f"**生成时间**: {timestamp}\n")
-        f.write(f"**记忆库记录数**: {seed_count}\n\n")
+        f.write(f"**记忆库记录数**: {seed_count}\n")
+        if hdc_enabled:
+            f.write(f"**HDC**: 已启用（两轮均注入 HDC 数据底座）\n")
 
         f.write("## 全局对比\n\n")
         f.write("| 指标 | 无记忆（基线） | 有记忆 | 变化 |\n")
@@ -483,6 +567,8 @@ def _generate_sql_memory_comparison_report(
         f.write(f"| 平均 SQL 分数 | {s['baseline_avg_score']:.2%} | {s['memory_avg_score']:.2%} | {s['score_delta']:+.2%} |\n")
         f.write(f"| 平均工具调用 | {s['baseline_avg_tool_calls']:.1f} | {s['memory_avg_tool_calls']:.1f} | {s['tool_call_delta']:+.1f} |\n")
         f.write(f"| 平均 Token | {s['baseline_avg_tokens']:.0f} | {s['memory_avg_tokens']:.0f} | {s['token_delta']:+.0f} |\n")
+        f.write(f"| 平均输入 Token | {s['baseline_avg_input_tokens']:.0f} | {s['memory_avg_input_tokens']:.0f} | {s['input_token_delta']:+.0f} |\n")
+        f.write(f"| 平均输出 Token | {s['baseline_avg_output_tokens']:.0f} | {s['memory_avg_output_tokens']:.0f} | {s['output_token_delta']:+.0f} |\n")
         f.write(f"| 平均延迟 (ms) | {s['baseline_avg_latency_ms']:.0f} | {s['memory_avg_latency_ms']:.0f} | {s['latency_delta_ms']:+.0f} |\n\n")
 
         f.write(f"## Memory Impact 汇总\n\n")
@@ -499,6 +585,9 @@ def _generate_sql_memory_comparison_report(
             f.write(f"| {d['case_id']} | {d['baseline_score']:.2%} | {d['memory_score']:.2%} | {d['delta']:+.2%} | {emoji} |\n")
 
     return json_path, md_path
+
+
+def _print_summary(report, json_path: str, md_path: str) -> None:
     """打印评测摘要。"""
     print(f"通过: {report.passed_cases}/{report.total_cases} ({report.overall_pass_rate:.1%})")
     print(f"平均分: {report.average_score:.2%}")
@@ -619,6 +708,10 @@ def main() -> None:
     run_parser.add_argument(
         "--skip-seed", action="store_true",
         help="跳过 Phase 2（填充记忆库），直接使用已有的 SQL 记忆记录",
+    )
+    run_parser.add_argument(
+        "--skip-baseline", action="store_true",
+        help="跳过基线评测，直接从已有基线报告加载数据（需配合 --baseline 指定基线 JSON）",
     )
     run_parser.add_argument(
         "--verbose", "-v", action="store_true",
