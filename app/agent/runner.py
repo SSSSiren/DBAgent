@@ -11,7 +11,6 @@ Agent 执行器 — 基于 OpenAI 兼容 API 的 ReAct Agent
 import asyncio
 import json
 import time
-from contextvars import ContextVar
 from typing import Any, AsyncIterator
 
 from openai import AsyncOpenAI
@@ -21,13 +20,12 @@ from app.agent.context import build_context, update_session_state, extract_sql_f
 from app.config import get_settings
 from app.tools import registry
 from app.observation.langfuse import LangfuseObserver, extract_result_size
+from app.tools.query_database import _nl2sql_timings as _nl2sql_timings_reader
 
 
 # ========== LLM 客户端 ==========
 
 _llm_client: AsyncOpenAI | None = None
-
-_nl2sql_timings_reader: ContextVar[dict[str, float]] = ContextVar("nl2sql_timings", default={})
 
 
 def _get_llm_client() -> AsyncOpenAI:
