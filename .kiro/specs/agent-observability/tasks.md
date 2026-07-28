@@ -77,7 +77,7 @@
   - _Boundary: Cross-layer — routes → runner_
 
 - [ ] 4. Validation: 测试与验证
-- [ ] 4.1 单元测试：核心函数签名和返回值
+- [x] 4.1 单元测试：核心函数签名和返回值
   - `_execute_tool()` 返回元组格式验证
   - `build_context()` 返回 `ctx_tokens` 结构和键完整性
   - `query_database` 中 `_nl2sql_timings` 写入和读取
@@ -85,7 +85,7 @@
   - _Requirements: 1, 5, 6_
   - _Depends: 1.1, 1.2, 2.4_
 
-- [ ] 4.2 集成测试：SSE 事件结构与向后兼容
+- [x] 4.2 集成测试：SSE 事件结构与向后兼容
   - SSE `tool_end` 包含 `elapsed_ms` 字段且值 > 0
   - final SSE stats 包含所有新增字段且类型正确
   - 禁用某路检索时对应 `ctx_timings` 字段为 `null`
@@ -95,7 +95,7 @@
   - _Requirements: 1, 2, 3, 4, 6, 7_
   - _Depends: 3.1_
 
-- [ ] 4.3 E2E 验证：完整查询流时间顺序
+- [x] 4.3 E2E 验证：完整查询流时间顺序
   - 发起真实查询，验证 `prep_ms < ttfb_ms < duration_ms` 时间顺序
   - 统计各指标语义正确（`input_tokens + output_tokens == tokens`）
   - NL2SQL 引擎耗时 `describe_ms > 0` 且 `generate_ms > 0`
