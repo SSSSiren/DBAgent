@@ -11,6 +11,7 @@ Agent 执行器 — 基于 OpenAI 兼容 API 的 ReAct Agent
 import asyncio
 import json
 import time
+from contextvars import ContextVar
 from typing import Any, AsyncIterator
 
 from openai import AsyncOpenAI
@@ -25,6 +26,8 @@ from app.observation.langfuse import LangfuseObserver, extract_result_size
 # ========== LLM 客户端 ==========
 
 _llm_client: AsyncOpenAI | None = None
+
+_nl2sql_timings_reader: ContextVar[dict[str, float]] = ContextVar("nl2sql_timings", default={})
 
 
 def _get_llm_client() -> AsyncOpenAI:
@@ -234,11 +237,15 @@ async def _run_agent(
                 tool_timings[tool_name]["count"] += 1
                 tool_timings[tool_name]["total_ms"] += tool_elapsed_ms
 
+                # 读取 NL2SQL 各阶段耗时（由 query_database 通过 ContextVar 写入）
+                nl2sql_stage_timings = _nl2sql_timings_reader.get({})
+
                 yield {
                     "type": "tool_end",
                     "name": tool_name,
                     "content": result,
                     "elapsed_ms": tool_elapsed_ms,
+                    "nl2sql_timings": nl2sql_stage_timings if nl2sql_stage_timings else None,
                 }
 
                 messages.append({

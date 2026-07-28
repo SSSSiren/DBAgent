@@ -18,6 +18,7 @@ API 路由 — HTTP/WebSocket 接口与会话管理
 
 import asyncio
 import json
+import time
 from typing import Any, AsyncIterator
 
 import uuid6
@@ -198,6 +199,15 @@ async def _execute_agent_stream(
     cancel_registry = get_cancel_registry()
     cancel_event = cancel_registry.create(session_id)
 
+    # ── 记录请求到达时间 ──
+    t0 = time.monotonic()
+    ctx_timings: dict[str, float | None] = {
+        "memories_ms": None,
+        "preferences_ms": None,
+        "sql_memories_ms": None,
+        "hdc_ms": None,
+    }
+
     try:
         # ── 检索长期记忆 ──
         from app.config import get_settings as _get_kb_settings
@@ -206,12 +216,14 @@ async def _execute_agent_stream(
         memory_count = 0
         if _kb_settings.kb_enabled:
             try:
+                t_mem_start = time.monotonic()
                 from app.knowledge.openviking import OpenVikingClient
                 kb = OpenVikingClient(_kb_settings.kb_openviking_url, user_id)
                 await kb.start()
                 memories = await kb.retrieve_memories()
                 memory_count = len(memories)
                 await kb.close()
+                ctx_timings["memories_ms"] = (time.monotonic() - t_mem_start) * 1000
                 print(f"[KB][OK] 记忆检索: user={user_id} count={memory_count}")
             except Exception as e:
                 print(f"[KB][ERROR] 记忆检索失败: {type(e).__name__}: {e}")
@@ -229,6 +241,7 @@ async def _execute_agent_stream(
         preference_count = 0
         if _pref_settings.preference_enabled:
             try:
+                t_pref_start = time.monotonic()
                 pref_store = get_storage().preference_store
                 if pref_store is not None:
                     user_input = initial_state.get("user_input", "")
@@ -236,6 +249,7 @@ async def _execute_agent_stream(
                     if not preferences:
                         preferences = await pref_store.retrieve_top_preferences(user_id)
                     preference_count = len(preferences)
+                    ctx_timings["preferences_ms"] = (time.monotonic() - t_pref_start) * 1000
                     print(f"[Pref][OK] 偏好检索: user={user_id} count={preference_count}")
                 else:
                     print(f"[Pref][WARN] 偏好功能已禁用")
@@ -251,6 +265,7 @@ async def _execute_agent_stream(
         sql_memory_count = 0
         if getattr(get_settings(), "sql_memory_enabled", False):
             try:
+                t_sql_start = time.monotonic()
                 sql_mem_store = get_storage().sql_memory_store
                 if sql_mem_store is not None:
                     user_input = initial_state.get("user_input", "")
@@ -272,7 +287,12 @@ async def _execute_agent_stream(
                             min_similarity=min_sim,
                         )
                     sql_memory_count = len(sql_memories)
+                    ctx_timings["sql_memories_ms"] = (time.monotonic() - t_sql_start) * 1000
                     print(f"[SQLMem][OK] 检索: user={user_id} count={sql_memory_count} scope={scope}")
+                    if sql_memories:
+                        for i, m in enumerate(sql_memories):
+                            sql_preview = (m.get("sql_truncated") or m.get("sql_text", ""))[:80]
+                            print(f"[SQLMem]   {i+1}. sim={m.get('similarity', 0):.4f} | {m.get('question', '')[:50]} | {sql_preview}")
                 else:
                     print(f"[SQLMem][WARN] SQL 记忆存储未初始化")
             except Exception as e:
@@ -287,6 +307,7 @@ async def _execute_agent_stream(
         _hdc_settings = _get_hdc_settings()
         if _hdc_settings.hdc_enabled:
             try:
+                t_hdc_start = time.monotonic()
                 from app.datavault.retriever import HDCRetriever
                 from app.knowledge.openviking import OpenVikingClient as OVC
                 selected_db = initial_state.get("selected_database")
@@ -303,8 +324,13 @@ async def _execute_agent_stream(
                         initial_state["_hdc_context"] = retriever.format_context(hdc_ctx)
                         print(f"[HDC][OK] 检索成功: db={selected_db.get('schemaName')}, tables={len(hdc_ctx.matched_tables)}")
                     await hdc_ov.close()
+                    ctx_timings["hdc_ms"] = (time.monotonic() - t_hdc_start) * 1000
             except Exception as e:
                 print(f"[HDC][ERROR] 检索失败: {type(e).__name__}: {e}")
+
+        # ── 上下文准备完成，记录 prep_ms ──
+        t_prep = time.monotonic()
+        prep_ms = (t_prep - t0) * 1000
 
         final_payload = None
         latest_sql = ""
@@ -511,12 +537,17 @@ async def _execute_agent_stream(
 
             asyncio.create_task(_auto_title())
 
+        # ── 注入上下文准备耗时到 stats ──
+        final_stats = final_payload.get("stats", {})
+        final_stats["prep_ms"] = prep_ms
+        final_stats["ctx_timings"] = ctx_timings
+
         yield "final", {
             "session_id": initial_state.get("session_id", ""),
             "reply": final_response,
             "needs_confirmation": final_payload["needs_confirmation"],
             "tool_calls": final_payload["tool_calls"],
-            "stats": final_payload.get("stats", {}),
+            "stats": final_stats,
             "latest_sql": latest_sql,
             "memory_count": memory_count,
             "preference_count": preference_count,

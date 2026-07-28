@@ -26,7 +26,7 @@
   - _Boundary: Context Builder — build_context_
 
 - [ ] 2. Core: Agent Runner 指标增强
-- [ ] 2.1 `_run_agent` — 工具耗时与 Token 拆分
+- [x] 2.1 `_run_agent` — 工具耗时与 Token 拆分
   - 将 `total_input_tokens` 和 `total_output_tokens` 独立注入 stats 的 `input_tokens` / `output_tokens` 字段
   - 保留 `tokens` 字段（总和）确保向后兼容
   - 在 `tool_end` 事件中增加 `elapsed_ms` 字段（来自 1.1 的元组返回值）

@@ -17,6 +17,10 @@ query_database 工具 — NL2SQL 核心工具
 """
 
 import re
+from contextvars import ContextVar
+from typing import Any
+
+import time as _time
 
 from app.client.onedba import get_onedba_client
 from app.nl2sql.generator import generate_sql
@@ -28,6 +32,8 @@ from app.tools.sql_utils import strip_limit, to_count_sql
 
 
 DEFAULT_SAFETY_LIMIT = 500  # 工程安全 LIMIT，防止一次性返回太多数据挤爆 LLM 上下文
+
+_nl2sql_timings: ContextVar[dict[str, float]] = ContextVar("nl2sql_timings", default={})
 
 
 async def query_database(
@@ -60,9 +66,12 @@ async def query_database(
     client = get_onedba_client()
 
     try:
+        timings: dict[str, float] = {}
+
         # 1. DESCRIBE table(s) → 获取表结构
         # 支持逗号分隔的多表名（如 "db_alert_current, db_instance"），
         # 逐表 DESCRIBE 后合并 columns，给每列加上表名前缀避免歧义。
+        t0 = _time.monotonic()
         table_names = [t.strip() for t in table_name.split(",") if t.strip()]
         all_columns: list[Any] = []
 
@@ -72,6 +81,8 @@ async def query_database(
             columns = parse_describe_result(describe_result)
 
             if not columns:
+                timings["describe_ms"] = (_time.monotonic() - t0) * 1000
+                _nl2sql_timings.set(timings)
                 return f"无法获取表 {t_name} 的结构信息"
 
             # 给每列的 name 加上表名前缀，帮助 LLM 区分同名字段
@@ -80,24 +91,35 @@ async def query_database(
             all_columns.extend(columns)
 
         if not all_columns:
+            timings["describe_ms"] = (_time.monotonic() - t0) * 1000
+            _nl2sql_timings.set(timings)
             return f"无法获取表 {table_name} 的结构信息"
 
+        timings["describe_ms"] = (_time.monotonic() - t0) * 1000
+
         # 2. 生成 SQL
+        t0 = _time.monotonic()
         generated = await generate_sql(
             question=question,
             table_name=table_name,
             columns=all_columns,
             summary=summary,
         )
+        timings["generate_ms"] = (_time.monotonic() - t0) * 1000
 
         if generated.needs_clarification:
+            _nl2sql_timings.set(timings)
             return f"需要澄清：{generated.clarification_question}"
 
         if not generated.sql:
+            _nl2sql_timings.set(timings)
             return "无法生成 SQL，请检查问题描述"
 
         # 3. 验证 SQL
+        t0 = _time.monotonic()
         validation = validate_sql(generated.sql, table_name, all_columns)
+        timings["validate_ms"] = (_time.monotonic() - t0) * 1000
+        timings["repair_ms"] = 0.0
         if not validation.passed:
             error_msg = (
                 "; ".join(validation.errors)
@@ -105,6 +127,7 @@ async def query_database(
                 else "SQL 验证失败"
             )
             # 4. 尝试修复（最多 1 次重试）
+            t0 = _time.monotonic()
             repaired = await repair_sql(
                 question=question,
                 table_name=table_name,
@@ -112,11 +135,14 @@ async def query_database(
                 failed_sql=generated.sql,
                 error_message=error_msg,
             )
+            timings["repair_ms"] = (_time.monotonic() - t0) * 1000
             if repaired.needs_clarification or not repaired.sql:
+                _nl2sql_timings.set(timings)
                 return f"SQL 生成失败：{error_msg}"
             generated = repaired
             validation = validate_sql(generated.sql, table_name, all_columns)
             if not validation.passed:
+                _nl2sql_timings.set(timings)
                 return (
                     f"SQL 修复后仍然失败："
                     f"{'; '.join(validation.errors)}"
@@ -222,6 +248,7 @@ async def query_database(
 
         response_parts.append(f"\n{markdown_table}\n")
 
+        _nl2sql_timings.set(timings)
         return "\n".join(response_parts)
 
     except Exception as e:
@@ -229,4 +256,5 @@ async def query_database(
 
         error_detail = traceback.format_exc()
         print(f"[query_database] Error: {error_detail}")
+        _nl2sql_timings.set(timings)
         return f"查询执行失败：{str(e)}"
