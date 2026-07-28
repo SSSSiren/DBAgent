@@ -101,6 +101,7 @@ async def _run_agent(
     total_input_tokens = 0
     total_output_tokens = 0
     cancelled = False
+    tool_timings: dict[str, dict[str, float | int]] = {}
 
     for iteration in range(max_iterations):
         # ── 取消检查：迭代边界 ──
@@ -227,10 +228,17 @@ async def _run_agent(
                 else:
                     result, tool_elapsed_ms = await _execute_tool(tool_name, tool_input)
 
+                # 累加工具耗时
+                if tool_name not in tool_timings:
+                    tool_timings[tool_name] = {"count": 0, "total_ms": 0.0}
+                tool_timings[tool_name]["count"] += 1
+                tool_timings[tool_name]["total_ms"] += tool_elapsed_ms
+
                 yield {
                     "type": "tool_end",
                     "name": tool_name,
                     "content": result,
+                    "elapsed_ms": tool_elapsed_ms,
                 }
 
                 messages.append({
@@ -259,6 +267,9 @@ async def _run_agent(
                     "duration_ms": duration_ms,
                     "num_turns": iteration + 1,
                     "tokens": total_input_tokens + total_output_tokens,
+                    "input_tokens": total_input_tokens,
+                    "output_tokens": total_output_tokens,
+                    "tool_timings": dict(tool_timings),
                 },
             }
             return
@@ -274,6 +285,9 @@ async def _run_agent(
                 "duration_ms": duration_ms,
                 "num_turns": iteration + 1,
                 "tokens": total_input_tokens + total_output_tokens,
+                "input_tokens": total_input_tokens,
+                "output_tokens": total_output_tokens,
+                "tool_timings": dict(tool_timings),
             },
         }
     else:
@@ -285,6 +299,9 @@ async def _run_agent(
                 "duration_ms": duration_ms,
                 "num_turns": max_iterations,
                 "tokens": total_input_tokens + total_output_tokens,
+                "input_tokens": total_input_tokens,
+                "output_tokens": total_output_tokens,
+                "tool_timings": dict(tool_timings),
             },
         }
 
@@ -360,6 +377,9 @@ async def run_agent_stream(
     tool_calls_info: list[dict[str, Any]] = []
     tool_call_counter: dict[str, int] = {}
     all_texts: list[str] = []
+    t_start = time.monotonic()
+    ttfb_ms: float | None = None
+    ttfb_recorded = False
 
     # 4. 启动 Agent 引擎
     event_stream = _run_agent(full_prompt, tool_schemas, cancel_event)
@@ -374,6 +394,10 @@ async def run_agent_stream(
             if event_type == "text":
                 text = event.get("text", "")
                 all_texts.append(text)
+                # TTFB: 记录首个非 llm_call 事件的时间
+                if not ttfb_recorded:
+                    ttfb_ms = (time.monotonic() - t_start) * 1000
+                    ttfb_recorded = True
                 yield "step", {
                     "step": "thinking",
                     "status": "running",
@@ -393,6 +417,11 @@ async def run_agent_stream(
                     )
 
             elif event_type == "tool_start":
+                # TTFB: 记录首个非 llm_call 事件的时间
+                if not ttfb_recorded:
+                    ttfb_ms = (time.monotonic() - t_start) * 1000
+                    ttfb_recorded = True
+
                 tool_name = event.get("name", "unknown")
                 call_index = tool_call_counter.get(tool_name, 0)
                 tool_call_counter[tool_name] = call_index + 1
@@ -456,6 +485,14 @@ async def run_agent_stream(
             elif event_type == "final":
                 final_response = event.get("content", "")
                 final_stats = event.get("stats", {})
+                # 注入 TTFB（若首个事件前被取消，则以取消时刻为准）
+                if ttfb_ms is not None:
+                    final_stats["ttfb_ms"] = round(ttfb_ms, 2)
+                else:
+                    # 在首个事件前就结束（取消等），此时 ttfb_ms 为 None
+                    final_stats["ttfb_ms"] = None
+                # 注入 ctx_tokens
+                final_stats["ctx_tokens"] = ctx_tokens
 
     except Exception as e:
         error_msg = str(e)

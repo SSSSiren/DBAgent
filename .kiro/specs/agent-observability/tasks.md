@@ -16,7 +16,7 @@
   - _Requirements: 1_
   - _Boundary: Agent Runner — _execute_tool_
 
-- [ ] 1.2 (P) 修改 `build_context` 返回元组 `(context_str, ctx_tokens)`
+- [x] 1.2 (P) 修改 `build_context` 返回元组 `(context_str, ctx_tokens)`
   - 在组装 8 段上下文时为每段估算 Token 数
   - 使用 `tiktoken`（优先）或 `len(text) / 4`（降级）进行估算
   - 返回 `(context_str, ctx_tokens_dict)`，`ctx_tokens_dict` 键名为 8 段上下文名称
