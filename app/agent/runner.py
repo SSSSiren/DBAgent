@@ -46,9 +46,12 @@ def _build_tool_schemas() -> list[dict[str, Any]]:
     return registry.get_openai_schemas()
 
 
-async def _execute_tool(name: str, input_data: dict[str, Any]) -> str:
-    """执行工具调用，使用 registry.execute 应用中间件（超时/错误归一化）"""
-    return await registry.execute(name, **input_data)
+async def _execute_tool(name: str, input_data: dict[str, Any]) -> tuple[str, float]:
+    """执行工具调用，使用 registry.execute 应用中间件（超时/错误归一化）。返回 (result, elapsed_ms)。"""
+    t0 = time.monotonic()
+    result = await registry.execute(name, **input_data)
+    elapsed_ms = (time.monotonic() - t0) * 1000
+    return result, elapsed_ms
 
 
 # ========== Agent 引擎（ReAct 循环）==========
@@ -213,15 +216,16 @@ async def _run_agent(
                 is_cancelled = cancel_event is not None and cancel_event.is_set()
                 if is_cancelled:
                     try:
-                        result = await asyncio.wait_for(
+                        result, tool_elapsed_ms = await asyncio.wait_for(
                             _execute_tool(tool_name, tool_input),
                             timeout=30,
                         )
                     except asyncio.TimeoutError:
                         print(f"[Cancel] 工具超时(30s): tool={tool_name}")
                         result = f"工具执行超时: {tool_name}"
+                        tool_elapsed_ms = 30 * 1000  # timeout 值作为 elapsed_ms
                 else:
-                    result = await _execute_tool(tool_name, tool_input)
+                    result, tool_elapsed_ms = await _execute_tool(tool_name, tool_input)
 
                 yield {
                     "type": "tool_end",
