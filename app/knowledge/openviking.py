@@ -322,7 +322,11 @@ class OpenVikingClient:
         错误时记录警告并返回空 dict，不抛出异常。
 
         如果 mode="replace" 失败（文件不存在），自动回退到 mode="create"。
+        ReadError/RemoteProtocolError 自动重试 3 次（与 find() 一致）。
         """
+        async def _do_write(payload: dict) -> dict:
+            return await self._post("/api/v1/content/write", payload, timeout=httpx_timeout)
+
         try:
             payload: dict[str, Any] = {
                 "uri": uri,
@@ -332,16 +336,25 @@ class OpenVikingClient:
             }
             if timeout is not None:
                 payload["timeout"] = timeout
-            # When wait=True, SemanticProcessor needs extra time for VLM + vector store
-            # Default httpx timeout (30s) is too short. Use caller-provided timeout
-            # or fall back to 120s for wait=True writes.
             if timeout is not None:
                 httpx_timeout = timeout
             elif wait:
                 httpx_timeout = 120.0
             else:
                 httpx_timeout = None
-            return await self._post("/api/v1/content/write", payload, timeout=httpx_timeout)
+
+            for attempt in range(3):
+                try:
+                    return await _do_write(payload)
+                except (httpx.ReadError, httpx.RemoteProtocolError) as e:
+                    if attempt == 2:
+                        raise
+                    backoff = 0.5 * (2 ** attempt)
+                    log.debug(
+                        "OpenViking write retry %d/3 after %.1fs: %s",
+                        attempt + 1, backoff, e,
+                    )
+                    await asyncio.sleep(backoff)
         except Exception:
             # mode="replace" 要求文件已存在；如果失败，回退到 create
             if mode == "replace":

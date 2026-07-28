@@ -124,6 +124,22 @@ class SqlMemoryBackend(Protocol):
         """关闭存储连接。"""
         ...
 
+    async def re_embed_all(
+        self,
+        embed_fn: Any = None,
+        user_id: str = "",
+    ) -> int:
+        """重新为所有（或指定用户）记录的 question 生成嵌入向量。
+
+        Args:
+            embed_fn: async callable(str) -> list[float] | None，如 embed_text
+            user_id: 指定用户（空字符串 = 全部）
+
+        Returns:
+            成功更新的记录数
+        """
+        ...
+
 
 def _cosine_similarity(a: list[float], b: list[float]) -> float:
     """计算两个向量的余弦相似度（纯 Python 实现）。"""
@@ -444,6 +460,25 @@ class InMemorySqlMemoryStore(SqlMemoryBackend):
         """关闭存储连接（内存存储无需操作）。"""
         pass
 
+    async def re_embed_all(
+        self,
+        embed_fn: Any = None,
+        user_id: str = "",
+    ) -> int:
+        """重新生成所有记录的嵌入向量（内存实现）。"""
+        updated = 0
+        with self._lock:
+            for rid, rec in self._records.items():
+                if user_id and rec["user_id"] != user_id:
+                    continue
+                question = rec.get("question", "")
+                if embed_fn and question:
+                    new_embedding = await embed_fn(question)
+                    if new_embedding:
+                        rec["embedding_json"] = json.dumps(new_embedding)
+                        updated += 1
+        return updated
+
 
 # ============================================================================
 # SqliteSqlMemoryStore — SQLite 持久化 SQL 记忆存储实现
@@ -466,8 +501,11 @@ class SqliteSqlMemoryStore(SqlMemoryBackend):
         self._conn: Any = None
 
     async def initialize(self) -> None:
-        """初始化存储：连接数据库、启用 WAL 模式、创建 sql_memories 表和索引。"""
+        """初始化存储：连接数据库、启用 WAL 模式、创建 sql_memories 表和索引。幂等——已初始化时跳过。"""
         import aiosqlite
+
+        if self._conn is not None:
+            return  # 已初始化，幂等跳过
 
         self._conn = await aiosqlite.connect(self._db_path)
         self._conn.row_factory = aiosqlite.Row
@@ -522,6 +560,54 @@ class SqliteSqlMemoryStore(SqlMemoryBackend):
         if self._conn is not None:
             await self._conn.close()
             self._conn = None
+
+    async def re_embed_all(
+        self,
+        embed_fn: Any = None,
+        user_id: str = "",
+    ) -> int:
+        """重新为所有记录生成嵌入向量（SQLite 实现）。
+
+        遍历 question → embed_fn(question) → UPDATE embedding_json。
+        每条失败时跳过，继续处理后续记录。
+        """
+        if self._conn is None:
+            return 0
+
+        if user_id:
+            params: list[Any] = [user_id]
+            where = "WHERE user_id = ?"
+        else:
+            params = []
+            where = ""
+
+        cursor = await self._conn.execute(
+            f"SELECT id, question FROM sql_memories {where};", params
+        )
+        rows = await cursor.fetchall()
+
+        updated = 0
+        for row in rows:
+            record_id = row["id"]
+            question = (row["question"] or "") if row["question"] else ""
+            if not question or embed_fn is None:
+                continue
+
+            try:
+                new_embedding = await embed_fn(question)
+                if new_embedding:
+                    await self._conn.execute(
+                        "UPDATE sql_memories SET embedding_json = ? WHERE id = ?;",
+                        (json.dumps(new_embedding), record_id),
+                    )
+                    updated += 1
+            except Exception:
+                continue  # 跳过失败的记录
+
+        if updated > 0:
+            await self._conn.commit()
+
+        return updated
 
     # ── 辅助方法 ──────────────────────────────────────────────
 
@@ -703,7 +789,7 @@ class SqliteSqlMemoryStore(SqlMemoryBackend):
             """
             SELECT id, user_id, question, sql_text, sql_truncated,
                    table_names, database_name, schema_id,
-                   row_count, execution_status, scope, created_at
+                   row_count, execution_status, embedding_json, scope, created_at
             FROM sql_memories
             WHERE user_id = ?
             ORDER BY created_at DESC
@@ -873,9 +959,9 @@ _embedding_cache: dict[str, list[float]] = {}
 
 
 async def embed_text(text: str, cache: dict[str, list[float]] | None = None) -> list[float] | None:
-    """将文本转换为嵌入向量（1536 维），失败时返回 None。
+    """将文本转换为嵌入向量，失败时返回 None。
 
-    复用现有的 AsyncOpenAI 客户端（与 Agent LLM 调用共享同一连接池）。
+    回退链：远程 OpenAI 兼容 API → 本地 Ollama bge-m3。
     支持 dict 级 memoization 缓存，避免同一会话内重复嵌入相同文本。
 
     Args:
@@ -883,7 +969,7 @@ async def embed_text(text: str, cache: dict[str, list[float]] | None = None) -> 
         cache: 可选的缓存字典，用于会话级 memoization
 
     Returns:
-        1536 维浮点数列表，或 None（嵌入 API 不可用时）
+        嵌入向量（list[float]），或 None（所有方式均不可用时）
     """
     if not text or not text.strip():
         return None
@@ -893,22 +979,59 @@ async def embed_text(text: str, cache: dict[str, list[float]] | None = None) -> 
     if cache_key in cache:
         return cache[cache_key]
 
-    try:
-        from app.agent.runner import _get_llm_client
+    settings = get_settings()
+    provider = getattr(settings, "llm_embedding_provider", "auto")
 
-        settings = get_settings()
+    # ── 辅助：尝试远程 OpenAI ──
+    async def _try_openai() -> list[float] | None:
+        from app.agent.runner import _get_llm_client
         model = getattr(settings, "llm_embedding_model", "text-embedding-3-small")
         client = _get_llm_client()
+        response = await client.embeddings.create(model=model, input=cache_key)
+        return response.data[0].embedding
 
-        response = await client.embeddings.create(
-            model=model,
-            input=cache_key,
-        )
-        embedding = response.data[0].embedding
+    # ── 辅助：尝试 Ollama ──
+    async def _try_ollama() -> list[float] | None:
+        import httpx
+        ollama_url = getattr(settings, "ollama_base_url", "http://localhost:11434")
+        ollama_model = getattr(settings, "ollama_embedding_model", "bge-m3:latest")
+        async with httpx.AsyncClient(timeout=30.0) as c:
+            resp = await c.post(f"{ollama_url}/api/embeddings", json={"model": ollama_model, "prompt": cache_key})
+            if resp.status_code == 200:
+                data = resp.json()
+                emb = data.get("embedding")
+                if emb and len(emb) > 0:
+                    return emb
+        return None
+
+    # ── 按 provider 策略执行 ──
+    embedding: list[float] | None = None
+
+    if provider == "openai":
+        try:
+            embedding = await _try_openai()
+        except Exception as e:
+            logger.warning(f"SQL Memory: OpenAI embedding 失败 ({type(e).__name__}): {e}")
+    elif provider == "ollama":
+        try:
+            embedding = await _try_ollama()
+        except Exception as e:
+            logger.warning(f"SQL Memory: Ollama embedding 失败 ({type(e).__name__}): {e}")
+    else:  # auto: OpenAI 优先，回退 Ollama
+        try:
+            embedding = await _try_openai()
+        except Exception:
+            logger.debug("SQL Memory: 远程 embedding 失败，尝试 Ollama 回退")
+        if embedding is None:
+            try:
+                embedding = await _try_ollama()
+            except Exception as e:
+                logger.warning(f"SQL Memory: Ollama 回退也失败 ({type(e).__name__}): {e}")
+
+    if embedding is not None:
         cache[cache_key] = embedding
         return embedding
 
-    except Exception as e:
-        logger.warning(f"SQL Memory: 嵌入生成失败 ({type(e).__name__}): {e}")
-        return None
+    logger.warning("SQL Memory: 所有 embedding 方式均不可用，返回 None")
+    return None
 

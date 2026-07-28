@@ -1,10 +1,12 @@
 """
-SchemaCollector — 从 OneDBA 采集原始 schema 元数据
+SchemaCollector — 从 OneDBA 采集原始 schema 元数据（v1 API）
 
 采集流程：
-1. SHOW TABLE STATUS → 获取表列表（表名、注释、引擎、行数估计）
-2. 逐表 DESCRIBE → 获取列结构（字段名、类型、键等）
-3. 逐表 SELECT * LIMIT 3 → 获取采样数据
+1. list_tables() → 获取表列表（表名、注释、引擎、行数估计）
+   回退: execute_sql("SHOW TABLE STATUS")
+2. 逐表 get_table_structure() → 获取列结构（字段名、类型、键等）
+   回退: execute_sql("DESCRIBE")
+3. 逐表 execute_sql("SELECT * LIMIT 3") → 获取采样数据（无 v1 替代）
 
 单表采集失败时记录错误并继续处理其余表，不中断整体采集。
 """
@@ -20,8 +22,35 @@ from app.datavault.models import ColumnRaw, DatabaseRaw, TableRaw
 logger = logging.getLogger(__name__)
 
 
+def _parse_list_tables_row(row: dict[str, Any]) -> dict[str, str]:
+    """Parse a single row from v1 list_tables API result.
+
+    v1 API 返回的 items 字段格式：
+    - tableName: 表名
+    - tableComment: 表注释
+    - engine: 存储引擎
+    - tableRows: 估计行数
+    """
+    name = str(row.get("tableName") or "")
+    comment = str(row.get("tableComment") or "")
+    engine = str(row.get("engine") or "")
+    row_count_str = str(row.get("tableRows") or "0")
+
+    try:
+        row_count = int(row_count_str)
+    except (ValueError, TypeError):
+        row_count = 0
+
+    return {
+        "name": name,
+        "comment": comment,
+        "engine": engine,
+        "row_count": row_count,
+    }
+
+
 def _parse_show_table_status_row(row: dict[str, Any]) -> dict[str, str]:
-    """Parse a single row from SHOW TABLE STATUS result.
+    """Parse a single row from SHOW TABLE STATUS result (fallback).
 
     OneDBA 返回的 columnDatas 中，SHOW TABLE STATUS 的列索引：
     - col_1 (Name): 表名
@@ -74,9 +103,8 @@ def _parse_describe_row(row: dict[str, Any]) -> ColumnRaw:
 
 
 class SchemaCollector:
-    """从 OneDBA 采集数据库的原始 schema 元数据。
+    """从 OneDBA 采集数据库的原始 schema 元数据（v1 API 优先）。
 
-    复用 OneDBAClient.execute_sql() 执行 SQL 查询。
     单表采集失败不中断整体采集，记录错误并继续。
     """
 
@@ -99,24 +127,38 @@ class SchemaCollector:
         Postcondition: DatabaseRaw 包含所有成功采集的表；失败的表记录在日志中
         Invariant: DatabaseRaw.tables 不包含重复表名
         """
-        # ── Step 1: 获取表列表 ──
-        try:
-            result = await self._client.execute_sql(schema_id, "SHOW TABLE STATUS")
-            rows: list[dict[str, Any]] = result.get("columnDatas") or []
-        except Exception as e:
-            logger.error(
-                "SchemaCollector: SHOW TABLE STATUS failed for schema_id=%d: %s",
-                schema_id,
-                e,
-            )
-            return DatabaseRaw(schema_id=schema_id)
-
+        # ── Step 1: 获取表列表（v1 API 优先，回退 SHOW TABLE STATUS）──
         table_infos: list[dict[str, str]] = []
-        for row in rows:
-            if isinstance(row, dict):
-                info = _parse_show_table_status_row(row)
-                if info["name"]:
-                    table_infos.append(info)
+        try:
+            tables_raw = await self._client.list_tables(schema_id, size=2000)
+            for row in tables_raw:
+                if isinstance(row, dict):
+                    info = _parse_list_tables_row(row)
+                    if info["name"]:
+                        table_infos.append(info)
+        except Exception as e:
+            logger.warning(
+                "SchemaCollector: list_tables failed for schema_id=%d, "
+                "falling back to SHOW TABLE STATUS: %s",
+                schema_id, e,
+            )
+            try:
+                result = await self._client.execute_sql(
+                    schema_id, "SHOW TABLE STATUS"
+                )
+                rows: list[dict[str, Any]] = result.get("columnDatas") or []
+                for row in rows:
+                    if isinstance(row, dict):
+                        info = _parse_show_table_status_row(row)
+                        if info["name"]:
+                            table_infos.append(info)
+            except Exception as e2:
+                logger.error(
+                    "SchemaCollector: SHOW TABLE STATUS also failed "
+                    "for schema_id=%d: %s",
+                    schema_id, e2,
+                )
+                return DatabaseRaw(schema_id=schema_id)
 
         # ── 表名过滤（部分表模式）──
         if tables is not None:
@@ -138,7 +180,7 @@ class SchemaCollector:
             )
             return DatabaseRaw(schema_id=schema_id)
 
-        # ── Step 2 & 3: 逐表采集列结构和采样数据 ──
+        # ── Step 2 & 3: 逐表采集列结构和采样数据（v1 API 优先）──
         tables: list[TableRaw] = []
         seen_names: set[str] = set()
 
@@ -160,12 +202,10 @@ class SchemaCollector:
                 row_count_estimate=int(info["row_count"]),
             )
 
-            safe_name = f"`{table_name}`"
-
-            # ── Step 2: 采集列结构 ──
+            # ── Step 2: 采集列结构（v1 API 优先，回退 DESCRIBE）──
             try:
-                desc_result = await self._client.execute_sql(
-                    schema_id, f"DESCRIBE {safe_name}"
+                desc_result = await self._client.get_table_structure(
+                    schema_id, table_name
                 )
                 desc_rows = desc_result.get("columnDatas") or []
                 for row in desc_rows:
@@ -174,15 +214,31 @@ class SchemaCollector:
                         if col.name:
                             table.columns.append(col)
             except Exception as e:
-                logger.error(
-                    "SchemaCollector: DESCRIBE failed for table '%s' "
-                    "(schema_id=%d): %s",
-                    table_name,
-                    schema_id,
-                    e,
+                logger.warning(
+                    "SchemaCollector: get_table_structure failed for '%s', "
+                    "falling back to DESCRIBE: %s",
+                    table_name, e,
                 )
+                try:
+                    safe_name = f"`{table_name}`"
+                    desc_result = await self._client.execute_sql(
+                        schema_id, f"DESCRIBE {safe_name}"
+                    )
+                    desc_rows = desc_result.get("columnDatas") or []
+                    for row in desc_rows:
+                        if isinstance(row, dict):
+                            col = _parse_describe_row(row)
+                            if col.name:
+                                table.columns.append(col)
+                except Exception as e2:
+                    logger.error(
+                        "SchemaCollector: DESCRIBE also failed for table '%s' "
+                        "(schema_id=%d): %s",
+                        table_name, schema_id, e2,
+                    )
 
-            # ── Step 3: 采集采样数据 ──
+            # ── Step 3: 采集采样数据（无 v1 替代，仍用 execute_sql）──
+            safe_name = f"`{table_name}`"
             try:
                 sample_result = await self._client.execute_sql(
                     schema_id, f"SELECT * FROM {safe_name} LIMIT 3"

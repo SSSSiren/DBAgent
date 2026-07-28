@@ -218,10 +218,10 @@
   - _Depends: 7.2, 4.1_
   - _Boundary: Tests, HDCUpdater_
 
-- [x] 7.4 CLI 支持 — demo_hdc_generate.py 新增 --tables 参数
-  - 在 `tests/datavault/demo_hdc_generate.py` 的 argparse 中新增 `--tables` 参数，接受逗号分隔的表名列表
+- [x] 7.4 CLI 支持 — generate.py 新增 --tables 参数
+  - 在 `tools/hdc/generate.py` 的 argparse 中新增 `--tables` 参数，接受逗号分隔的表名列表
   - 传递到 `generate(schema_id, database_name, tables=[...])`
-  - 完成后：`python demo_hdc_generate.py 142 dwd_trade --tables user_info,order_main` 仅对 2 张表生成 HDC
+  - 完成后：`python tools/hdc/generate.py 142 dwd_trade --tables user_info,order_main` 仅对 2 张表生成 HDC
   - _Requirements: 1.7, 1.10_
   - _Depends: 7.2_
   - _Boundary: CLI Script_

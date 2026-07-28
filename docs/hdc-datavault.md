@@ -83,7 +83,7 @@ pytest tests/datavault/ -v
 | `test_collector.py` | 单元测试 | 11 | SchemaCollector：基本采集、空库、容错、表过滤、不存在表名 | 无 |
 | `test_retriever_updater.py` | 单元测试 | 16 | HDCRetriever（检索/降级/格式化）、HDCUpdater（hash/变更检测）、数据模型 | 无 |
 | `test_hdc_integration.py` | 集成测试 | 5 | `build_context()` 中 `[数据底座]` 段落注入/跳过/位置/并列 | 无 |
-| `demo_hdc.py` | 模拟演示 | — | 纯模拟 e-commerce 场景，展示 HDC 减少 tool-call 轮次的原理 | 无 |
+| `tools/hdc/demo.py` | 模拟演示 | — | 纯模拟 e-commerce 场景，展示 HDC 减少 tool-call 轮次的原理 | 无 |
 
 #### 1.3 test_collector.py（11 个用例）
 
@@ -150,11 +150,11 @@ pytest tests/datavault/ -v
 | `test_hdc_context_alongside_other_sections` | HDC 段落与 memory/preferences 段落共存 |
 | `test_hdc_context_position` | HDC 段落出现在 preferences 之后（context 末尾） |
 
-#### 1.6 demo_hdc.py（模拟演示，无需外部服务）
+#### 1.6 tools/hdc/demo.py（模拟演示，无需外部服务）
 
 ```bash
 cd /Users/admin/DBR/DB-Agent/Infra-DB-Agent/DBAgent
-python tests/datavault/demo_hdc.py
+python tools/hdc/demo.py
 ```
 
 纯模拟 e-commerce 数据库（`dwd_trade`）场景，包含 4 张表（order_info, after_sale_order, payment_info, user_info），使用 `MockRetriever` 模拟关键词匹配，演示 HDC 将 Agent 的 tool-call 轮次从 3-4 轮减少到 1 轮的效果。3 个测试问题覆盖退款、GMV、用户查询。
@@ -237,7 +237,7 @@ python -m tests.evaluation.cli run --compare-hdc --ids TC-001,TC-005 --repeat 3
 # 带 token 成本区分的对比（传入 HDC 离线生成的 token 数，报告中区分运行时/离线成本）
 python -m tests.evaluation.cli run --compare-hdc --repeat 4 --verbose-hdc --hdc-gen-tokens 1200000
 
-# 使用命名空间测试特定知识库变体（需先用 demo_hdc_generate.py --namespace 生成）
+# 使用命名空间测试特定知识库变体（需先用 tools/hdc/generate.py --namespace 生成）
 python -m tests.evaluation.cli run --with-hdc --hdc-namespace incomplete --ids TC-001,TC-002
 python -m tests.evaluation.cli run --with-hdc --hdc-namespace complete --ids TC-001,TC-002
 python -m tests.evaluation.cli run --with-hdc --hdc-namespace overcomplete --ids TC-001,TC-002
@@ -380,33 +380,33 @@ cd /Users/admin/DBR/DB-Agent/Infra-DB-Agent/DBAgent
 # --- 基本用法 ---
 
 # 全库生成（默认）
-python tests/datavault/demo_hdc_generate.py 24223568 dw_onedba_cs
+python tools/hdc/generate.py 24223568 dw_onedba_cs
 
 # 详细日志
-python tests/datavault/demo_hdc_generate.py 24223568 dw_onedba_cs -v
+python tools/hdc/generate.py 24223568 dw_onedba_cs -v
 
 # --- 部分表模式（范围限制） ---
 
 # 仅生成指定表
-python tests/datavault/demo_hdc_generate.py 24223568 dw_onedba_cs --tables user_info,order_main
+python tools/hdc/generate.py 24223568 dw_onedba_cs --tables user_info,order_main
 
 # 部分表 + 详细日志
-python tests/datavault/demo_hdc_generate.py 24223568 dw_onedba_cs --tables user_info,order_main -v
+python tools/hdc/generate.py 24223568 dw_onedba_cs --tables user_info,order_main -v
 
 # --- 命名空间模式（知识库变体隔离） ---
 
 # 为同一数据库生成多套独立的知识库，用于评测不同场景（残缺/完整/过剩）
 
 # 完整知识库：仅包含用例涉及的表
-python tests/datavault/demo_hdc_generate.py 65938636 dw_onedba \
+python tools/hdc/generate.py 65938636 dw_onedba \
     --tables order_record,user_task,account --namespace complete
 
 # 残缺知识库：缺少部分用例需要的表
-python tests/datavault/demo_hdc_generate.py 65938636 dw_onedba \
+python tools/hdc/generate.py 65938636 dw_onedba \
     --tables order_record,user_task --namespace incomplete
 
 # 过剩知识库：全库所有表（包含大量用例不需要的表，测试噪音影响）
-python tests/datavault/demo_hdc_generate.py 65938636 dw_onedba \
+python tools/hdc/generate.py 65938636 dw_onedba \
     --namespace overcomplete
 ```
 
@@ -436,26 +436,26 @@ cd /Users/admin/DBR/DB-Agent/Infra-DB-Agent/DBAgent
 # --- 基本用法 ---
 
 # 检测变更（无变更时不执行任何 LLM 调用）
-python tests/datavault/demo_hdc_update.py 24223568 dw_onedba_cs
+python tools/hdc/update.py 24223568 dw_onedba_cs
 
 # 详细日志
-python tests/datavault/demo_hdc_update.py 24223568 dw_onedba_cs -v
+python tools/hdc/update.py 24223568 dw_onedba_cs -v
 
 # --- 过滤模式（仅检测指定表） ---
 
 # 仅检测指定表的变更
-python tests/datavault/demo_hdc_update.py 24223568 dw_onedba_cs --tables user_info,order_main
+python tools/hdc/update.py 24223568 dw_onedba_cs --tables user_info,order_main
 
 # --- 控制模式 ---
 
 # 仅检测变更，不执行更新
-python tests/datavault/demo_hdc_update.py 24223568 dw_onedba_cs --dry-run
+python tools/hdc/update.py 24223568 dw_onedba_cs --dry-run
 
 # 强制执行更新（即使无变更也重跑关系和摘要）
-python tests/datavault/demo_hdc_update.py 24223568 dw_onedba_cs --force-update
+python tools/hdc/update.py 24223568 dw_onedba_cs --force-update
 
 # 仅重建关系+数据库摘要（不重跑列摘要/表描述）
-python tests/datavault/demo_hdc_update.py 24223568 dw_onedba_cs --rebuild
+python tools/hdc/update.py 24223568 dw_onedba_cs --rebuild
 ```
 
 **参数说明**：
@@ -473,7 +473,7 @@ python tests/datavault/demo_hdc_update.py 24223568 dw_onedba_cs --rebuild
 **增量更新流程**：
 
 ```
-1. 确保 HDC 知识库已存在（否则提示先运行 demo_hdc_generate.py）
+1. 确保 HDC 知识库已存在（否则提示先运行 tools/hdc/generate.py）
 2. 先跑一次无变更检测 → 验证 {"changed": false}（零 LLM 调用）
 3. 列签名 hash 对比：读取 OpenViking 中存储的 columns_hash tags
    → 识别新增表 / 变更表（hash 不同）/ 删除表 / 无 hash 表
@@ -487,19 +487,19 @@ python tests/datavault/demo_hdc_update.py 24223568 dw_onedba_cs --rebuild
 cd /Users/admin/DBR/DB-Agent/Infra-DB-Agent/DBAgent
 
 # HDC 对比实验（需先生成 HDC 知识库）
-python tests/datavault/demo_hdc_compare.py 24223568 dw_onedba_cs
+python tools/hdc/compare.py 24223568 dw_onedba_cs
 
 # 完整端到端（自动生成 + 对比 + 报告）
-python tests/datavault/demo_hdc_e2e.py 24223568 dw_onedba_cs
+python tools/hdc/e2e.py 24223568 dw_onedba_cs
 ```
 
-`demo_hdc_compare.py` 对 3 个预设问题各跑两轮（无 HDC baseline → 有 HDC experiment），对比 tool-call 轮次、耗时和 token 消耗。`demo_hdc_e2e.py` 将生成+对比合并为一条命令。
+`tools/hdc/compare.py` 对 3 个预设问题各跑两轮（无 HDC baseline → 有 HDC experiment），对比 tool-call 轮次、耗时和 token 消耗。`tools/hdc/e2e.py` 将生成+对比合并为一条命令。
 
 #### 3.4 OpenViking 连通性调试
 
 ```bash
 cd /Users/admin/DBR/DB-Agent/Infra-DB-Agent/DBAgent
-python tests/datavault/hdc_debug.py
+python tools/hdc/debug.py
 ```
 
 无参数脚本，创建 `viking://resources/hdc/debug_test/` 测试目录，写入 test.md 并设置 tag，验证 OpenViking 基本 CRUD 功能正常。
@@ -509,19 +509,19 @@ python tests/datavault/hdc_debug.py
 ```
 # 第 1 步：连通性检查（无外部依赖）
 pytest tests/datavault/ -v                        # 32 个单元+集成测试全部通过
-python tests/datavault/demo_hdc.py                 # 理解 HDC 概念（纯模拟）
+python tools/hdc/demo.py                 # 理解 HDC 概念（纯模拟）
 
 # 第 2 步：基础设施检查（需外部服务）
-python tests/datavault/hdc_debug.py                # 验证 OpenViking 连通性
+python tools/hdc/debug.py                # 验证 OpenViking 连通性
 
 # 第 3 步：生成 HDC 知识库
-python tests/datavault/demo_hdc_generate.py 24223568 dw_onedba_cs
-python tests/datavault/demo_hdc_update.py 24223568 dw_onedba_cs   # 验证增量更新
+python tools/hdc/generate.py 24223568 dw_onedba_cs
+python tools/hdc/update.py 24223568 dw_onedba_cs   # 验证增量更新
 
 # 第 4 步：对比实验
-python tests/datavault/demo_hdc_e2e.py 24223568 dw_onedba_cs     # 全自动
+python tools/hdc/e2e.py 24223568 dw_onedba_cs     # 全自动
 # 或分步执行
-python tests/datavault/demo_hdc_compare.py 24223568 dw_onedba_cs
+python tools/hdc/compare.py 24223568 dw_onedba_cs
 
 # 第 5 步：正式评估（50 条用例，多维度量化，repeat 4 次取平均）
 export HDC_ENABLED=true
@@ -529,11 +529,11 @@ python -m tests.evaluation.cli run --compare-hdc --repeat 4 --verbose-hdc --hdc-
 
 # 第 6 步（可选）：多知识库变体评测（残缺/完整/过剩）
 # 先生成三套独立知识库
-python tests/datavault/demo_hdc_generate.py 65938636 dw_onedba \
+python tools/hdc/generate.py 65938636 dw_onedba \
     --tables order_record,user_task,account --namespace complete
-python tests/datavault/demo_hdc_generate.py 65938636 dw_onedba \
+python tools/hdc/generate.py 65938636 dw_onedba \
     --tables order_record,user_task --namespace incomplete
-python tests/datavault/demo_hdc_generate.py 65938636 dw_onedba \
+python tools/hdc/generate.py 65938636 dw_onedba \
     --namespace overcomplete
 # 分别评测
 python -m tests.evaluation.cli run --with-hdc --hdc-namespace incomplete --ids TC-001,TC-002
@@ -590,6 +590,6 @@ viking://resources/hdc/{schemaId}/{db}/[/{namespace}/]
 
 1. **Embedding 等待**：`upload_table()` 在 `write(wait=True, timeout=60s)` 后还通过 `wait_for_embedding()` 轮询确认 embedding 就绪。如果检索阶段仍返回空，OpenViking 后台 embedding 可能还在处理中，稍等后重试。
 2. **VLM 超时**：`write(wait=True, timeout=60s)` 只等 embedding（~2-5s），VLM 生成的 L0/L1 摘要在服务端后台异步完成。服务端日志中的 VLM 超时警告不影响检索功能。
-3. **部分表模式**：使用 `--tables` 生成的 HDC 知识库仍然包含关系和摘要（基于已生成表的子集）。后续增量更新会自动将未生成的表识别为"待新增"。`demo_hdc_update.py` 的 Phase 3 变更预览在 `--tables` 模式下只对比指定表的 hash，OpenViking 中其余表不会误判为删除。
+3. **部分表模式**：使用 `--tables` 生成的 HDC 知识库仍然包含关系和摘要（基于已生成表的子集）。后续增量更新会自动将未生成的表识别为"待新增"。`tools/hdc/update.py` 的 Phase 3 变更预览在 `--tables` 模式下只对比指定表的 hash，OpenViking 中其余表不会误判为删除。
 4. **增量更新兼容性**：`check_and_update()` 不假设全库覆盖——未在 OpenViking 中出现的表均被视为"待新增"。
 5. **评估环境要求**：`cli.py` 强制要求 conda 环境为 `/Users/admin/miniconda3/envs/DBR/bin/python`，否则退出。

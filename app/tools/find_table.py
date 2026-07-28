@@ -1,8 +1,8 @@
 """
-find_table 工具 — 在所有可访问数据库中搜索匹配的表名
+find_table 工具 — 在所有可访问数据库中搜索匹配的表名（v1 API）
 
 一次调用即可跨库搜索，避免逐个 select_database → list_tables 的机械遍历。
-支持多关键词（逗号分隔）取并集，内部在 SQL 层用 LIKE 过滤。
+支持多关键词（逗号分隔）取并集，服务端通过 keyword 参数过滤。
 当 keyword 为空时，返回指定环境的所有表（兜底方案）。
 """
 
@@ -17,7 +17,7 @@ async def find_table(keyword: str = "", max_results: int = 200) -> str:
     返回 (schemaId, 数据库名, 环境, 表名, 表注释) 列表。
 
     参数:
-        keyword: 搜索关键词，用于在表名中做 LIKE 匹配。
+        keyword: 搜索关键词，用于过滤表名。
                  支持多个关键词（逗号分隔），取并集，如 "order,ticket,task"。
                  最多 5 个关键词。
                  当 keyword 为空时，返回所有环境的所有表（兜底方案，每环境最多 500 条）。
@@ -27,7 +27,7 @@ async def find_table(keyword: str = "", max_results: int = 200) -> str:
         Markdown 格式的搜索结果，包含 schemaId、数据库名、环境、表名、表注释五列
 
     使用场景:
-        - 正常搜索：keyword="order,ticket,task" → LIKE 过滤
+        - 正常搜索：keyword="order,ticket,task" → 服务端 keyword 过滤
         - 兜底方案：多次搜索无果后，keyword="" → 返回全部表目录
     """
     # 1. 解析关键词
@@ -74,15 +74,14 @@ async def find_table(keyword: str = "", max_results: int = 200) -> str:
             try:
                 if is_fallback:
                     # 兜底：全量拉取该库所有表
-                    sql = "SHOW TABLE STATUS"
-                    result = await client.execute_sql(schema_id=schema_id, sql=sql)
-                    datas = result.get("columnDatas") or []
-
-                    for row in datas:
+                    tables = await client.list_tables(
+                        schema_id=schema_id, size=500
+                    )
+                    for row in tables:
                         if len(all_rows) >= max_results:
                             break
                         if isinstance(row, dict):
-                            table_name = str(row.get("col_1") or row.get("Name") or "")
+                            table_name = str(row.get("tableName") or "")
                             key = (schema_id, table_name)
                             if key in seen:
                                 continue
@@ -92,25 +91,22 @@ async def find_table(keyword: str = "", max_results: int = 200) -> str:
                                 "schemaName": schema_name,
                                 "env_type": env_type,
                                 "table_name": table_name,
-                                "comment": str(row.get("col_18") or row.get("Comment") or ""),
+                                "comment": str(row.get("tableComment") or ""),
                             })
                 else:
-                    # 正常：每个关键词单独 LIKE
+                    # 正常：每个关键词分别查询
                     for kw in keywords:
                         if len(all_rows) >= max_results:
                             break
 
-                        escaped = kw.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
-                        sql = f"SHOW TABLE STATUS LIKE '%{escaped}%'"
-
-                        result = await client.execute_sql(schema_id=schema_id, sql=sql)
-                        datas = result.get("columnDatas") or []
-
-                        for row in datas:
+                        tables = await client.list_tables(
+                            schema_id=schema_id, keyword=kw, size=500
+                        )
+                        for row in tables:
                             if len(all_rows) >= max_results:
                                 break
                             if isinstance(row, dict):
-                                table_name = str(row.get("col_1") or row.get("Name") or "")
+                                table_name = str(row.get("tableName") or "")
                                 key = (schema_id, table_name)
                                 if key in seen:
                                     continue
@@ -120,7 +116,7 @@ async def find_table(keyword: str = "", max_results: int = 200) -> str:
                                     "schemaName": schema_name,
                                     "env_type": env_type,
                                     "table_name": table_name,
-                                    "comment": str(row.get("col_18") or row.get("Comment") or ""),
+                                    "comment": str(row.get("tableComment") or ""),
                                 })
             except Exception:
                 # 单个库查询失败不影响整体，跳过

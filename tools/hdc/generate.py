@@ -8,8 +8,8 @@ HDC 知识库生成验证
 
 运行方式：
   cd /Users/admin/DBR/DB-Agent/Infra-DB-Agent/DBAgent
-  python tests/datavault/demo_hdc_generate.py [schema_id] [database_name]
-  python tests/datavault/demo_hdc_generate.py [schema_id] [database_name] -v   # 详细日志
+  python tools/hdc/generate.py [schema_id] [database_name]
+  python tools/hdc/generate.py [schema_id] [database_name] -v   # 详细日志
 
   验证持久化：
   ov ls viking://resources/hdc/{database_name}
@@ -17,8 +17,8 @@ HDC 知识库生成验证
 
 
 example:
-    python tests/datavault/demo_hdc_generate.py 65938636 dw_onedba     --namespace recall_overcomplete     --tables "order_record,db_alert_history,effect_dba_domain_cost_v2,effect_daily_work_v2,order_audit_record,db_account,db_alert_daily,effect_alert_v2,order_task,effect_project_cost,daily_report"
-    python tests/datavault/demo_hdc_generate.py 65938636 dw_onedba     --namespace recall_complete     --tables "order_record,db_alert_history,effect_dba_domain_cost_v2,effect_daily_work_v2,order_audit_record,db_account" -v
+    python tools/hdc/generate.py 65938636 dw_onedba     --namespace recall_overcomplete     --tables "account, order_record,db_alert_history,effect_dba_domain_cost_v2,effect_alert_v2,effect_daily_work_v2,order_audit_record,db_act_whitelist,account_orgstructure,db_alert_daily,order_report_day,effect_daily_work_type_v2" -v
+    python tools/hdc/generate.py 65938636 dw_onedba     --namespace recall_complete     --tables "order_record,db_alert_history,effect_dba_domain_cost_v2,effect_daily_work_v2,order_audit_record" -v
 """
 
 import argparse
@@ -506,7 +506,7 @@ async def main():
 
     if persisted and retrieval_ok:
         print(f"\n  🎯 HDC 知识库已就绪，可以运行对比实验:")
-        print(f"     python tests/datavault/demo_hdc_compare.py {TARGET_SCHEMA_ID} {TARGET_DB_NAME}")
+        print(f"     python tools/hdc/compare.py {TARGET_SCHEMA_ID} {TARGET_DB_NAME}")
     else:
         print(f"\n  ⚠️  请先排查上述问题后再运行对比实验")
 

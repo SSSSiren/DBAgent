@@ -12,7 +12,7 @@ HDC 数据底座 端到端对比实验
 
 运行方式：
   cd /Users/admin/DBR/DB-Agent/Infra-DB-Agent/DBAgent
-  python tests/datavault/demo_hdc_e2e.py [schema_id] [database_name]
+  python tools/hdc/e2e.py [schema_id] [database_name]
 """
 
 import asyncio

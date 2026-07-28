@@ -24,6 +24,10 @@ async def verify_sql_judge():
     class FakeOneDBAClient:
         async def execute_sql(self, schema_id, sql):
             raise RuntimeError("模拟: 无真实数据库连接")
+        async def list_tables(self, schema_id, keyword="", page=1, size=100):
+            raise RuntimeError("模拟: 无真实数据库连接")
+        async def get_table_structure(self, schema_id, table_name):
+            raise RuntimeError("模拟: 无真实数据库连接")
 
     client = AsyncOpenAI(
         api_key=settings.llm_api_key,

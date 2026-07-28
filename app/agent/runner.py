@@ -18,6 +18,7 @@ from openai import AsyncOpenAI
 from app.agent.prompts import AGENT_SYSTEM_PROMPT
 from app.agent.context import build_context, update_session_state, extract_sql_from_text
 from app.config import get_settings
+from app.nl2sql.generator import EnrichmentContext, _nl2sql_enrichment
 from app.tools import registry
 from app.observation.langfuse import LangfuseObserver, extract_result_size
 from app.tools.query_database import _nl2sql_timings as _nl2sql_timings_reader
@@ -385,6 +386,17 @@ async def run_agent_stream(
     t_start = time.monotonic()
     ttfb_ms: float | None = None
     ttfb_recorded = False
+
+    # 3.5. 设置 NL2SQL 富化上下文（HDC 列描述 + SQL 历史记忆）
+    # 通过 ContextVar 传递给 generate_sql()/repair_sql()，不修改工具 schema。
+    enrichment_cfg = get_settings()
+    enrichment = EnrichmentContext(
+        hdc_ctx=session_state.get("_hdc_structured"),
+        sql_memories=session_state.get("_sql_memories", []),
+        hdc_column_budget=getattr(enrichment_cfg, "hdc_column_budget", 1200),
+        sql_memory_budget=getattr(enrichment_cfg, "sql_memory_token_budget", 1500),
+    )
+    _nl2sql_enrichment.set(enrichment)
 
     # 4. 启动 Agent 引擎
     event_stream = _run_agent(full_prompt, tool_schemas, cancel_event)

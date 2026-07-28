@@ -322,6 +322,7 @@ async def _execute_agent_stream(
                     )
                     if hdc_ctx:
                         initial_state["_hdc_context"] = retriever.format_context(hdc_ctx)
+                        initial_state["_hdc_structured"] = hdc_ctx
                         print(f"[HDC][OK] 检索成功: db={selected_db.get('schemaName')}, tables={len(hdc_ctx.matched_tables)}")
                     await hdc_ov.close()
                     ctx_timings["hdc_ms"] = (time.monotonic() - t_hdc_start) * 1000
@@ -470,9 +471,8 @@ async def _execute_agent_stream(
 
                         table_names = [t.strip() for t in table_name.split(",") if t.strip()] if table_name else []
 
-                        # Generate embedding
-                        sql_truncated_text = sql_text[:500] if len(sql_text) > 500 else sql_text
-                        embedding = await embed_text(sql_truncated_text)
+                        # Generate embedding (只用问题文本，与检索端同源)
+                        embedding = await embed_text(user_input) if user_input else None
 
                         await sql_mem_store.record(
                             user_id=user_id,

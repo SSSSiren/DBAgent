@@ -171,7 +171,7 @@ async def _inject_hdc_context(
     user_id: str = "evaluation",
     hdc_tables: list[str] | None = None,
     hdc_namespace: str | None = None,
-) -> bool:
+) -> tuple[bool, Any]:
     """
     向 session_state 注入 HDC 数据底座上下文。
 
@@ -179,22 +179,19 @@ async def _inject_hdc_context(
     1. 检查 hdc_enabled 配置
     2. 创建 OpenViking 客户端 → HDCRetriever
     3. 检索 HDC 上下文并格式化为 [_hdc_context]
-    4. （可选）按 --hdc-tables 白名单过滤，模拟限定表知识库
-    5. 静默降级：HDC 不可用时记录日志并返回 False
-
-    Args:
-        hdc_tables: 可选的白名单表名列表。传入时仅保留匹配的 HDC 表上下文，
-                    未匹配的表对应的 ### section 会被移除。
-                    用于测试 Agent 在知识库缺少某些表时的行为。
+    4. 同时保存结构化 HDCContext 到 [_hdc_structured]（供 NL2SQL 引擎富化）
+    5. （可选）按 --hdc-tables 白名单过滤，模拟限定表知识库
+    6. 静默降级：HDC 不可用时记录日志并返回 (False, None)
 
     Returns:
-        True 表示 HDC 上下文注入成功，False 表示降级或跳过。
+        (had_hdc, hdc_structured_or_None): 第一个元素表示是否注入成功，
+        第二个元素是结构化 HDCContext 对象（供 NL2SQL 引擎层使用）。
     """
     from app.config import get_settings as _cfg
 
     settings = _cfg()
     if not settings.hdc_enabled:
-        return False
+        return False, None
 
     try:
         from app.datavault.retriever import HDCRetriever
@@ -211,13 +208,14 @@ async def _inject_hdc_context(
             )
             if hdc_ctx:
                 session_state["_hdc_context"] = retriever.format_context(hdc_ctx)
-                return True
-            return False
+                session_state["_hdc_structured"] = hdc_ctx
+                return True, hdc_ctx
+            return False, None
         finally:
             await ov.close()
     except Exception:
         # 静默降级：HDC 不可用不阻塞评测
-        return False
+        return False, None
 
 
 def _build_run_detail(run: _AgentRunOutput) -> RunDetail:
@@ -448,18 +446,21 @@ async def _run_single_case(
 
     # HDC 检索结果缓存：同一条用例的多次 repeat 共享一次检索，
     # 避免 N 个并发 find() 请求打满 OpenViking 连接池。
-    _hdc_cache: dict[str, str] = {}  # key: 缓存内容字符串
+    _hdc_cache: dict[str, tuple[str, Any]] = {}  # key → (formatted_string, structured_hdc_ctx)
     _hdc_cache_lock = asyncio.Lock()
 
-    async def _get_hdc_context() -> str:
-        """获取 HDC 上下文（带缓存，同用例多次 run 只检索一次）。"""
+    async def _get_hdc_context() -> tuple[str, Any]:
+        """获取 HDC 上下文（带缓存，同用例多次 run 只检索一次）。
+
+        Returns (formatted_string, structured_hdc_ctx_or_None).
+        """
         cache_key = f"{schema_id}:{db_name}:{hdc_namespace}:{test_case.question}"
         async with _hdc_cache_lock:
             if cache_key in _hdc_cache:
                 return _hdc_cache[cache_key]
         # 未命中：执行检索
         session_state = _make_session_state(schema_id, db_name)
-        hdc_ok = await _inject_hdc_context(
+        hdc_ok, hdc_structured = await _inject_hdc_context(
             session_state,
             test_case.question,
             session_state["selected_database"]["schemaName"],
@@ -467,7 +468,7 @@ async def _run_single_case(
             hdc_tables=hdc_tables,
             hdc_namespace=hdc_namespace,
         )
-        result = session_state.get("_hdc_context", "") if hdc_ok else ""
+        result = (session_state.get("_hdc_context", ""), hdc_structured)
         async with _hdc_cache_lock:
             _hdc_cache[cache_key] = result
         return result
@@ -476,10 +477,13 @@ async def _run_single_case(
         async with _repeat_semaphore:
             session_state = _make_session_state(schema_id, db_name)
             hdc_context = ""
+            hdc_structured = None
             if enable_hdc:
-                hdc_context = await _get_hdc_context()
+                hdc_context, hdc_structured = await _get_hdc_context()
                 if hdc_context:
                     session_state["_hdc_context"] = hdc_context
+                    if hdc_structured is not None:
+                        session_state["_hdc_structured"] = hdc_structured
                     if verbose_hdc:
                         chars = len(hdc_context)
                         ref_table = _extract_ref_table(test_case.reference_sql)
@@ -499,6 +503,8 @@ async def _run_single_case(
             # ── SQL 记忆检索（参照 routes.py 逻辑）──
             from app.config import get_settings as _eval_cfg
             _eval_settings = _eval_cfg()
+            sql_memory_injected = False
+            sql_memory_count = 0
             if getattr(_eval_settings, "sql_memory_enabled", False):
                 try:
                     from app.memory.manager import get_storage as _eval_storage
@@ -524,6 +530,8 @@ async def _run_single_case(
                             )
                             if sql_memories:
                                 session_state["_sql_memories"] = sql_memories
+                                sql_memory_injected = True
+                                sql_memory_count = len(sql_memories)
                                 print(f"    [SQLMem] {test_case.case_id}#{run_index}: 注入 {len(sql_memories)} 条记忆")
                                 for i, m in enumerate(sql_memories):
                                     sql_preview = (m.get("sql_truncated") or m.get("sql_text", ""))[:80]
@@ -535,6 +543,42 @@ async def _run_single_case(
                 except Exception as e:
                     if run_index == 0:
                         print(f"    [SQLMem] {test_case.case_id}#{run_index}: 检索失败 ({type(e).__name__})")
+
+            # ── NL2SQL 引擎富化注入日志（HDC 列描述 + SQL 历史记忆 → generate_sql prompt）──
+            hdc_cols_enriched = 0
+            if hdc_structured is not None:
+                try:
+                    matched_tables = getattr(hdc_structured, "matched_tables", []) or []
+                    refer_tables = {t.strip().lower() for t in (getattr(test_case, "tables", []) or [])}
+                    for tm in matched_tables:
+                        tm_name = getattr(tm, "table_name", "").lower()
+                        if tm_name in refer_tables:
+                            rel_cols = getattr(tm, "relevant_columns", []) or []
+                            hdc_cols_enriched += len(rel_cols)
+                except Exception:
+                    pass
+
+            # 统计可用的安全 SQL 记忆数量
+            safe_sql_count = 0
+            if sql_memory_injected:
+                dangerous_kw = {"INSERT ", "UPDATE ", "DELETE ", "DROP ", "TRUNCATE ", "ALTER ", "CREATE "}
+                for m in session_state.get("_sql_memories", []):
+                    sql_upper = (m.get("sql_text", "") or "").upper()
+                    if not any(kw in sql_upper for kw in dangerous_kw):
+                        safe_sql_count += 1
+
+            enrichment_parts: list[str] = []
+            if enable_hdc and hdc_cols_enriched > 0:
+                enrichment_parts.append(f"HDC列描述={hdc_cols_enriched}列")
+            elif enable_hdc:
+                enrichment_parts.append("HDC列描述=无匹配")
+            if sql_memory_count > 0:
+                enrichment_parts.append(
+                    f"SQL示例={safe_sql_count}/{sql_memory_count}条(安全/总计)"
+                )
+            if enrichment_parts:
+                prefix = f"    [{test_case.case_id}#{run_index}]" if repeat > 1 else f"    [{test_case.case_id}]"
+                print(f"{prefix} [NL2SQL富化] 注入状态: {', '.join(enrichment_parts)}")
 
             trace_name = f"eval/{test_case.case_id}/run-{run_index}"
             output = await _execute_agent_once(

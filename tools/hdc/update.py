@@ -7,8 +7,8 @@ HDC 增量更新验证
 
 运行方式：
   cd /Users/admin/DBR/DB-Agent/Infra-DB-Agent/DBAgent
-  python tests/datavault/demo_hdc_update.py [schema_id] [database_name]
-  python tests/datavault/demo_hdc_update.py [schema_id] [database_name] -v   # 详细日志
+  python tools/hdc/update.py [schema_id] [database_name]
+  python tools/hdc/update.py [schema_id] [database_name] -v   # 详细日志
 
 验证场景：
   Phase 1: 检查 HDC 数据是否存在，不存在则先生成
@@ -134,7 +134,7 @@ async def ensure_hdc_exists():
             return True
 
     print(f"  ⚠️  HDC 数据不存在，需要先生成")
-    print(f"  请先运行: python tests/datavault/demo_hdc_generate.py {TARGET_SCHEMA_ID} {TARGET_DB_NAME}")
+    print(f"  请先运行: python tools/hdc/generate.py {TARGET_SCHEMA_ID} {TARGET_DB_NAME}")
     return False
 
 
@@ -432,7 +432,7 @@ async def run_rebuild():
     print(f"  从 OpenViking 回读表数据，重建关系检测...")
     print(f"  （不重跑列摘要和表描述，仅重算关系+数据库摘要）")
 
-    # ── 进度回调（复用 demo_hdc_generate.py 的模式）──
+    # ── 进度回调（复用 generate.py 的模式）──
     _step_start_time: dict[str, float] = {}
 
     def _rebuild_progress(step: str, info: dict):
@@ -559,7 +559,7 @@ async def main():
         print_section("跳过更新")
         print(f"  --dry-run 模式，不执行实际更新")
         if changes["has_changes"]:
-            print(f"  如需执行更新，请运行: python tests/datavault/demo_hdc_update.py {TARGET_SCHEMA_ID} {TARGET_DB_NAME} --force-update")
+            print(f"  如需执行更新，请运行: python tools/hdc/update.py {TARGET_SCHEMA_ID} {TARGET_DB_NAME} --force-update")
     elif FORCE_UPDATE:
         await run_update()
     elif isinstance(update_result, dict) and update_result.get("changed"):
@@ -571,7 +571,7 @@ async def main():
         print_section("建议")
         print(f"  检测到 {len(changes['no_hash'])} 张表缺少 columns_hash 标签")
         print(f"  这是首次生成后的正常现象，运行一次增量更新即可存储 hash：")
-        print(f"  python tests/datavault/demo_hdc_update.py {TARGET_SCHEMA_ID} {TARGET_DB_NAME} --force-update")
+        print(f"  python tools/hdc/update.py {TARGET_SCHEMA_ID} {TARGET_DB_NAME} --force-update")
     else:
         print_section("结论")
         print(f"  ✅ 增量更新功能正常")

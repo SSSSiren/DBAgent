@@ -4,7 +4,7 @@
 绕过 OpenViking SemanticProcessor 超时：用 wait=False 直接写 L2 embedding，
 检索时 retriever 自动走 level=[2] fallback。同时模拟旧方案做对比。
 
-用法: python tests/datavault/demo_recall_check.py [--keep]
+用法: python tools/hdc/recall_check.py [--keep]
 """
 
 import asyncio, sys, os, time

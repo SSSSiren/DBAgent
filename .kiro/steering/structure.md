@@ -18,8 +18,8 @@
 
 ### NL2SQL 流水线 (`app/nl2sql/`)
 **Purpose**: SQL 生成、验证、修复的独立流水线  
-**Key modules**: `generator.py`、`validator.py`、`repair.py`、`schema.py`、`semantics.py`  
-**Pattern**: 独立领域服务，与 Agent 循环解耦，含语义规则注入
+**Key modules**: `generator.py`（SQL 生成 prompt 构建 + `EnrichmentContext` ContextVar 侧信道）、`validator.py`、`repair.py`（SQL 修复 prompt，同样读取 ContextVar）、`schema.py`、`semantics.py`（语义规则系统）  
+**Pattern**: 独立领域服务，与 Agent 循环解耦；通过 `ContextVar` 接收 Agent 层检索的 HDC 列描述和 SQL 历史记忆，在不修改工具 schema 的前提下富化 prompt
 
 ### 工具注册 (`app/tools/`)
 **Purpose**: LLM 可调用的工具函数定义和执行  

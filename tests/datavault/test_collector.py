@@ -10,10 +10,30 @@ from app.datavault.models import ColumnRaw, TableRaw, DatabaseRaw
 class MockOneDBAClient:
     """Mock OneDBA client for testing."""
 
-    def __init__(self, tables_data=None, fail_table=None):
+    def __init__(self, tables_data=None, fail_table=None,
+                 mock_list_tables=False, mock_get_structure=False):
         self._tables_data = tables_data or {}
         self._fail_table = fail_table
+        self._mock_list_tables = mock_list_tables
+        self._mock_get_structure = mock_get_structure
         self.execute_sql = AsyncMock(side_effect=self._mock_execute)
+        self.list_tables = AsyncMock(side_effect=self._mock_list_tables_call)
+        self.get_table_structure = AsyncMock(
+            side_effect=self._mock_get_structure_call
+        )
+
+    async def _mock_list_tables_call(self, schema_id, keyword="", page=1, size=100):
+        if self._mock_list_tables:
+            return self._tables_data.get("list_tables", [])
+        raise NotImplementedError("list_tables not mocked (triggers fallback)")
+
+    async def _mock_get_structure_call(self, schema_id, table_name):
+        if self._mock_get_structure:
+            key = f"structure_{table_name}"
+            return self._tables_data.get(key, {"columnDatas": []})
+        raise NotImplementedError(
+            "get_table_structure not mocked (triggers fallback)"
+        )
 
     async def _mock_execute(self, schema_id, sql):
         sql_upper = sql.strip().upper()
@@ -55,6 +75,16 @@ def make_describe_row(field, type_, null="YES", key="", default="", extra=""):
 def make_sample_rows(rows):
     """Helper: create sample data rows."""
     return rows
+
+
+def make_list_tables_row(name, comment="", engine="InnoDB", rows=1000):
+    """Helper: create a v1 list_tables row."""
+    return {
+        "tableName": name,
+        "tableComment": comment,
+        "engine": engine,
+        "tableRows": str(rows),
+    }
 
 
 class TestSchemaCollector:
@@ -308,3 +338,59 @@ class TestSchemaCollector:
         result = await collector.collect_database(142, tables=["ghost_a", "ghost_b"])
 
         assert len(result.tables) == 0
+
+    # ── v1 API 测试 ──
+
+    @pytest.mark.asyncio
+    async def test_collect_with_new_apis(self):
+        """v1 API: list_tables + get_table_structure 正常采集。"""
+        client = MockOneDBAClient({
+            "list_tables": [
+                make_list_tables_row("users", "用户表"),
+            ],
+            "structure_users": {
+                "columnDatas": [
+                    make_describe_row("id", "bigint", "NO", "PRI", "", "auto_increment"),
+                    make_describe_row("name", "varchar(64)", "YES", "", ""),
+                ]
+            },
+            "sample_users": {
+                "columnDatas": [{"id": "1", "name": "Alice"}],
+            },
+        }, mock_list_tables=True, mock_get_structure=True)
+
+        collector = SchemaCollector(client)
+        result = await collector.collect_database(142)
+
+        assert len(result.tables) == 1
+        table = result.tables[0]
+        assert table.name == "users"
+        assert table.comment == "用户表"
+        assert table.engine == "InnoDB"
+        assert len(table.columns) == 2
+        assert len(table.sample_rows) == 1
+
+        # 确认调用了新 API 而非 execute_sql
+        client.list_tables.assert_called_once()
+        client.get_table_structure.assert_called_once_with(142, "users")
+
+    @pytest.mark.asyncio
+    async def test_new_api_fallback(self):
+        """v1 API 抛异常时回退到 execute_sql。"""
+        client = MockOneDBAClient({
+            "show_table_status": {
+                "columnDatas": [make_status_row("users", "用户表")],
+            },
+            "describe_users": {
+                "columnDatas": [make_describe_row("id", "int", "NO", "PRI")],
+            },
+            "sample_users": {"columnDatas": [{"id": "1"}]},
+        }, mock_list_tables=False, mock_get_structure=False)
+
+        collector = SchemaCollector(client)
+        result = await collector.collect_database(142)
+
+        assert len(result.tables) == 1
+        assert result.tables[0].name == "users"
+        # 确认走了 execute_sql fallback
+        client.execute_sql.assert_called()

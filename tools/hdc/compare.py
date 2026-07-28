@@ -6,14 +6,14 @@ HDC 对比实验（依赖 HDC 知识库已就绪）
 对比同一 NL2SQL 问题，有 HDC 知识库 vs 无 HDC 基线的 Agent 表现差异。
 
 前置条件：
-  - HDC 知识库已通过 demo_hdc_generate.py 生成并验证通过
+  - HDC 知识库已通过 tools/hdc/generate.py 生成并验证通过
   - OpenViking Server 运行在 localhost:1933
   - OneDBA 可访问
   - LLM 可访问
 
 运行方式：
   cd /Users/admin/DBR/DB-Agent/Infra-DB-Agent/DBAgent
-  python tests/datavault/demo_hdc_compare.py [schema_id] [database_name]
+  python tools/hdc/compare.py [schema_id] [database_name]
 """
 
 import asyncio

@@ -61,7 +61,7 @@
 
 3. **Protocol 驱动的可插拔存储**：`StorageBackend` Protocol（会话）和 `PreferenceBackend` Protocol（偏好）定义清晰的持久化抽象，`InMemoryStore`/`SqliteStore`（会话）和 `InMemoryPreferenceStore`/`SqlitePreferenceStore`（偏好）两种实现。`StorageManager` 统一协调两个后端的生命周期，`get_storage()` 工厂返回 `StorageManager` 单例。`app/memory/__init__.py` 提供向后兼容包装（`get_store()` → `get_storage().session_store`）。通过 `STORAGE_BACKEND` 配置切换。
 
-4. **NL2SQL 独立流水线**：`nl2sql/` 模块独立处理 SQL 生成→验证→修复闭环，与 Agent 循环解耦，包含语义规则注入（`semantics.py`）。
+4. **NL2SQL 独立流水线**：`nl2sql/` 模块独立处理 SQL 生成→验证→修复闭环，与 Agent 循环解耦。
 
 5. **事件驱动的 SSE 流式架构**：API 层通过异步生成器链产生类型化 SSE 事件（`step`、`sql`、`final`、`llm_call`），Agent runner 产出原始事件，routes 层包装为 SSE 格式。`llm_call` 事件完整记录每轮 LLM 调用的输入 messages 和输出（含 tool_calls），支持评测框架等外部消费者捕获 Agent 推理轨迹。
 
@@ -76,6 +76,8 @@
 10. **独立评测框架**：`tests/evaluation/` 实现 CLI 驱动的批量评测系统——TestCase 模型定义用例（自然语言问题+参考 SQL+预期行数+难度分级+分类+涉及表名），多维度评判（SQL 正确性 judge、质量 judge、效率 judge）打分聚合为总分，支持 `--with-hdc` 单轮、`--compare-hdc` 对比、`--verbose-hdc` 实时注入输出三种模式，生成 JSON+Markdown 双格式报告。支持 `repeat`（多次取平均）、`--hdc-tables`（表白名单过滤）、`--hdc-namespace`（命名空间变体隔离）及 LLM 调用完整追踪（`ToolCallRecord`/`LLMCallRecord` 记录 Agent 中间推理过程）。
 
 11. **LLM 幻觉参数过滤**：`ToolRegistry` 在执行工具 handler 前，通过 `inspect.signature` 提取 handler 参数名，过滤掉 LLM 传入的幻影参数（如 JSON Schema 元字段名被误当作实际参数），避免 `TypeError`。过滤时记录 WARN 日志，不影响正常调用。这是针对 DeepSeek 等模型偶发幻觉的防御性措施。
+
+12. **ContextVar 侧信道上下文注入**：Agent 层检索的 HDC 列描述和 SQL 历史记忆，通过 `asyncio.ContextVar` 作为隐式侧信道传递到 NL2SQL 引擎层（`generator.py`/`repair.py`），在不修改 LLM 可见工具 schema 的前提下富化 SQL 生成的 prompt。Runner 在 ReAct 循环启动前设置 ContextVar，`generate_sql()`/`repair_sql()` 在构建 prompt 时读取。未设置时优雅降级（prompt 与富化前完全一致）。此模式适用于任何需要从请求入口跨多层异步调用传递补充上下文的场景。`tests/evaluation/` 中 `_run_one()` 通过 `[NL2SQL富化]` 日志段输出每用例的注入状态（HDC 匹配列数、SQL 示例安全/总计条数）。
 
 ---
 _updated_at: 2026-07-26_

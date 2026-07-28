@@ -12,17 +12,16 @@ services:
       - LLM_MODEL=${LLM_MODEL:-deepseek-v4-flash-260425}
       - ONEDBA_BASE_URL=${ONEDBA_BASE_URL:-https://onedba.shizhuang-inc.com}
       - ONEDBA_ACCESS_TOKEN=${ONEDBA_ACCESS_TOKEN}
+      - ONEDBA_ENV=${ONEDBA_ENV:-test}
       - LANGFUSE_ENABLED=${LANGFUSE_ENABLED:-false}
       - LANGFUSE_PUBLIC_KEY=${LANGFUSE_PUBLIC_KEY:-}
       - LANGFUSE_SECRET_KEY=${LANGFUSE_SECRET_KEY:-}
       - LANGFUSE_HOST=${LANGFUSE_HOST:-https://cloud.langfuse.com}
-      - SEMANTIC_PROVIDER=${SEMANTIC_PROVIDER:-auto}
-      - SEMANTIC_RULES_PATH=${SEMANTIC_RULES_PATH:-data/semantic_rules.json}
       - HOST=0.0.0.0
       - PORT=8000
       - DEBUG=${DEBUG:-false}
     volumes:
-      # 持久化语义规则
+      # 持久化数据
       - ./data:/app/data
     restart: unless-stopped
     healthcheck:

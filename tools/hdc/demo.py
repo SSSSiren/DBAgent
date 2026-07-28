@@ -13,7 +13,7 @@ HDC 数据底座 演示脚本
 
 运行方式：
   cd /Users/admin/DBR/DB-Agent/Infra-DB-Agent/DBAgent
-  python tests/datavault/demo_hdc.py
+  python tools/hdc/demo.py
 """
 
 import sys

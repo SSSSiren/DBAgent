@@ -290,6 +290,14 @@ def _run_compare_sql_memory(args: argparse.Namespace, filtered) -> None:
         print("\n")
 
     use_hdc = args.with_hdc  # 同时测试 SQL memory + HDC 时传入 --with-hdc
+    hdc_tables: list[str] | None = None
+    if args.hdc_tables:
+        hdc_tables = [t.strip() for t in args.hdc_tables.split(",") if t.strip()]
+    hdc_namespace = args.hdc_namespace
+    if hdc_tables:
+        print(f"（HDC 限定表: {', '.join(hdc_tables)}）")
+    if hdc_namespace:
+        print(f"（HDC 命名空间: {hdc_namespace}）")
     hdc_label = " + HDC" if use_hdc else ""
     no_mem_label = f"无记忆{'+HDC' if use_hdc else ''}（基线）"
     with_mem_label = f"有记忆{hdc_label}"
@@ -321,7 +329,10 @@ def _run_compare_sql_memory(args: argparse.Namespace, filtered) -> None:
                 llm_model=args.llm_model,
                 enable_hdc=use_hdc,
                 db_name=args.db_name or "dw_onedba",
+                hdc_tables=hdc_tables,
+                hdc_namespace=hdc_namespace,
                 verbose=args.verbose,
+                verbose_hdc=args.verbose_hdc,
                 cli_command=cli_cmd,
             )
 
@@ -366,7 +377,10 @@ def _run_compare_sql_memory(args: argparse.Namespace, filtered) -> None:
             llm_model=args.llm_model,
             enable_hdc=use_hdc,
             db_name=args.db_name or "dw_onedba",
+            hdc_tables=hdc_tables,
+            hdc_namespace=hdc_namespace,
             verbose=args.verbose,
+            verbose_hdc=args.verbose_hdc,
             cli_command=cli_cmd,
         )
 
@@ -429,8 +443,7 @@ async def _seed_sql_memory_from_twin_cases(
         if not tc.reference_sql or not tc.question:
             continue
 
-        sql_truncated = tc.reference_sql[:500] if len(tc.reference_sql) > 500 else tc.reference_sql
-        embedding = await embed_text(tc.question + " " + sql_truncated)
+        embedding = await embed_text(tc.question)
 
         await store.record(
             user_id=user_id,
@@ -459,7 +472,7 @@ def _generate_sql_memory_comparison_report(
     output_dir: str = "tests/evaluation/output",
     hdc_enabled: bool = False,
 ) -> tuple[str, str]:
-    """生成 SQL 记忆对比报告（JSON + Markdown）。"""
+    """生成 SQL 记忆对比报告（JSON + Markdown），格式与 evaluation_report 对齐。"""
     import json
     import os
     from datetime import datetime
@@ -467,122 +480,233 @@ def _generate_sql_memory_comparison_report(
     os.makedirs(output_dir, exist_ok=True)
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
 
-    # 计算对比指标
-    baseline_avg_score = baseline_report.average_score
-    memory_avg_score = memory_report.average_score
-    score_delta = memory_avg_score - baseline_avg_score
+    # ── 聚合指标计算 ──
+    b = baseline_report
+    m = memory_report
 
-    baseline_avg_tools = baseline_report.average_tool_calls
-    memory_avg_tools = memory_report.average_tool_calls
-    tool_delta = memory_avg_tools - baseline_avg_tools
+    metrics = [
+        ("overall_pass_rate",       "通过率",         "pct",  False),
+        ("average_score",           "平均分",         "pct",  False),
+        ("average_latency_ms",      "平均延迟",       "ms",   True),
+        ("average_prep_ms",         "平均准备耗时",   "ms",   True),
+        ("average_ttfb_ms",         "平均 TTFB",      "ms",   True),
+        ("average_tool_calls",      "平均工具调用",   ".1f",  True),
+        ("average_turns",           "平均 Turns",      ".1f",  True),
+        ("average_tokens",          "平均 Token",      ".0f",  True),
+        ("average_input_tokens",    "平均输入 Token",  ".0f",  True),
+        ("average_output_tokens",   "平均输出 Token",  ".0f",  True),
+    ]
 
-    baseline_avg_tokens = baseline_report.average_tokens
-    memory_avg_tokens = memory_report.average_tokens
-    token_delta = memory_avg_tokens - baseline_avg_tokens
-
-    baseline_avg_input_tokens = baseline_report.average_input_tokens
-    memory_avg_input_tokens = memory_report.average_input_tokens
-    input_token_delta = memory_avg_input_tokens - baseline_avg_input_tokens
-
-    baseline_avg_output_tokens = baseline_report.average_output_tokens
-    memory_avg_output_tokens = memory_report.average_output_tokens
-    output_token_delta = memory_avg_output_tokens - baseline_avg_output_tokens
-
-    baseline_avg_latency = baseline_report.average_latency_ms
-    memory_avg_latency = memory_report.average_latency_ms
-    latency_delta = memory_avg_latency - baseline_avg_latency
-
-    # Per-case comparison
-    case_deltas = []
-    for b_case in baseline_report.case_results:
-        m_case = next(
-            (c for c in memory_report.case_results if c.test_case.case_id == b_case.test_case.case_id),
-            None,
-        )
-        if m_case:
-            delta = m_case.overall_score - b_case.overall_score
-            case_deltas.append({
-                "case_id": b_case.test_case.case_id,
-                "baseline_score": b_case.overall_score,
-                "memory_score": m_case.overall_score,
-                "delta": delta,
-                "direction": "improved" if delta > 0 else ("degraded" if delta < 0 else "unchanged"),
-            })
-
-    # Sort by delta (most improved first)
-    case_deltas.sort(key=lambda d: d["delta"], reverse=True)
-
-    improved_count = sum(1 for d in case_deltas if d["delta"] > 0)
-    degraded_count = sum(1 for d in case_deltas if d["delta"] < 0)
-    unchanged_count = sum(1 for d in case_deltas if d["delta"] == 0)
-
-    comparison_data = {
-        "timestamp": timestamp,
-        "seed_count": seed_count,
-        "summary": {
-            "baseline_avg_score": round(baseline_avg_score, 4),
-            "memory_avg_score": round(memory_avg_score, 4),
-            "score_delta": round(score_delta, 4),
-            "baseline_avg_tool_calls": round(baseline_avg_tools, 1),
-            "memory_avg_tool_calls": round(memory_avg_tools, 1),
-            "tool_call_delta": round(tool_delta, 1),
-            "baseline_avg_tokens": round(baseline_avg_tokens, 0),
-            "memory_avg_tokens": round(memory_avg_tokens, 0),
-            "token_delta": round(token_delta, 0),
-            "baseline_avg_input_tokens": round(baseline_avg_input_tokens, 0),
-            "memory_avg_input_tokens": round(memory_avg_input_tokens, 0),
-            "input_token_delta": round(input_token_delta, 0),
-            "baseline_avg_output_tokens": round(baseline_avg_output_tokens, 0),
-            "memory_avg_output_tokens": round(memory_avg_output_tokens, 0),
-            "output_token_delta": round(output_token_delta, 0),
-            "baseline_avg_latency_ms": round(baseline_avg_latency, 0),
-            "memory_avg_latency_ms": round(memory_avg_latency, 0),
-            "latency_delta_ms": round(latency_delta, 0),
-            "improved_count": improved_count,
-            "degraded_count": degraded_count,
-            "unchanged_count": unchanged_count,
-            "total_cases": len(case_deltas),
-        },
-        "per_case": case_deltas,
+    labels: dict[str, str] = {
+        "overall_pass_rate": "通过率", "average_score": "平均分",
+        "average_latency_ms": "平均延迟", "average_prep_ms": "平均准备耗时",
+        "average_ttfb_ms": "平均 TTFB", "average_tool_calls": "平均工具调用",
+        "average_turns": "平均 Turns", "average_tokens": "平均 Token",
+        "average_input_tokens": "平均输入 Token", "average_output_tokens": "平均输出 Token",
     }
 
-    # Write JSON
+    def _val(report, field: str) -> float:
+        v = getattr(report, field, 0)
+        return float(v) if v is not None else 0
+
+    # ── 维度对比 ──
+    dim_keys = ["sql_syntax", "table_column", "filter_condition", "result_data", "sql_standard"]
+    dim_labels = {"sql_syntax": "SQL 语法正确", "table_column": "表/列引用正确",
+                   "filter_condition": "过滤条件正确", "result_data": "结果数据正确",
+                   "sql_standard": "SQL 规范"}
+    dim_weights = {"sql_syntax": "10%", "table_column": "10%", "filter_condition": "10%",
+                   "result_data": "60%", "sql_standard": "10%"}
+
+    dim_comparison: dict[str, dict] = {}
+    for dk in dim_keys:
+        bv = getattr(b.dimension_averages, dk, 0)
+        mv = getattr(m.dimension_averages, dk, 0)
+        dim_comparison[dk] = {"baseline": bv, "memory": mv, "delta": mv - bv}
+
+    # ── 每个用例对比（含工具调用和 Token 详情）──
+    case_comparison: list[dict] = []
+    for bc in b.case_results:
+        mc = next((c for c in m.case_results if c.test_case.case_id == bc.test_case.case_id), None)
+        if mc is None:
+            continue
+        b_sql = bc.sql_judge.score if bc.sql_judge else 0
+        m_sql = mc.sql_judge.score if mc.sql_judge else 0
+        b_eff = bc.efficiency
+        m_eff = mc.efficiency
+        b_tools = b_eff.tool_call_count if b_eff else 0
+        m_tools = m_eff.tool_call_count if m_eff else 0
+        b_tokens = b_eff.total_tokens if b_eff else 0
+        m_tokens = m_eff.total_tokens if m_eff else 0
+        b_itoks = b_eff.input_tokens if b_eff else 0
+        m_itoks = m_eff.input_tokens if m_eff else 0
+        b_otoks = b_eff.output_tokens if b_eff else 0
+        m_otoks = m_eff.output_tokens if m_eff else 0
+        case_comparison.append({
+            "case_id": bc.test_case.case_id,
+            "difficulty": bc.test_case.difficulty.value,
+            "category": bc.test_case.category,
+            "question": bc.test_case.question[:80],
+            "baseline_passed": bc.passed, "memory_passed": mc.passed,
+            "baseline_sql_score": b_sql, "memory_sql_score": m_sql,
+            "baseline_overall": bc.overall_score, "memory_overall": mc.overall_score,
+            "overall_delta": mc.overall_score - bc.overall_score,
+            "baseline_tools": b_tools, "memory_tools": m_tools,
+            "tool_delta": m_tools - b_tools,
+            "baseline_tokens": b_tokens, "memory_tokens": m_tokens,
+            "token_delta": m_tokens - b_tokens,
+            "baseline_input_tokens": b_itoks, "memory_input_tokens": m_itoks,
+            "input_token_delta": m_itoks - b_itoks,
+            "baseline_output_tokens": b_otoks, "memory_output_tokens": m_otoks,
+            "output_token_delta": m_otoks - b_otoks,
+            "baseline_latency": bc.duration_ms, "memory_latency": mc.duration_ms,
+            "latency_delta": mc.duration_ms - bc.duration_ms,
+        })
+
+    improved = [c for c in case_comparison if c["overall_delta"] > 0.005]
+    degraded = [c for c in case_comparison if c["overall_delta"] < -0.005]
+    unchanged = [c for c in case_comparison if abs(c["overall_delta"]) <= 0.005]
+
+    # ── JSON ──
+    comparison_data = {
+        "timestamp": timestamp, "seed_count": seed_count, "hdc_enabled": hdc_enabled,
+        "baseline": {"passed": b.passed_cases, "failed": b.failed_cases, "errors": b.error_cases,
+                      "pass_rate": b.overall_pass_rate, "avg_score": b.average_score,
+                      "avg_latency_ms": b.average_latency_ms, "avg_prep_ms": b.average_prep_ms,
+                      "avg_ttfb_ms": b.average_ttfb_ms, "avg_tool_calls": b.average_tool_calls,
+                      "avg_turns": b.average_turns, "avg_tokens": b.average_tokens,
+                      "avg_input_tokens": b.average_input_tokens, "avg_output_tokens": b.average_output_tokens},
+        "memory": {"passed": m.passed_cases, "failed": m.failed_cases, "errors": m.error_cases,
+                    "pass_rate": m.overall_pass_rate, "avg_score": m.average_score,
+                    "avg_latency_ms": m.average_latency_ms, "avg_prep_ms": m.average_prep_ms,
+                    "avg_ttfb_ms": m.average_ttfb_ms, "avg_tool_calls": m.average_tool_calls,
+                    "avg_turns": m.average_turns, "avg_tokens": m.average_tokens,
+                    "avg_input_tokens": m.average_input_tokens, "avg_output_tokens": m.average_output_tokens},
+        "summary": {"improved": len(improved), "degraded": len(degraded), "unchanged": len(unchanged),
+                     "total": len(case_comparison)},
+        "dimension_comparison": dim_comparison,
+        "case_comparison": case_comparison,
+    }
     json_path = os.path.join(output_dir, f"sql_memory_comparison_{timestamp}.json")
     with open(json_path, "w", encoding="utf-8") as f:
-        json.dump(comparison_data, f, ensure_ascii=False, indent=2)
+        json.dump(comparison_data, f, ensure_ascii=False, indent=2, default=str)
 
-    # Write Markdown
+    # ── Markdown 报告 ──
     md_path = os.path.join(output_dir, f"sql_memory_comparison_{timestamp}.md")
-    with open(md_path, "w", encoding="utf-8") as f:
-        s = comparison_data["summary"]
-        f.write(f"# SQL Memory 对比评测报告{'（含 HDC）' if hdc_enabled else ''}\n\n")
-        f.write(f"**生成时间**: {timestamp}\n")
-        f.write(f"**记忆库记录数**: {seed_count}\n")
+
+    def _delta_str(base: float, cur: float, fmt: str, lower_better: bool = False) -> str:
+        d = cur - base
+        if fmt == "pct":
+            return f"{base:.2%} → {cur:.2%} ({d:+.1%})"
+        elif fmt == "ms":
+            return f"{base:.0f}ms → {cur:.0f}ms ({d:+.0f}ms)"
+        elif fmt == ".1f":
+            return f"{base:.1f} → {cur:.1f} ({d:+.1f})"
+        else:
+            return f"{base:{fmt}} → {cur:{fmt}} ({d:+{fmt}})"
+
+    def _trend(base: float, cur: float, lower_better: bool = False) -> str:
+        d = cur - base
+        if abs(d) < 0.001: return "➡️"
+        if lower_better: return "📈" if d < 0 else "📉"
+        return "📈" if d > 0 else "📉"
+
+    with open(md_path, "w", encoding="utf-8") as fm:
+        hdc_tag = "（含 HDC）" if hdc_enabled else ""
+        fm.write(f"# SQL Memory 对比评测报告{hdc_tag}\n\n")
+        fm.write(f"**生成时间**: {timestamp}\n")
+        fm.write(f"**记忆库记录数**: {seed_count}\n")
+        fm.write(f"**LLM 模型**: {b.llm_model}\n")
+        fm.write(f"**LLM Base URL**: {b.llm_base_url}\n")
         if hdc_enabled:
-            f.write(f"**HDC**: 已启用（两轮均注入 HDC 数据底座）\n")
+            fm.write(f"**HDC**: 已启用（两轮均注入 HDC 数据底座）\n")
+        fm.write("\n")
 
-        f.write("## 全局对比\n\n")
-        f.write("| 指标 | 无记忆（基线） | 有记忆 | 变化 |\n")
-        f.write("|------|---------------|--------|------|\n")
-        f.write(f"| 平均 SQL 分数 | {s['baseline_avg_score']:.2%} | {s['memory_avg_score']:.2%} | {s['score_delta']:+.2%} |\n")
-        f.write(f"| 平均工具调用 | {s['baseline_avg_tool_calls']:.1f} | {s['memory_avg_tool_calls']:.1f} | {s['tool_call_delta']:+.1f} |\n")
-        f.write(f"| 平均 Token | {s['baseline_avg_tokens']:.0f} | {s['memory_avg_tokens']:.0f} | {s['token_delta']:+.0f} |\n")
-        f.write(f"| 平均输入 Token | {s['baseline_avg_input_tokens']:.0f} | {s['memory_avg_input_tokens']:.0f} | {s['input_token_delta']:+.0f} |\n")
-        f.write(f"| 平均输出 Token | {s['baseline_avg_output_tokens']:.0f} | {s['memory_avg_output_tokens']:.0f} | {s['output_token_delta']:+.0f} |\n")
-        f.write(f"| 平均延迟 (ms) | {s['baseline_avg_latency_ms']:.0f} | {s['memory_avg_latency_ms']:.0f} | {s['latency_delta_ms']:+.0f} |\n\n")
+        # ── 总览 ──
+        fm.write("## 📊 总览\n\n")
+        fm.write("| 指标 | 基线 | 有记忆 | 变化 | 趋势 |\n")
+        fm.write("|------|------|--------|------|------|\n")
+        for field, label, fmt, lower in metrics:
+            bv = _val(b, field)
+            mv = _val(m, field)
+            if bv == 0 and mv == 0:
+                continue
+            ds = _delta_str(bv, mv, fmt, lower)
+            tr = _trend(bv, mv, lower)
+            fm.write(f"| {label} | {ds} | {tr} |\n")
+        fm.write("\n")
 
-        f.write(f"## Memory Impact 汇总\n\n")
-        f.write(f"- 改进用例: {improved_count}\n")
-        f.write(f"- 退化用例: {degraded_count}\n")
-        f.write(f"- 不变用例: {unchanged_count}\n")
-        f.write(f"- 改进率: {improved_count}/{s['total_cases']} ({improved_count/s['total_cases']:.1%})\n\n")
+        # ── Memory Impact 汇总 ──
+        fm.write("## 📈 Memory Impact 汇总\n\n")
+        fm.write(f"- 改进用例: {len(improved)}\n")
+        fm.write(f"- 退化用例: {len(degraded)}\n")
+        fm.write(f"- 不变用例: {len(unchanged)}\n")
+        total = len(case_comparison)
+        fm.write(f"- 改进率: {len(improved)}/{total} ({len(improved)/total:.1%})" if total else "- 改进率: N/A")
+        fm.write("\n\n")
 
-        f.write("## 逐用例对比\n\n")
-        f.write("| 用例 | 基线分数 | 记忆分数 | 变化 | 方向 |\n")
-        f.write("|------|---------|---------|------|------|\n")
-        for d in case_deltas:
-            emoji = "🟢" if d["direction"] == "improved" else ("🔴" if d["direction"] == "degraded" else "⚪")
-            f.write(f"| {d['case_id']} | {d['baseline_score']:.2%} | {d['memory_score']:.2%} | {d['delta']:+.2%} | {emoji} |\n")
+        # ── 维度对比 ──
+        fm.write("## 📐 维度平均分对比\n\n")
+        fm.write("| 维度 | 权重 | 基线 | 有记忆 | 变化 | 趋势 |\n")
+        fm.write("|------|------|------|--------|------|------|\n")
+        for dk in dim_keys:
+            dc = dim_comparison[dk]
+            tr = "📈" if dc["delta"] > 0.001 else ("📉" if dc["delta"] < -0.001 else "➡️")
+            fm.write(f"| {dim_labels[dk]} | {dim_weights[dk]} | {dc['baseline']:.2%} | "
+                     f"{dc['memory']:.2%} | {dc['delta']:+.2%} | {tr} |\n")
+        fm.write("\n")
+
+        # ── 按难度分布对比 ──
+        by_diff: dict[str, list] = {}
+        for cc in case_comparison:
+            by_diff.setdefault(cc["difficulty"], []).append(cc)
+        fm.write("## 📋 按难度对比\n\n")
+        fm.write("| 难度 | 用例数 | 基线通过率 | 有记忆通过率 | 基线平均分 | 有记忆平均分 | 分数变化 |\n")
+        fm.write("|------|--------|-----------|-------------|-----------|-------------|----------|\n")
+        for diff in ["Easy", "Medium", "Hard"]:
+            cases = by_diff.get(diff, [])
+            if not cases:
+                continue
+            n = len(cases)
+            bp = sum(1 for c in cases if c["baseline_passed"]) / n
+            mp = sum(1 for c in cases if c["memory_passed"]) / n
+            bs = sum(c["baseline_overall"] for c in cases) / n
+            ms = sum(c["memory_overall"] for c in cases) / n
+            fm.write(f"| {diff} | {n} | {bp:.1%} | {mp:.1%} | {bs:.2%} | {ms:.2%} | {ms-bs:+.2%} |\n")
+        fm.write("\n")
+
+        # ── 逐用例详情 ──
+        fm.write("## 📝 逐用例对比\n\n")
+        fm.write("| 用例 | 难度 | 类别 | 基线 | 有记忆 | 分数变化 | 工具调用 | Token | 延迟 |\n")
+        fm.write("|------|------|------|------|--------|----------|----------|-------|------|\n")
+        for cc in case_comparison:
+            bs = "✅" if cc["baseline_passed"] else "❌"
+            ms = "✅" if cc["memory_passed"] else "❌"
+            tool_str = f"{cc['baseline_tools']}→{cc['memory_tools']}"
+            tok_str = f"{cc['baseline_tokens']}→{cc['memory_tokens']}"
+            lat_str = f"{cc['baseline_latency']}→{cc['memory_latency']}ms"
+            fm.write(f"| {cc['case_id']} | {cc['difficulty']} | {cc['category']} | "
+                     f"{bs} {cc['baseline_overall']:.2%} | {ms} {cc['memory_overall']:.2%} | "
+                     f"{cc['overall_delta']:+.2%} | {tool_str} | {tok_str} | {lat_str} |\n")
+        fm.write("\n")
+
+        # ── 改善/退化汇总 ──
+        if improved:
+            fm.write(f"**改善的用例 ({len(improved)} 条)**: "
+                     + ", ".join(f"{c['case_id']}(+{c['overall_delta']:.1%})" for c in improved) + "\n")
+        if degraded:
+            fm.write(f"**退化的用例 ({len(degraded)} 条)**: "
+                     + ", ".join(f"{c['case_id']}({c['overall_delta']:.1%})" for c in degraded) + "\n")
+        if unchanged:
+            fm.write(f"**无变化的用例 ({len(unchanged)} 条)**: "
+                     + ", ".join(c["case_id"] for c in unchanged) + "\n")
+        fm.write("\n")
+
+        # ── Agent 中间过程（仅展示有记忆轮）──
+        from .reporter import _render_agent_intermediate_steps
+        lines_proxy: list[str] = []
+        _render_agent_intermediate_steps(lines_proxy, memory_report)
+        fm.write("\n".join(lines_proxy))
+        fm.write("\n")
 
     return json_path, md_path
 

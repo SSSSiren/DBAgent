@@ -167,7 +167,7 @@ app/
 - `app/datavault/collector.py` — `collect_database()` 新增可选 `tables` 参数，采集时过滤表名
 - `app/datavault/generator.py` — `generate()` 新增可选 `tables` 参数，传递到采集步骤并控制管线范围；部分表模式下仍执行关系和摘要生成
 - `app/api/routes.py` — `POST /api/hdc/generate` 请求体新增可选 `tables` 字段
-- `tests/datavault/demo_hdc_generate.py` — CLI 新增 `--tables` 参数
+- `tools/hdc/generate.py` — CLI 新增 `--tables` 参数
 
 ## 系统流程
 

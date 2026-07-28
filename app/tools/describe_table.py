@@ -1,7 +1,5 @@
 """
-describe_table 工具 — 查看表结构，获取字段名、类型等信息
-
-参考 DBAgent 的 app/tools/agent_tools.py:describe_table_tool
+describe_table 工具 — 查看表结构，获取字段名、类型等信息（v1 API）
 """
 
 from app.client.onedba import get_onedba_client
@@ -27,10 +25,9 @@ async def describe_table(schema_id: int, table_name: str) -> str:
         return f"无效的表名：{table_name}"
 
     client = get_onedba_client()
-    safe_table = f"`{table_name}`"
     try:
-        result = await client.execute_sql(
-            schema_id=schema_id, sql=f"DESCRIBE {safe_table}"
+        result = await client.get_table_structure(
+            schema_id=schema_id, table_name=table_name
         )
     except Exception as exc:
         return f"查询失败：{exc}"

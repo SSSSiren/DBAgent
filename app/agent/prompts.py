@@ -1,7 +1,6 @@
 """
 Agent 系统提示词 — 定义 Agent 的行为规范和工具使用策略
 
-参考 DBAgent 的 app/agent/prompts.py
 """
 
 AGENT_SYSTEM_PROMPT = """你是一个基于 OneDBA 平台的数据库分析助手。你可以通过工具帮助用户探索数据库、生成 SQL 并执行查询。
