@@ -25,7 +25,7 @@ def test_build_context_injects_sql_memories_paragraph():
             },
         ]
     }
-    ctx = build_context(state)
+    ctx, _ = build_context(state)
     assert "[SQL 历史记忆 — 相关查询]" in ctx
     assert "已支付" in ctx
     assert "SELECT COUNT(*)" in ctx
@@ -39,7 +39,7 @@ def test_build_context_empty_sql_memories_no_injection():
         "selected_database": {"schemaName": "test_db"},
         "_sql_memories": [],
     }
-    ctx = build_context(state)
+    ctx, _ = build_context(state)
     assert "[SQL 历史记忆" not in ctx
     assert "之前的对话摘要" in ctx
     assert "test_db" in ctx
@@ -51,7 +51,7 @@ def test_build_context_no_sql_memories_key_no_injection():
         "summary": "test",
         "selected_database": {"schemaName": "test_db"},
     }
-    ctx = build_context(state)
+    ctx, _ = build_context(state)
     assert "[SQL 历史记忆" not in ctx
     # 原有的 7 段格式不受影响
     assert "[之前的对话摘要]" in ctx
@@ -61,7 +61,7 @@ def test_build_context_no_sql_memories_key_no_injection():
 def test_build_context_sql_memories_none_no_injection():
     """_sql_memories 为 None → 不注入"""
     state = {"_sql_memories": None, "summary": "test"}
-    ctx = build_context(state)
+    ctx, _ = build_context(state)
     assert "[SQL 历史记忆" not in ctx
 
 
@@ -86,7 +86,7 @@ def test_build_context_token_budget_truncation():
             for i in range(10)
         ]
     }
-    ctx = build_context(state)
+    ctx, _ = build_context(state)
     assert "[SQL 历史记忆" in ctx
     # 应该只包含部分记录（截断），且不超过预算
     ctx_len = len(ctx)
@@ -108,7 +108,7 @@ def test_build_context_token_budget_all_fit():
             for i in range(3)
         ]
     }
-    ctx = build_context(state)
+    ctx, _ = build_context(state)
     assert "问题 0" in ctx
     assert "问题 1" in ctx
     assert "问题 2" in ctx
@@ -141,7 +141,7 @@ def test_build_context_filters_dangerous_sql():
             },
         ]
     }
-    ctx = build_context(state)
+    ctx, _ = build_context(state)
     assert "INSERT INTO" not in ctx
     assert "UPDATE" not in ctx
     assert "DELETE" not in ctx
@@ -172,7 +172,7 @@ def test_build_context_filters_all_dangerous_keywords():
                 "similarity": 0.9,
             }]
         }
-        ctx = build_context(state)
+        ctx, _ = build_context(state)
         assert sql.split()[0].upper() not in ctx.upper().split(), f"{sql.split()[0]} 应被过滤"
 
 
@@ -197,7 +197,7 @@ def test_build_context_sql_memory_at_correct_position():
             "similarity": 0.9,
         }],
     }
-    ctx = build_context(state)
+    ctx, _ = build_context(state)
     parts = ctx.split("\n\n")
     labels = [p.split("\n")[0] for p in parts if p.strip()]
     # SQL 记忆应在 HDC 之后（最后一段）
@@ -226,7 +226,7 @@ def test_build_context_truncates_long_sql_in_display():
             "similarity": 0.9,
         }]
     }
-    ctx = build_context(state)
+    ctx, _ = build_context(state)
     assert "[SQL 历史记忆" in ctx
     # sql_truncated 为 500 字符，注入时若 >500 再加 "..."
     # 所以总计不应超过 ~505
@@ -249,7 +249,7 @@ def test_build_context_memory_without_question():
             "similarity": 0.9,
         }]
     }
-    ctx = build_context(state)
+    ctx, _ = build_context(state)
     assert "[SQL 历史记忆" in ctx
     assert "SELECT 1" in ctx
 
@@ -266,7 +266,7 @@ def test_build_context_memory_without_row_count():
             "similarity": 0.9,
         }]
     }
-    ctx = build_context(state)
+    ctx, _ = build_context(state)
     assert "[SQL 历史记忆" in ctx
     assert "SELECT 1" in ctx
 
@@ -286,7 +286,7 @@ def test_build_context_multiple_memories_numbered():
             for i in range(3)
         ]
     }
-    ctx = build_context(state)
+    ctx, _ = build_context(state)
     assert "1. **问题**: Q0" in ctx
     assert "2. **问题**: Q1" in ctx
     assert "3. **问题**: Q2" in ctx

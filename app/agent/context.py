@@ -8,8 +8,38 @@ from __future__ import annotations
 
 from typing import Any
 
+# ---------------------------------------------------------------------------
+# Token estimation helper
+# ---------------------------------------------------------------------------
 
-def build_context(session_state: dict[str, Any]) -> str:
+def _estimate_tokens(text: str) -> tuple[int, str]:
+    """Estimate the number of tokens in *text*.
+
+    Uses ``tiktoken`` (cl100k_base) when available; falls back to a
+    character-based heuristic ``len(text) / 4``, which is accurate to
+    roughly ±10% for English text.
+
+    Returns:
+        (count, method) where method is ``"tiktoken"`` or ``"char_estimate"``.
+    """
+    # ── try tiktoken (sync, <1ms) ──
+    try:
+        import tiktoken
+        enc = tiktoken.get_encoding("cl100k_base")
+        return len(enc.encode(text)), "tiktoken"
+    except Exception:
+        pass
+
+    # ── fallback: character estimate ──
+    return max(1, len(text) // 4), "char_estimate"
+
+
+# ---------------------------------------------------------------------------
+# Context builder
+# ---------------------------------------------------------------------------
+
+
+def build_context(session_state: dict[str, Any]) -> tuple[str, dict[str, int]]:
     """
     根据会话状态构建上下文文本。
 
@@ -22,17 +52,26 @@ def build_context(session_state: dict[str, Any]) -> str:
         session_state: 会话状态，包含 chat_history、summary、selected_database 等
 
     Returns:
-        上下文字符串（可直接注入到 prompt 中）
+        (context_str, ctx_tokens_dict) 的元组。
+        ctx_tokens_dict 包含 8 段上下文的 Token 估算值，
+        键名为各段名称（如 "summary", "chat_history" 等）。
+        降级估算时额外包含 ``_method: "char_estimate"`` 标记。
     """
     context_parts: list[str] = []
+    ctx_tokens: dict[str, int] = {}
 
     # 1. 对话摘要（压缩后的早期对话）
     summary = session_state.get("summary", "")
+    _summary_text = ""
     if summary:
-        context_parts.append(f"[之前的对话摘要]\n{summary}")
+        _summary_text = f"[之前的对话摘要]\n{summary}"
+        context_parts.append(_summary_text)
+    count, method = _estimate_tokens(_summary_text)
+    ctx_tokens["summary"] = count
 
     # 2. 最近对话历史（让 LLM 知道上一轮做了什么）
     chat_history = session_state.get("chat_history", [])
+    _history_text = ""
     if chat_history:
         # 取最近 4 条消息（2 轮对话），避免 prompt 过长
         recent = chat_history[-4:]
@@ -47,28 +86,35 @@ def build_context(session_state: dict[str, Any]) -> str:
                 truncated = content[:500] + ("..." if len(content) > 500 else "")
                 history_lines.append(f"助手: {truncated}")
         if history_lines:
-            context_parts.append("[对话历史]\n" + "\n".join(history_lines))
+            _history_text = "[对话历史]\n" + "\n".join(history_lines)
+            context_parts.append(_history_text)
+    ctx_tokens["chat_history"] = _estimate_tokens(_history_text)[0]
 
     # 3. 已选数据库上下文
     selected_database = session_state.get("selected_database")
     selected_schema_id = session_state.get("selected_schema_id")
+    _db_text = ""
     if selected_database:
         schema_name = selected_database.get("schemaName", "未知")
-        context_parts.append(
-            f"当前选择的数据库: {schema_name} (schema_id={selected_schema_id})"
-        )
+        _db_text = f"当前选择的数据库: {schema_name} (schema_id={selected_schema_id})"
+        context_parts.append(_db_text)
+    ctx_tokens["selected_database"] = _estimate_tokens(_db_text)[0]
 
     # 4. 长期记忆（来自 OpenViking）
     memories = session_state.get("_memories", [])
+    _memories_text = ""
     if memories:
         memory_lines = ["[长期记忆 — 来自之前的对话]"]
         for m in memories[:10]:  # 最多注入 10 条记忆，避免 prompt 过长
             memory_lines.append(f"- {m['abstract']}")
-        context_parts.append("\n".join(memory_lines))
+        _memories_text = "\n".join(memory_lines)
+        context_parts.append(_memories_text)
         print(f"[KB] build_context: 注入 {len(memories[:10])} 条长期记忆到提示词")
+    ctx_tokens["memories"] = _estimate_tokens(_memories_text)[0]
 
     # 5. SQL 参考知识库（RAG 检索结果，可信任的精确技术参考）
     rag_reference = session_state.get("_rag_reference", [])
+    _rag_text = ""
     if rag_reference:
         rag_lines = ["[SQL 参考知识库 — 以下是你熟悉的数据库中已验证的 SQL 知识，包含真实的表名、字段名和常见取值，可以直接使用]"]
         for r in rag_reference[:5]:
@@ -77,26 +123,35 @@ def build_context(session_state: dict[str, Any]) -> str:
             if len(abstract) > 2000:
                 abstract = abstract[:2000] + "..."
             rag_lines.append(f"- {abstract}")
-        context_parts.append("\n".join(rag_lines))
+        _rag_text = "\n".join(rag_lines)
+        context_parts.append(_rag_text)
         print(f"[KB] build_context: 注入 {len(rag_reference[:5])} 条 RAG SQL 参考")
+    ctx_tokens["rag_reference"] = _estimate_tokens(_rag_text)[0]
 
     # 6. 操作记忆（查询偏好）
     preferences = session_state.get("_preferences", [])
+    _pref_text = ""
     if preferences:
         pref_lines = ["[操作记忆 — 查询偏好]"]
         for p in preferences:
             pref_lines.append(
                 f"- {p['database_name']}.{p['table_name']}（查询 {p['query_count']} 次）"
             )
-        context_parts.append("\n".join(pref_lines))
+        _pref_text = "\n".join(pref_lines)
+        context_parts.append(_pref_text)
+    ctx_tokens["preferences"] = _estimate_tokens(_pref_text)[0]
 
     # 7. 数据底座（HDC）— 来自 app/datavault/retriever
     hdc_context = session_state.get("_hdc_context", "")
+    _hdc_text = ""
     if hdc_context:
-        context_parts.append(str(hdc_context))
+        _hdc_text = str(hdc_context)
+        context_parts.append(_hdc_text)
+    ctx_tokens["hdc_context"] = _estimate_tokens(_hdc_text)[0]
 
     # 8. SQL 历史记忆 — 相关历史查询
     sql_memories = session_state.get("_sql_memories", [])
+    _sqlmem_text = ""
     if sql_memories:
         from app.config import get_settings
         settings = get_settings()
@@ -142,9 +197,18 @@ def build_context(session_state: dict[str, Any]) -> str:
             total_len += len(entry) + 1
 
         if entries:
-            context_parts.append("\n".join(mem_lines + entries))
+            _sqlmem_text = "\n".join(mem_lines + entries)
+            context_parts.append(_sqlmem_text)
+            print(f"[SQLMem] build_context: 注入 {len(entries)} 条 SQL 记忆到提示词（共 {total_len} 字符，预算 {budget}）")
+    ctx_tokens["sql_memories"] = _estimate_tokens(_sqlmem_text)[0]
 
-    return "\n\n".join(context_parts) if context_parts else ""
+    # Set _method marker based on actual estimation method used
+    # (proxy: any non-empty text that came back with "char_estimate" means fallback)
+    if method == "char_estimate":
+        ctx_tokens["_method"] = "char_estimate"  # type: ignore[assignment]
+
+    context_str = "\n\n".join(context_parts) if context_parts else ""
+    return context_str, ctx_tokens
 
 
 def update_session_state(

@@ -234,7 +234,7 @@ def show_agent_simulation(with_hdc: bool, question: str):
             "selected_schema_id": 142,
         }
 
-    context = build_context(session_state)
+    context, _ = build_context(session_state)
 
     # 分析 Agent 行为
     print(f"  用户问题: \"{question}\"")

@@ -17,7 +17,7 @@ class TestBuildContextHDC:
             "_hdc_context": "[数据底座 — 数据库知识]\n**数据库概览**: 电商交易核心库\n\n**匹配的业务表**:\n- **after_sale_order**（售后/退货/退款）: 售后订单表",
         }
 
-        result = build_context(session_state)
+        result, _ = build_context(session_state)
 
         assert "[数据底座 — 数据库知识]" in result
         assert "after_sale_order" in result
@@ -30,7 +30,7 @@ class TestBuildContextHDC:
             "_hdc_context": "",
         }
 
-        result = build_context(session_state)
+        result, _ = build_context(session_state)
 
         assert "[数据底座 — 数据库知识]" not in result
 
@@ -40,7 +40,7 @@ class TestBuildContextHDC:
             "selected_database": {"schemaName": "dwd_trade"},
         }
 
-        result = build_context(session_state)
+        result, _ = build_context(session_state)
 
         assert "[数据底座 — 数据库知识]" not in result
 
@@ -53,7 +53,7 @@ class TestBuildContextHDC:
             "_hdc_context": "[数据底座 — 数据库知识]\n测试 HDC 内容",
         }
 
-        result = build_context(session_state)
+        result, _ = build_context(session_state)
 
         assert "[数据底座 — 数据库知识]" in result
         assert "[长期记忆 — 来自之前的对话]" in result
@@ -67,7 +67,7 @@ class TestBuildContextHDC:
             "_hdc_context": "[数据底座 — 数据库知识]\nHDC 内容",
         }
 
-        result = build_context(session_state)
+        result, _ = build_context(session_state)
 
         pref_pos = result.find("[操作记忆 — 查询偏好]")
         hdc_pos = result.find("[数据底座 — 数据库知识]")

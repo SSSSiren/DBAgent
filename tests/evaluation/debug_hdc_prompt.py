@@ -80,7 +80,7 @@ async def debug_one(
 
     # ── 无 HDC ──
     state_no_hdc = _make_session_state(schema_id)
-    context_no_hdc = build_context(state_no_hdc)
+    context_no_hdc, _ = build_context(state_no_hdc)
     full_prompt_no_hdc = f"{context_no_hdc}\n\n用户问题: {question}" if context_no_hdc else question
 
     # ── 有 HDC ──
@@ -88,7 +88,7 @@ async def debug_one(
     hdc_text = await _retrieve_hdc(question, db_name, schema_id)
     if hdc_text and not hdc_text.startswith("[HDC"):
         state_with_hdc["_hdc_context"] = hdc_text
-    context_with_hdc = build_context(state_with_hdc)
+    context_with_hdc, _ = build_context(state_with_hdc)
     full_prompt_with_hdc = f"{context_with_hdc}\n\n用户问题: {question}" if context_with_hdc else question
 
     # ── 差异分析 ──

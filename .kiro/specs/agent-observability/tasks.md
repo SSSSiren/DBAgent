@@ -8,7 +8,7 @@
 ---
 
 - [ ] 1. Foundation: 修改核心函数签名以承载新增指标
-- [ ] 1.1 (P) 修改 `_execute_tool` 返回元组 `(result, elapsed_ms)`
+- [x] 1.1 (P) 修改 `_execute_tool` 返回元组 `(result, elapsed_ms)`
   - 在 `_execute_tool()` 中记录调用前后的 `time.monotonic()`
   - 将原返回值 `str` 改为 `tuple[str, float]`，float 为执行耗时（毫秒）
   - 所有调用方（`_run_agent` 中的两处 `await _execute_tool(...)`）适配元组解包

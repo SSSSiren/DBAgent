@@ -347,7 +347,7 @@ async def run_agent_stream(
     observer.start_trace()
 
     # 1. 构建上下文
-    context = build_context(session_state)
+    context, ctx_tokens = build_context(session_state)
     if context:
         full_prompt = f"{context}\n\n用户问题: {user_input}"
     else:
