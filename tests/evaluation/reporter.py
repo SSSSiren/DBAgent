@@ -406,6 +406,19 @@ def _render_agent_intermediate_steps(lines: list[str], report: EvaluationReport)
             lines.append("")
             for i, tcr in enumerate(cr.tool_call_records):
                 lines.append(f"**{i+1}. {tcr.tool}**")
+                if tcr.elapsed_ms is not None:
+                    lines.append(f"- ⏱ 耗时: {tcr.elapsed_ms:.0f}ms")
+                if tcr.nl2sql_timings:
+                    nl2 = tcr.nl2sql_timings
+                    lines.append(f"- 📊 NL2SQL 阶段耗时:")
+                    if nl2.get("describe_ms", 0) > 0:
+                        lines.append(f"  - DESCRIBE: {nl2['describe_ms']:.0f}ms")
+                    if nl2.get("generate_ms", 0) > 0:
+                        lines.append(f"  - 生成 SQL: {nl2['generate_ms']:.0f}ms")
+                    if nl2.get("validate_ms", 0) > 0:
+                        lines.append(f"  - 校验 SQL: {nl2['validate_ms']:.0f}ms")
+                    if nl2.get("repair_ms", 0) > 0:
+                        lines.append(f"  - 修复 SQL: {nl2['repair_ms']:.0f}ms")
                 if tcr.args:
                     args_str = json.dumps(tcr.args, ensure_ascii=False, indent=2)
                     lines.append(f"**输入**:")

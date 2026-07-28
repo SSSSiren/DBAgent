@@ -90,11 +90,17 @@ async def _execute_agent_once(
                                 }
                                 print(f"{log_prefix}  [Tool] {tool_name}({tool_input_short})")
                         elif status == "completed":
-                            # 回填工具输出到对应的 tool_calls 条目
+                            # 回填工具输出和耗时到对应的 tool_calls 条目
                             content = data.get("content", "")
+                            elapsed_ms = data.get("elapsed_ms", None)
+                            nl2sql_timings = data.get("nl2sql_timings", None)
                             for tc in reversed(tool_calls):
                                 if tc.get("result") == "" and tc.get("tool") == tool_name:
                                     tc["result"] = str(content)
+                                    if elapsed_ms is not None:
+                                        tc["elapsed_ms"] = elapsed_ms
+                                    if nl2sql_timings is not None:
+                                        tc["nl2sql_timings"] = nl2sql_timings
                                     break
                             if verbose:
                                 content_preview = str(content)[:120].replace("\n", " ")
@@ -765,6 +771,8 @@ async def _run_single_case(
             tool=tc.get("tool", ""),
             args=tc.get("args", {}),
             result=tc.get("result", ""),
+            elapsed_ms=tc.get("elapsed_ms", None),
+            nl2sql_timings=tc.get("nl2sql_timings", None),
         )
         for tc in last_run.tool_calls
     ]

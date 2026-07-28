@@ -459,12 +459,16 @@ async def run_agent_stream(
             elif event_type == "tool_end":
                 tool_name = event.get("name", "unknown")
                 content = event.get("content", "")
+                elapsed_ms = event.get("elapsed_ms", 0)
+                nl2sql_timings = event.get("nl2sql_timings", None)
                 call_index = tool_call_counter.get(tool_name, 0) - 1
                 yield "step", {
                     "step": f"tool:{tool_name}",
                     "status": "completed",
                     "call_index": max(call_index, 0),
                     "content": content,
+                    "elapsed_ms": elapsed_ms,
+                    "nl2sql_timings": nl2sql_timings,
                 }
 
                 sql = _extract_sql_from_tool_result(tool_name, content)

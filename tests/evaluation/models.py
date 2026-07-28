@@ -107,6 +107,8 @@ class ToolCallRecord(BaseModel):
     tool: str = Field(default="", description="工具名称")
     args: dict[str, Any] = Field(default_factory=dict, description="调用参数")
     result: str = Field(default="", description="工具返回内容（截断至 2000 字符）")
+    elapsed_ms: float | None = Field(default=None, description="工具执行耗时（毫秒）")
+    nl2sql_timings: dict[str, float] | None = Field(default=None, description="NL2SQL 引擎各阶段耗时")
 
 
 class LLMCallRecord(BaseModel):
