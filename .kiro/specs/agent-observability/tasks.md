@@ -36,7 +36,7 @@
   - _Depends: 1.1_
   - _Boundary: Agent Runner — _run_agent_
 
-- [ ] 2.2 `run_agent_stream` — TTFB 计时与上下文 Token 透传
+- [x] 2.2 `run_agent_stream` — TTFB 计时与上下文 Token 透传
   - 在 `_run_agent()` 产出首个非 `llm_call` 事件时记录 `t_first`，计算 `ttfb_ms`
   - 适配 1.2 的 `build_context` 返回值变更，接收 `(context_str, ctx_tokens)`
   - 将 `ttfb_ms` 和 `ctx_tokens` 注入 stats
@@ -45,7 +45,7 @@
   - _Depends: 1.1, 1.2_
   - _Boundary: Agent Runner — run_agent_stream_
 
-- [ ] 2.3 (P) `_execute_agent_stream` — 上下文准备耗时与检索分解
+- [x] 2.3 (P) `_execute_agent_stream` — 上下文准备耗时与检索分解
   - 请求到达时记录 `t0`
   - 4 路检索各自由 try/except 包裹并记录各自耗时
   - 上下文准备完成时记录 `t_prep`，计算 `prep_ms = t_prep - t0`
@@ -55,7 +55,7 @@
   - _Requirements: 3, 4_
   - _Boundary: API Routes — _execute_agent_stream_
 
-- [ ] 2.4 (P) `query_database` — NL2SQL 引擎分段耗时
+- [x] 2.4 (P) `query_database` — NL2SQL 引擎分段耗时
   - 新增 `contextvars.ContextVar` 变量 `_nl2sql_timings`
   - 在 DESCRIBE、generate_sql、validate_sql、repair_sql 各阶段前后记录 `time.monotonic()`
   - 将耗时写入 `_nl2sql_timings`，包含 `describe_ms`、`generate_ms`、`validate_ms`、`repair_ms`
@@ -66,7 +66,7 @@
   - _Boundary: NL2SQL Engine — query_database_
 
 - [ ] 3. Integration: 端到端数据流贯通
-- [ ] 3.1 串联 routes → runner → stats 的完整指标链路
+- [x] 3.1 串联 routes → runner → stats 的完整指标链路
   - 确保 `_execute_agent_stream` 中计算的 `prep_ms`、`ctx_timings` 注入到 final SSE 的 stats
   - 确保 `run_agent_stream` 中计算的 `ttfb_ms`、`ctx_tokens` 正确传递
   - 确保 `_run_agent` 的 stats（input_tokens、output_tokens、tool_timings）无遗漏
