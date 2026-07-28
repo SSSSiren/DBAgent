@@ -135,6 +135,8 @@ class DimensionScores(BaseModel):
 class RunDetail(BaseModel):
     """单次运行的效率指标（用于重复执行时收集 per-run 数据）"""
     duration_ms: int = Field(default=0, description="本次运行耗时（毫秒）")
+    prep_ms: float = Field(default=0.0, description="上下文准备耗时（毫秒）")
+    ttfb_ms: float | None = Field(default=None, description="首个输出到达时间（毫秒）")
     tool_call_count: int = Field(default=0, description="工具调用次数")
     tool_call_details: dict[str, int] = Field(default_factory=dict, description="各工具调用次数")
     turns: int = Field(default=0, description="Agent 循环轮次")
@@ -201,6 +203,8 @@ class EvaluationReport(BaseModel):
     overall_pass_rate: float = Field(default=0.0, ge=0.0, le=1.0)
     average_score: float = Field(default=0.0, ge=0.0, le=1.0)
     average_latency_ms: float = Field(default=0.0)
+    average_prep_ms: float = Field(default=0.0, description="平均上下文准备耗时")
+    average_ttfb_ms: float | None = Field(default=None, description="平均 TTFB")
     average_tool_calls: float = Field(default=0.0)
     average_turns: float = Field(default=0.0)
     average_tokens: float = Field(default=0.0)

@@ -229,11 +229,15 @@ def _build_run_detail(run: _AgentRunOutput) -> RunDetail:
     output_tokens = stats.get("output_tokens", 0)
     if isinstance(output_tokens, dict):
         output_tokens = output_tokens.get("value", 0)
+    prep_ms = stats.get("prep_ms", 0)
+    ttfb_ms = stats.get("ttfb_ms", None)
 
     first_tool, first_table_used, called_find_table = _extract_first_tool_info(run)
 
     return RunDetail(
         duration_ms=run.duration_ms,
+        prep_ms=float(prep_ms) if prep_ms else 0.0,
+        ttfb_ms=float(ttfb_ms) if ttfb_ms else None,
         tool_call_count=len(run.tool_calls),
         tool_call_details=run.tool_call_details,
         turns=int(turns) if turns else 0,
@@ -977,6 +981,12 @@ async def run_evaluation(
     output_tokens = [c.efficiency.output_tokens if c.efficiency else 0 for c in case_results]
     avg_output_tokens = sum(output_tokens) / total if total > 0 else 0.0
 
+    prep_values = [c.run_details[0].prep_ms for c in case_results if c.run_details and c.run_details[0].prep_ms > 0]
+    avg_prep_ms = sum(prep_values) / len(prep_values) if prep_values else 0.0
+
+    ttfb_values = [c.run_details[0].ttfb_ms for c in case_results if c.run_details and c.run_details[0].ttfb_ms is not None]
+    avg_ttfb_ms = sum(ttfb_values) / len(ttfb_values) if ttfb_values else None
+
     # 跨用例标准差平均
     std_tools = [c.std_tool_calls for c in case_results]
     avg_std_tools = sum(std_tools) / total if total > 0 else 0.0
@@ -1038,6 +1048,8 @@ async def run_evaluation(
         average_tokens=avg_tokens,
         average_input_tokens=avg_input_tokens,
         average_output_tokens=avg_output_tokens,
+        average_prep_ms=avg_prep_ms,
+        average_ttfb_ms=avg_ttfb_ms,
         std_tool_calls=avg_std_tools,
         std_tokens=avg_std_tokens,
         std_input_tokens=avg_std_input_tokens,

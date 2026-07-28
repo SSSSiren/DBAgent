@@ -165,6 +165,9 @@ def _render_markdown(report: EvaluationReport) -> str:
     lines.append(f"| 通过率 | {report.overall_pass_rate:.1%} |")
     lines.append(f"| 平均分 | {report.average_score:.2%} |")
     lines.append(f"| 平均延迟 | {report.average_latency_ms:.0f}ms |")
+    lines.append(f"| 平均准备耗时 (prep) | {report.average_prep_ms:.0f}ms |")
+    if report.average_ttfb_ms is not None:
+        lines.append(f"| 平均 TTFB | {report.average_ttfb_ms:.0f}ms |")
     lines.append(f"| 平均工具调用 | {report.average_tool_calls:.1f} |")
     lines.append(f"| 平均 Turns | {report.average_turns:.1f} |")
     lines.append(f"| 平均 Token | {report.average_tokens:.0f} |")
@@ -472,6 +475,8 @@ def _compute_hdc_diff(
         "pass_rate": round(with_hdc.overall_pass_rate - no_hdc.overall_pass_rate, 4),
         "avg_score": round(with_hdc.average_score - no_hdc.average_score, 4),
         "avg_latency_ms": round(with_hdc.average_latency_ms - no_hdc.average_latency_ms, 1),
+        "avg_prep_ms": round(with_hdc.average_prep_ms - no_hdc.average_prep_ms, 1),
+        "avg_ttfb_ms": round((with_hdc.average_ttfb_ms or 0) - (no_hdc.average_ttfb_ms or 0), 1) if with_hdc.average_ttfb_ms is not None and no_hdc.average_ttfb_ms is not None else None,
         "avg_tool_calls": round(with_hdc.average_tool_calls - no_hdc.average_tool_calls, 2),
         "avg_turns": round(with_hdc.average_turns - no_hdc.average_turns, 2),
         "avg_tokens": round(with_hdc.average_tokens - no_hdc.average_tokens, 1),
