@@ -140,6 +140,124 @@ class SqlMemoryBackend(Protocol):
         """
         ...
 
+    async def list_records(
+        self,
+        user_id: str = "",
+        database_name: str = "",
+        status: str = "",
+        limit: int = 100,
+        offset: int = 0,
+    ) -> list[dict]:
+        """列出记录，支持按 user_id / database_name / status 过滤并分页。
+
+        空字符串参数表示"匹配所有"（不按该维度过滤）。
+
+        Args:
+            user_id: 用户标识（空=全部用户）
+            database_name: 数据库名称（空=全部数据库）
+            status: 执行状态过滤（空=全部状态）
+            limit: 最大返回条数
+            offset: 分页偏移量
+
+        Returns:
+            记录列表，每条记录包含字段：id, user_id, question, sql_text,
+            sql_truncated, table_names (list[str]), database_name, schema_id,
+            execution_status, created_at, has_embedding
+        """
+        ...
+
+    async def count_records(
+        self,
+        user_id: str = "",
+        database_name: str = "",
+        status: str = "",
+    ) -> int:
+        """统计记录数量，支持按 user_id / database_name / status 过滤。
+
+        空字符串参数表示"匹配所有"（不按该维度过滤）。
+
+        Args:
+            user_id: 用户标识（空=全部用户）
+            database_name: 数据库名称（空=全部数据库）
+            status: 执行状态过滤（空=全部状态）
+
+        Returns:
+            符合条件的记录总数
+        """
+        ...
+
+    async def delete_records(
+        self,
+        user_id: str = "",
+        database_name: str = "",
+        status: str = "",
+        older_than_days: int | None = None,
+    ) -> int:
+        """删除符合条件的记录，返回删除条数。
+
+        空字符串参数表示"匹配所有"。
+
+        Args:
+            user_id: 用户标识（空=全部用户）
+            database_name: 数据库名称（空=全部数据库）
+            status: 执行状态过滤（空=全部状态）
+            older_than_days: 仅删除 N 天前的记录（None=不限时间）
+
+        Returns:
+            删除的记录数
+        """
+        ...
+
+    async def get_status_summary(
+        self,
+        user_id: str = "",
+        database_name: str = "",
+        status: str = "",
+    ) -> dict:
+        """获取记录状态汇总信息。
+
+        Args:
+            user_id: 用户标识（空=全部用户）
+            database_name: 数据库名称（空=全部数据库）
+            status: 执行状态过滤（空=全部状态）
+
+        Returns:
+            {
+                "total_records": int,
+                "unique_users": int,
+                "unique_databases": int,
+                "status_breakdown": {"success": int, "error": int, ...},
+                "oldest_record": str | None,
+                "newest_record": str | None,
+            }
+        """
+        ...
+
+    async def get_stats_summary(
+        self,
+        user_id: str = "",
+        database_name: str = "",
+        status: str = "",
+        min_records: int = 20,
+    ) -> dict:
+        """获取记录统计摘要，用于模式挖掘等分析。
+
+        Args:
+            user_id: 用户标识（空=全部用户）
+            database_name: 数据库名称（空=全部数据库）
+            status: 执行状态过滤（空=全部状态）
+            min_records: 最少记录数阈值，低于此值返回提示
+
+        Returns:
+            {
+                "total_records": int,
+                "top_tables": [{"table": str, "count": int}, ...],
+                "top_users": [{"user_id": str, "count": int}, ...],
+                "top_databases": [{"database_name": str, "count": int}, ...],
+            }
+        """
+        ...
+
 
 def _cosine_similarity(a: list[float], b: list[float]) -> float:
     """计算两个向量的余弦相似度（纯 Python 实现）。"""

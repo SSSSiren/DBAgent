@@ -373,6 +373,39 @@ class OpenVikingClient:
 
     # ── 文件系统操作（HDC）──
 
+    async def list_directory(self, uri: str) -> list[dict]:
+        """列出目录内容。
+
+        GET /api/v1/fs/ls
+        返回标准化条目列表，每项包含 name、uri、is_dir。
+        原始 name 为空时回退到 uri 的 basename。
+        单个条目解析失败时记录 WARN 并跳过，不中断整个列表。
+        """
+        import os
+
+        try:
+            raw = await self._get_raw("/api/v1/fs/ls", uri)
+            entries = raw if isinstance(raw, list) else raw.get("result", [])
+        except Exception:
+            log.warning("OpenViking list_directory failed: uri=%s", uri, exc_info=True)
+            return []
+
+        result: list[dict] = []
+        for entry in entries:
+            try:
+                entry_uri = entry.get("uri", "")
+                name = entry.get("name", "")
+                if not name and entry_uri:
+                    name = os.path.basename(entry_uri.rstrip("/"))
+                is_dir = entry.get("isDir", False)
+                result.append({"name": name, "uri": entry_uri, "is_dir": is_dir})
+            except Exception:
+                log.warning(
+                    "OpenViking list_directory skip malformed entry: uri=%s", uri, exc_info=True,
+                )
+
+        return result
+
     async def set_tags(
         self,
         uri: str,

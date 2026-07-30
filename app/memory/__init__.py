@@ -23,6 +23,10 @@ from app.memory.manager import (
     get_storage,
     reset_storage,
 )
+from app.memory.admin_store import (
+    AdminStoreBackend,
+    SqliteAdminStore,
+)
 
 
 # ============================================================================
@@ -85,4 +89,7 @@ __all__ = [
     "StorageManager",
     "get_storage",
     "reset_storage",
+    # Admin 存储 (HDC 内存管理)
+    "AdminStoreBackend",
+    "SqliteAdminStore",
 ]
