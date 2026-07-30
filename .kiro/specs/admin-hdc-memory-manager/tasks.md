@@ -14,7 +14,7 @@
 
 ---
 
-- [ ] 1. 基础配置与数据模型
+- [x] 1. 基础配置与数据模型
 
   新增 admin 相关配置、Pydantic 模型，扩展 StorageBackend Protocol。
 
@@ -49,7 +49,7 @@
   - _Requirements: 8.1, 8.2, 8.3_
   - _Boundary: app/memory/store.py_
 
-- [ ] 2. AdminStoreBackend 实现与 StorageManager 集成
+- [x] 2. AdminStoreBackend 实现与 StorageManager 集成
 
   创建 HDC namespace 映射持久化层。
 
@@ -93,7 +93,7 @@
   - _Requirements: —_
   - _Boundary: app/memory/__init__.py_
 
-- [ ] 3. OpenVikingClient.list_directory 公开方法
+- [x] 3. OpenVikingClient.list_directory 公开方法
 
   为 namespace 目录浏览提供目录列表能力。
 
@@ -107,7 +107,7 @@
   - _Requirements: 4.1_
   - _Boundary: app/knowledge/openviking.py_
 
-- [ ] 4. Admin Auth 依赖与路由挂载
+- [x] 4. Admin Auth 依赖与路由挂载
 
   实现 Bearer token 认证依赖，创建 admin router 并在 main.py 挂载。
 
@@ -121,7 +121,7 @@
   - _Requirements: 1.1, 1.2, 1.3, 1.4_
   - _Boundary: app/api/admin_routes.py_
 
-- [ ] 4.2 创建 admin_router 并在 main.py 挂载
+- [x] 4.2 创建 admin_router 并在 main.py 挂载
   - 创建 `admin_router = APIRouter(prefix="/admin", dependencies=[Depends(verify_admin_token)])`
   - 在 `main.py` 中 `from app.api.admin_routes import admin_router` + `app.include_router(admin_router, prefix="/api")`
   - 最终端点为 `/api/admin/*`
@@ -129,7 +129,7 @@
   - _Requirements: —（基础设施）_
   - _Boundary: app/api/admin_routes.py, app/main.py_
 
-- [ ] 5. SqlMemoryBackend Protocol 扩展
+- [x] 5. SqlMemoryBackend Protocol 扩展
 
   为 SQL Memory 管理 API 提供跨用户管理方法。
 
@@ -144,7 +144,7 @@
   - _Requirements: 6.1, 6.2, 6.3, 6.5, 6.6_
   - _Boundary: app/memory/sql_memory.py_
 
-- [ ] 5.2 实现 InMemorySqlMemoryStore 新增方法
+- [x] 5.2 实现 InMemorySqlMemoryStore 新增方法
   - `list_records` — 内存列表过滤 + 分页
   - `count_records` — 内存列表过滤 + 计数
   - `delete_records` — 内存列表过滤 + 删除；**安全不变量**：全空过滤且 `older_than_days is None` 时必须拒绝返回 0
@@ -154,7 +154,7 @@
   - _Requirements: 6.4_
   - _Boundary: app/memory/sql_memory.py_
 
-- [ ] 5.3 实现 SqliteSqlMemoryStore 新增方法
+- [x] 5.3 实现 SqliteSqlMemoryStore 新增方法
   - `list_records` — SQL 查询 `sql_memories` 表，支持可选 WHERE 过滤 + LIMIT/OFFSET 分页
   - `count_records` — SQL COUNT 查询，支持可选 WHERE 过滤
   - `delete_records` — SQL DELETE 查询，支持可选 WHERE 过滤；**安全不变量同上**：全空过滤且 `older_than_days is None` 时必须拒绝返回 0
@@ -165,11 +165,11 @@
   - _Requirements: 6.4_
   - _Boundary: app/memory/sql_memory.py_
 
-- [ ] 6. (P) HDC Mappings 管理端点
+- [x] 6. (P) HDC Mappings 管理端点
 
   实现 HDC namespace 映射的 CRUD API 端点。
 
-- [ ] 6.1 实现 POST /api/admin/hdc-mappings
+- [x] 6.1 实现 POST /api/admin/hdc-mappings
   - 接收 `HdcMappingCreate` 请求体，创建或更新映射（upsert 语义）
   - 通过 `get_storage().admin_store.upsert_mapping()` 持久化
   - 返回 HTTP 201 + `HdcMappingResponse`（含 `updated_at`）
@@ -177,7 +177,7 @@
   - _Requirements: 2.1, 2.4, 2.5_
   - _Boundary: app/api/admin_routes.py_
 
-- [ ] 6.2 实现 GET /api/admin/hdc-mappings
+- [x] 6.2 实现 GET /api/admin/hdc-mappings
   - 接收可选查询参数 `user_id`, `schema_id`, `database_name`
   - 通过 `get_storage().admin_store.get_mappings()` 查询
   - 无过滤参数时返回全部映射
@@ -185,18 +185,18 @@
   - _Requirements: 2.2_
   - _Boundary: app/api/admin_routes.py_
 
-- [ ] 6.3 实现 DELETE /api/admin/hdc-mappings
+- [x] 6.3 实现 DELETE /api/admin/hdc-mappings
   - 从查询参数 `user_id`, `schema_id`, `database_name` 获取主键
   - 通过 `get_storage().admin_store.delete_mapping()` 删除
   - 存在时返回 HTTP 200 `{"deleted": true}`，不存在时返回 404 `{"detail": "Mapping not found"}`
   - _Requirements: 2.3_
   - _Boundary: app/api/admin_routes.py_
 
-- [ ] 7. (P) HDC Namespace 目录浏览端点
+- [x] 7. (P) HDC Namespace 目录浏览端点
 
   实现 `/api/admin/hdc/namespaces/{schema_id}/{database_name}` 端点。
 
-- [ ] 7.1 实现 GET /api/admin/hdc/namespaces/{schema_id}/{database_name}
+- [x] 7.1 实现 GET /api/admin/hdc/namespaces/{schema_id}/{database_name}
   - 使用 `_HDC_ROOT`, `storage_key`, `_db_uri` 等 helper 构建数据库 HDC 根路径 URI
   - 通过 OpenViking `list_directory()` 获取子目录列表
   - 仅返回 `is_dir=True` 的条目
@@ -208,30 +208,30 @@
   - _Requirements: 4.1, 4.2, 4.3, 4.4, 4.5, 4.6_
   - _Boundary: app/api/admin_routes.py_
 
-- [ ] 8. (P) SQL Memory 管理端点
+- [x] 8. (P) SQL Memory 管理端点
 
   实现 SQL Memory 的 status/list/clean/re-embed/stats HTTP 端点。
 
-- [ ] 8.1 实现全局前置条件检查
+- [x] 8.1 实现全局前置条件检查
   - 所有 `/api/admin/sql-memory/*` 端点共用前置检查：`sql_memory_enabled` 为 false 或 `sql_memory_store` 为 None → 503 `{"detail": "SQL Memory not enabled"}`
   - _Requirements: 5.0_
   - _Boundary: app/api/admin_routes.py_
 
-- [ ] 8.2 实现 GET /api/admin/sql-memory/status
+- [x] 8.2 实现 GET /api/admin/sql-memory/status
   - 通过 `sql_memory_store.get_status_summary()` 获取概览数据
   - 返回 `SqlMemoryStatusResponse`
   - 不使用分页 `list_records()` 拼接统计
   - _Requirements: 5.1_
   - _Boundary: app/api/admin_routes.py_
 
-- [ ] 8.3 实现 GET /api/admin/sql-memory/records
+- [x] 8.3 实现 GET /api/admin/sql-memory/records
   - 接收可选查询参数 `user_id`, `database_name`, `status`, `limit`（默认 100，上限 500）, `offset`（默认 0，≥ 0）
   - 通过 `sql_memory_store.list_records()` 查询
   - 返回 `SqlMemoryListResponse`，每条记录含 12 个字段，不含 `embedding_json`
   - _Requirements: 5.2, 5.3, 5.4_
   - _Boundary: app/api/admin_routes.py_
 
-- [ ] 8.4 实现 DELETE /api/admin/sql-memory/clean
+- [x] 8.4 实现 DELETE /api/admin/sql-memory/clean
   - 接收可选请求体 `CleanRequest: {user_id, database_name, older_than_days}`
   - 通过 `sql_memory_store.delete_records()` 执行删除
   - **安全不变量**：无任何过滤参数时，route 层必须传入 `older_than_days=settings.sql_memory_ttl_days`
@@ -240,7 +240,7 @@
   - _Requirements: 5.5, 5.6, 5.7_
   - _Boundary: app/api/admin_routes.py_
 
-- [ ] 8.5 实现 POST /api/admin/sql-memory/re-embed
+- [x] 8.5 实现 POST /api/admin/sql-memory/re-embed
   - 接收可选请求体 `{"user_id": "..."}`
   - 请求体为空或未提供 `user_id` 时，调用 `re_embed_all(embed_fn=embed_text, user_id="")` 表示全量重建
   - 提供 `user_id` 时仅重建该用户记录
@@ -248,7 +248,7 @@
   - _Requirements: 5.8_
   - _Boundary: app/api/admin_routes.py_
 
-- [ ] 8.6 实现 GET /api/admin/sql-memory/stats
+- [x] 8.6 实现 GET /api/admin/sql-memory/stats
   - 接收可选查询参数 `user_id`, `database_name`, `status`
   - 通过 `sql_memory_store.get_stats_summary()` 获取统计数据
   - `mined_patterns` 仅在提供单一 `database_name` 且过滤后记录数 >= min_records 时返回；未提供 `database_name` 或记录不足时返回 None
@@ -257,11 +257,11 @@
   - _Requirements: 5.9, 5.10_
   - _Boundary: app/api/admin_routes.py_
 
-- [ ] 9. (P) 系统概览端点
+- [x] 9. (P) 系统概览端点
 
   实现 `/api/admin/overview` 端点，聚合多项系统级统计。
 
-- [ ] 9.1 实现 GET /api/admin/overview
+- [x] 9.1 实现 GET /api/admin/overview
   - 通过 `StorageBackend.count_sessions()` 和 `count_distinct_users()` 获取会话统计
   - 通过 `SqlMemoryBackend.count_records()` 获取 SQL 记忆记录数
   - HDC namespace 统计为 best-effort：仅统计 admin mappings 中引用过的 namespace，不枚举 OpenViking 全量目录
@@ -271,11 +271,11 @@
   - _Requirements: 7.1, 7.2, 7.3, 7.4_
   - _Boundary: app/api/admin_routes.py_
 
-- [ ] 10. resolve_hdc_namespace 实现与路由集成
+- [x] 10. resolve_hdc_namespace 实现与路由集成
 
   实现 namespace 自动解析函数，集成到 chat 和 chat/sync 流程。
 
-- [ ] 10.1 实现 resolve_hdc_namespace 函数
+- [x] 10.1 实现 resolve_hdc_namespace 函数
   - 函数签名：`async def resolve_hdc_namespace(user_id, schema_id, database_name, explicit_namespace) -> str | None`
   - 优先级：显式传入 `explicit_namespace` > admin mapping 查询 > None
   - 显式传入时有值直接返回，不查映射表
@@ -285,7 +285,7 @@
   - _Requirements: 3.1, 3.2, 3.3, 3.4, 3.6, 3.7_
   - _Boundary: app/api/routes.py_
 
-- [ ] 10.2 实现 _apply_hdc_namespace_resolution helper
+- [x] 10.2 实现 _apply_hdc_namespace_resolution helper
   - 创建 `_apply_hdc_namespace_resolution(session_state, request, user_id)` helper 函数
   - 内部调用 `resolve_hdc_namespace()` 并处理 `session_state["_hdc_namespace"]` 的写入或清理
   - **关键清理策略**：如果 `resolve_hdc_namespace()` 返回 `None`，必须执行 `session_state.pop("_hdc_namespace", None)`，确保不会复用上一轮持久化的旧 namespace 值；如果返回非 None，写入 `session_state["_hdc_namespace"]`
@@ -294,29 +294,29 @@
   - _Requirements: 3.5_
   - _Boundary: app/api/routes.py_
 
-- [ ] 11. 集成测试与验证
+- [x] 11. 集成测试与验证
 
   编写测试覆盖关键场景，确保所有端点正确工作。
 
-- [ ] 11.1 编写 Admin Store 单元测试
+- [x] 11.1 编写 Admin Store 单元测试
   - `SqliteAdminStore` 的 CRUD 操作：upsert、get、get_mappings（含过滤）、delete、not found
   - 使用 `:memory:` SQLite 数据库隔离测试
   - _Requirements: 2.1, 2.2, 2.3, 2.6_
   - _Boundary: tests/_
 
-- [ ] 11.2 编写 Auth Dependency 单元测试
+- [x] 11.2 编写 Auth Dependency 单元测试
   - token 正确、token 错误、无 header、未配置四种场景
   - 每种场景验证 HTTP 状态码和响应 detail
   - _Requirements: 1.1, 1.2, 1.3, 1.4_
   - _Boundary: tests/_
 
-- [ ] 11.3 编写 resolve_hdc_namespace 单元测试
+- [x] 11.3 编写 resolve_hdc_namespace 单元测试
   - 显式传入胜出、映射命中、映射不存在、字段缺失时的行为
   - 使用 `InMemoryAdminStore` 进行测试
   - _Requirements: 3.1, 3.2, 3.3, 3.4_
   - _Boundary: tests/_
 
-- [ ] 11.4 编写 SQL Memory 管理方法单元测试
+- [x] 11.4 编写 SQL Memory 管理方法单元测试
   - 同时覆盖 `InMemorySqlMemoryStore` 和 `SqliteSqlMemoryStore`（`:memory:` 模式）
   - `list_records` 分页正确性、`count_records` 组合过滤（status+ database+user）、`delete_records` 安全不变量验证（全空过滤 + no older_than_days → 0）
   - SQLite 专有测试：`table_names` JSON 文本解析（正常解析、解析失败跳过表分布）、status/database/user 组合过滤的 SQL WHERE 正确性
@@ -324,12 +324,12 @@
   - _Requirements: 6.1, 6.2, 6.3, 6.4, 6.5, 6.6_
   - _Boundary: tests/_
 
-- [ ] 11.5 编写 StorageBackend 统计方法单元测试
+- [x] 11.5 编写 StorageBackend 统计方法单元测试
   - `count_sessions` 和 `count_distinct_users` 在 InMemory/Sqlite 两种实现上的正确性
   - _Requirements: 8.1, 8.2, 8.3_
   - _Boundary: tests/_
 
-- [ ] 11.6 编写 E2E 集成测试
+- [x] 11.6 编写 E2E 集成测试
   - 管理员创建映射 → 用户发起 chat 请求 → 验证 namespace 自动解析到 session_state
   - 同一 session 再次发起 chat（无 mapping）→ 验证旧 namespace 被清除
   - 管理员清理 SQL Memory → 验证记录被删除
