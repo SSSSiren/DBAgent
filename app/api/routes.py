@@ -263,7 +263,8 @@ async def _execute_agent_stream(
         # ── 检索 SQL 历史记忆 ──
         sql_memories: list[dict[str, Any]] = []
         sql_memory_count = 0
-        if getattr(get_settings(), "sql_memory_enabled", False):
+        from app.config import get_settings as _get_sql_mem_settings
+        if getattr(_get_sql_mem_settings(), "sql_memory_enabled", False):
             try:
                 t_sql_start = time.monotonic()
                 sql_mem_store = get_storage().sql_memory_store
@@ -271,9 +272,9 @@ async def _execute_agent_stream(
                     user_input = initial_state.get("user_input", "")
                     selected_db = initial_state.get("selected_database") or {}
                     database_name = selected_db.get("schemaName", "")
-                    scope = getattr(get_settings(), "sql_memory_scope", "user")
-                    top_k = getattr(get_settings(), "sql_memory_top_k", 5)
-                    min_sim = getattr(get_settings(), "sql_memory_min_similarity", 0.0)
+                    scope = getattr(_get_sql_mem_settings(), "sql_memory_scope", "user")
+                    top_k = getattr(_get_sql_mem_settings(), "sql_memory_top_k", 5)
+                    min_sim = getattr(_get_sql_mem_settings(), "sql_memory_min_similarity", 0.0)
 
                     from app.memory.sql_memory import embed_text
                     query_embedding = await embed_text(user_input)
@@ -315,10 +316,12 @@ async def _execute_agent_stream(
                     hdc_ov = OVC(_hdc_settings.kb_openviking_url, user_id)
                     await hdc_ov.start()
                     retriever = HDCRetriever(hdc_ov)
+                    hdc_namespace = initial_state.get("_hdc_namespace")
                     hdc_ctx = await retriever.retrieve(
                         initial_state["user_input"],
                         selected_db.get("schemaId", 0),
                         selected_db.get("schemaName", ""),
+                        namespace=hdc_namespace,
                     )
                     if hdc_ctx:
                         initial_state["_hdc_context"] = retriever.format_context(hdc_ctx)
@@ -412,7 +415,8 @@ async def _execute_agent_stream(
                 print(f"[Pref][ERROR] 偏好记录失败: {type(e).__name__}: {e}")
 
         # ── 记录 SQL 历史记忆 ──
-        if getattr(get_settings(), "sql_memory_enabled", False) and final_payload:
+        from app.config import get_settings as _get_sql_mem_rec_settings
+        if getattr(_get_sql_mem_rec_settings(), "sql_memory_enabled", False) and final_payload:
             tool_calls = final_payload.get("tool_calls", [])
             try:
                 sql_mem_store = get_storage().sql_memory_store
@@ -559,6 +563,71 @@ async def _execute_agent_stream(
         cancel_registry.remove(session_id)
 
 
+# ========== HDC Namespace 解析 ==========
+
+
+async def resolve_hdc_namespace(
+    user_id: str,
+    schema_id: int | None,
+    database_name: str | None,
+    explicit_namespace: str | None,
+) -> str | None:
+    """
+    解析 HDC 知识库命名空间。
+
+    优先级：explicit_namespace > admin 映射 > None
+
+    Args:
+        user_id: 用户标识
+        schema_id: schema ID（来自 session_state 或请求）
+        database_name: 数据库名称
+        explicit_namespace: 请求中显式指定的 namespace
+
+    Returns:
+        解析到的 namespace 字符串，无法解析时返回 None
+    """
+    # 显式指定优先级最高，直接返回（无需查询映射表）
+    if explicit_namespace:
+        return explicit_namespace
+
+    # schema_id 为 None/0 或 database_name 为空时，跳过映射查询
+    if not schema_id or not database_name:
+        return None
+
+    storage = get_storage()
+    if storage.admin_store is None:
+        return None
+
+    mapping = await storage.admin_store.get_mapping(user_id, schema_id, database_name)
+    if mapping:
+        return mapping.get("hdc_namespace")
+    return None
+
+
+async def _apply_hdc_namespace_resolution(session_state: dict[str, Any], request, user_id: str) -> None:
+    """
+    调用 resolve_hdc_namespace 并将结果写入（或清理）session_state._hdc_namespace。
+
+    如果解析成功，设置 session_state["_hdc_namespace"]；
+    否则 pop 以确保不会复用上一轮的过期 namespace。
+    """
+    schema_id = None
+    database_name = None
+    selected_db = session_state.get("selected_database")
+    if selected_db:
+        schema_id = selected_db.get("schemaId")
+        database_name = selected_db.get("schemaName")
+
+    explicit = getattr(request, "hdc_namespace", None)
+    result = await resolve_hdc_namespace(user_id, schema_id, database_name, explicit)
+
+    if result is not None:
+        session_state["_hdc_namespace"] = result
+    else:
+        # CRITICAL: must pop to avoid reusing stale namespace from previous turn
+        session_state.pop("_hdc_namespace", None)
+
+
 # ========== HTTP 接口 ==========
 
 @router.post("/chat")
@@ -590,6 +659,21 @@ async def chat(request: ChatRequest) -> StreamingResponse:
         session_state = await _get_or_create_session(user_id, request.session_id)
         session_state["user_input"] = request.message
         session_state["user_id"] = user_id
+
+        # 注入请求中的 schema_id / database_name 到会话状态（HDC/SQL Memory 检索需要）
+        if request.schema_id:
+            session_state["selected_schema_id"] = request.schema_id
+        if request.database_name:
+            # 确保 selected_database 结构存在，让 HDC 检索能走到
+            if not session_state.get("selected_database"):
+                session_state["selected_database"] = {}
+            session_state["selected_database"]["schemaId"] = request.schema_id or 0
+            session_state["selected_database"]["schemaName"] = request.database_name
+        if request.hdc_namespace:
+            session_state["_hdc_namespace"] = request.hdc_namespace
+
+        # 解析 HDC namespace（显式参数 > admin 映射 > 回退）
+        await _apply_hdc_namespace_resolution(session_state, request, user_id)
 
         # 获取底层 Request 对象用于断开检测
         # FastAPI 中通过 request._request 访问 Starlette Request
@@ -639,6 +723,19 @@ async def chat_sync(request: ChatRequest) -> ChatResponse:
     session_state = await _get_or_create_session(user_id, request.session_id)
     session_state["user_input"] = request.message
     session_state["user_id"] = user_id
+    # 注入 schema_id / database_name / hdc_namespace
+    if request.schema_id:
+        session_state["selected_schema_id"] = request.schema_id
+    if request.database_name:
+        if not session_state.get("selected_database"):
+            session_state["selected_database"] = {}
+        session_state["selected_database"]["schemaId"] = request.schema_id or 0
+        session_state["selected_database"]["schemaName"] = request.database_name
+    if request.hdc_namespace:
+        session_state["_hdc_namespace"] = request.hdc_namespace
+
+    # 解析 HDC namespace（显式参数 > admin 映射 > 回退）
+    await _apply_hdc_namespace_resolution(session_state, request, user_id)
 
     final_payload: dict[str, Any] = {}
 
