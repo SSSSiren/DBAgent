@@ -67,6 +67,9 @@ class Settings(BaseSettings):
     hdc_semantic_timeout: float = 300.0  # write(wait=True) 等待 SemanticProcessor 的超时秒数
     hdc_column_budget: int = 1200  # 注入 NL2SQL prompt 的 HDC 列描述段字符预算
 
+    # ========== Admin API ==========
+    admin_api_token: str = ""
+
     model_config = SettingsConfigDict(
         env_file=".env",
         env_file_encoding="utf-8",

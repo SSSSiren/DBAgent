@@ -35,6 +35,8 @@ async def lifespan(app: FastAPI):
     print(f"[DBAgent] Storage backend: {settings.storage_backend}")
     print(f"[DBAgent] Preference: {'enabled' if settings.preference_enabled else 'disabled'}")
     print(f"[DBAgent] HDC: {'enabled' if settings.hdc_enabled else 'disabled'}" + (f" (auto_generate)" if settings.hdc_auto_generate else ""))
+    print(f"[DBAgent] SQL Memory: {'enabled' if settings.sql_memory_enabled else 'disabled'}" + (f" (top_k={settings.sql_memory_top_k}, scope={settings.sql_memory_scope}, ttl={settings.sql_memory_ttl_days}d)" if settings.sql_memory_enabled else ""))
+    print(f"[DBAgent] Admin API: {'configured' if settings.admin_api_token else 'disabled (token not set)'}")
 
     # 初始化存储（会话 + 偏好，创建数据库表和索引）
     storage = get_storage()
