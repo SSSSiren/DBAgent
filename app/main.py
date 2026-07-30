@@ -17,6 +17,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, HTMLResponse
 from fastapi.staticfiles import StaticFiles
 
+from app.api.admin_routes import admin_router
 from app.api.routes import router
 from app.api.schemas import HealthResponse
 from app.config import get_settings
@@ -78,6 +79,7 @@ def create_app() -> FastAPI:
 
     # 挂载路由
     app.include_router(router, prefix="/api")
+    app.include_router(admin_router, prefix="/api")
 
     # 健康检查
     @app.get("/health", response_model=HealthResponse)

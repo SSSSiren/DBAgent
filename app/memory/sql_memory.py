@@ -597,6 +597,305 @@ class InMemorySqlMemoryStore(SqlMemoryBackend):
                         updated += 1
         return updated
 
+    # ── 管理方法 ──────────────────────────────────────────────
+
+    async def list_records(
+        self,
+        user_id: str = "",
+        database_name: str = "",
+        status: str = "",
+        limit: int = 100,
+        offset: int = 0,
+    ) -> list[dict]:
+        """列出记录，支持按 user_id / database_name / execution_status 过滤并分页。
+        空字符串参数表示"匹配所有"。
+        """
+        matched: list[dict[str, Any]] = []
+        with self._lock:
+            for rid, rec in self._records.items():
+                if user_id and rec.get("user_id") != user_id:
+                    continue
+                if database_name and rec.get("database_name") != database_name:
+                    continue
+                if status and rec.get("execution_status") != status:
+                    continue
+                table_names_raw = rec.get("table_names", "[]")
+                if isinstance(table_names_raw, str):
+                    try:
+                        parsed = json.loads(table_names_raw)
+                    except (json.JSONDecodeError, TypeError):
+                        parsed = []
+                else:
+                    parsed = table_names_raw
+                matched.append({
+                    "id": rid,
+                    "user_id": rec.get("user_id", ""),
+                    "question": rec.get("question", ""),
+                    "sql_text": rec.get("sql_text", ""),
+                    "sql_truncated": rec.get("sql_truncated", ""),
+                    "table_names": parsed,
+                    "database_name": rec.get("database_name", ""),
+                    "schema_id": rec.get("schema_id", 0),
+                    "execution_status": rec.get("execution_status", ""),
+                    "created_at": rec.get("created_at", ""),
+                    "has_embedding": rec.get("embedding_json") is not None,
+                })
+        matched.sort(key=lambda r: r.get("created_at", ""), reverse=True)
+        return matched[offset:offset + limit]
+
+    async def count_records(
+        self,
+        user_id: str = "",
+        database_name: str = "",
+        status: str = "",
+    ) -> int:
+        """统计记录数量，支持按 user_id / database_name / execution_status 过滤。"""
+        count = 0
+        with self._lock:
+            for rec in self._records.values():
+                if user_id and rec.get("user_id") != user_id:
+                    continue
+                if database_name and rec.get("database_name") != database_name:
+                    continue
+                if status and rec.get("execution_status") != status:
+                    continue
+                count += 1
+        return count
+
+    async def delete_records(
+        self,
+        user_id: str = "",
+        database_name: str = "",
+        status: str = "",
+        older_than_days: int | None = None,
+    ) -> int:
+        """删除符合条件的记录，返回删除条数。
+
+        安全不变量：如果所有过滤参数均为空且 older_than_days 为 None，
+        拒绝操作并返回 0。
+        """
+        if not user_id and not database_name and not status and older_than_days is None:
+            return 0
+
+        cutoff: str | None = None
+        if older_than_days is not None:
+            cutoff = (
+                datetime.datetime.now() - datetime.timedelta(days=older_than_days)
+            ).isoformat()
+
+        deleted = 0
+        with self._lock:
+            to_delete: list[str] = []
+            for rid, rec in self._records.items():
+                if user_id and rec.get("user_id") != user_id:
+                    continue
+                if database_name and rec.get("database_name") != database_name:
+                    continue
+                if status and rec.get("execution_status") != status:
+                    continue
+                if cutoff and rec.get("created_at", "") >= cutoff:
+                    continue
+                to_delete.append(rid)
+            for rid in to_delete:
+                del self._records[rid]
+                deleted += 1
+        return deleted
+
+    async def get_status_summary(
+        self,
+        user_id: str = "",
+        database_name: str = "",
+        status: str = "",
+    ) -> dict:
+        """获取记录状态汇总：总量、embedding 覆盖率、状态分布、最早/最晚时间戳。"""
+        records: list[dict[str, Any]] = []
+        with self._lock:
+            for rid, rec in self._records.items():
+                if user_id and rec.get("user_id") != user_id:
+                    continue
+                if database_name and rec.get("database_name") != database_name:
+                    continue
+                if status and rec.get("execution_status") != status:
+                    continue
+                records.append({"id": rid, **rec})
+
+        total = len(records)
+        if total == 0:
+            return {
+                "total_records": 0,
+                "embedding_coverage": 0.0,
+                "status_breakdown": {},
+                "oldest_record": None,
+                "newest_record": None,
+            }
+
+        with_embedding = sum(
+            1 for r in records if r.get("embedding_json") is not None
+        )
+        embedding_coverage = round(with_embedding / total, 4) if total > 0 else 0.0
+
+        status_breakdown: dict[str, int] = {}
+        timestamps: list[str] = []
+        for r in records:
+            st = r.get("execution_status", "unknown")
+            status_breakdown[st] = status_breakdown.get(st, 0) + 1
+            ts = r.get("created_at", "")
+            if ts:
+                timestamps.append(ts)
+
+        timestamps.sort()
+        return {
+            "total_records": total,
+            "embedding_coverage": embedding_coverage,
+            "status_breakdown": status_breakdown,
+            "oldest_record": timestamps[0] if timestamps else None,
+            "newest_record": timestamps[-1] if timestamps else None,
+        }
+
+    async def get_stats_summary(
+        self,
+        user_id: str = "",
+        database_name: str = "",
+        status: str = "",
+        min_records: int = 20,
+    ) -> dict:
+        """获取记录统计摘要：表分布、数据库分布、每日直方图、挖掘模式。
+
+        table_names JSON 解析失败时跳过表分布统计，但仍计入其他统计项。
+        mined_patterns 仅在提供单一 database_name 且记录数 >= min_records 时返回。
+        """
+        import re
+
+        records: list[dict[str, Any]] = []
+        with self._lock:
+            for rid, rec in self._records.items():
+                if user_id and rec.get("user_id") != user_id:
+                    continue
+                if database_name and rec.get("database_name") != database_name:
+                    continue
+                if status and rec.get("execution_status") != status:
+                    continue
+                records.append({"id": rid, **rec})
+
+        total = len(records)
+
+        table_distribution: dict[str, int] = {}
+        db_distribution: dict[str, int] = {}
+        daily_histogram: dict[str, int] = {}
+
+        for r in records:
+            # database distribution
+            dbn = r.get("database_name", "")
+            if dbn:
+                db_distribution[dbn] = db_distribution.get(dbn, 0) + 1
+
+            # daily histogram
+            created = r.get("created_at", "")
+            if created:
+                day = created[:10]
+                daily_histogram[day] = daily_histogram.get(day, 0) + 1
+
+            # table distribution — parse JSON; skip on failure but count in others
+            table_names_raw = r.get("table_names", "[]")
+            if isinstance(table_names_raw, str):
+                try:
+                    parsed = json.loads(table_names_raw)
+                except (json.JSONDecodeError, TypeError):
+                    parsed = []
+            else:
+                parsed = table_names_raw
+            for t in parsed:
+                table_distribution[t] = table_distribution.get(t, 0) + 1
+
+        # mined_patterns — only when single database_name AND records >= min_records
+        mined_patterns = None
+        if database_name and total >= min_records:
+            pattern_records = [
+                r for r in records if r.get("database_name") == database_name
+            ]
+            if len(pattern_records) >= min_records:
+                table_counts: dict[str, int] = {}
+                condition_patterns: dict[str, int] = {}
+                join_pairs: dict[str, int] = {}
+
+                for r in pattern_records:
+                    table_names_raw = r.get("table_names", "[]")
+                    if isinstance(table_names_raw, str):
+                        try:
+                            names = json.loads(table_names_raw)
+                        except (json.JSONDecodeError, TypeError):
+                            names = []
+                    else:
+                        names = table_names_raw
+                    for t in names:
+                        table_counts[t] = table_counts.get(t, 0) + 1
+
+                    sql_text = r.get("sql_text", "")
+                    where_match = re.search(
+                        r"\bWHERE\b\s+(.+?)(?:\bGROUP\b|\bORDER\b|\bLIMIT\b|\bHAVING\b|$)",
+                        sql_text,
+                        re.IGNORECASE | re.DOTALL,
+                    )
+                    if where_match:
+                        condition = where_match.group(1).strip()
+                        normalized = re.sub(r"'[^']*'", "?", condition)
+                        normalized = re.sub(r"\b\d+\b", "?", normalized)
+                        normalized = " ".join(normalized.split()).rstrip(";")
+                        condition_patterns[normalized] = (
+                            condition_patterns.get(normalized, 0) + 1
+                        )
+
+                    join_tables = re.findall(
+                        r"\bJOIN\b\s+`?(\w+)`?", sql_text, re.IGNORECASE
+                    )
+                    from_tables = re.findall(
+                        r"\bFROM\b\s+`?(\w+)`?", sql_text, re.IGNORECASE
+                    )
+                    for ft in from_tables:
+                        for jt in join_tables:
+                            pair = tuple(sorted([ft, jt]))
+                            key = f"{pair[0]},{pair[1]}"
+                            join_pairs[key] = join_pairs.get(key, 0) + 1
+
+                top_tables = sorted(
+                    [{"table": k, "count": v} for k, v in table_counts.items()],
+                    key=lambda x: x["count"],
+                    reverse=True,
+                )[:10]
+
+                top_conditions = sorted(
+                    [
+                        {"pattern": k, "count": v}
+                        for k, v in condition_patterns.items()
+                    ],
+                    key=lambda x: x["count"],
+                    reverse=True,
+                )[:10]
+
+                common_joins = sorted(
+                    [
+                        {"tables": k.split(","), "count": v}
+                        for k, v in join_pairs.items()
+                    ],
+                    key=lambda x: x["count"],
+                    reverse=True,
+                )[:10]
+
+                mined_patterns = {
+                    "total_records": len(pattern_records),
+                    "top_tables": top_tables,
+                    "top_condition_patterns": top_conditions,
+                    "common_joins": common_joins,
+                }
+
+        return {
+            "total_records": total,
+            "table_distribution": table_distribution,
+            "database_distribution": db_distribution,
+            "daily_histogram": daily_histogram,
+            "mined_patterns": mined_patterns,
+        }
+
 
 # ============================================================================
 # SqliteSqlMemoryStore — SQLite 持久化 SQL 记忆存储实现
@@ -1027,6 +1326,406 @@ class SqliteSqlMemoryStore(SqlMemoryBackend):
             "top_tables": top_tables,
             "top_condition_patterns": top_conditions,
             "common_joins": common_joins,
+        }
+
+    # ── 管理方法 ──────────────────────────────────────────────
+
+    async def list_records(
+        self,
+        user_id: str = "",
+        database_name: str = "",
+        status: str = "",
+        limit: int = 100,
+        offset: int = 0,
+    ) -> list[dict]:
+        """列出记录，支持按 user_id / database_name / execution_status 过滤并分页。
+        空字符串参数表示"匹配所有"。
+        """
+        if self._conn is None:
+            return []
+
+        clauses: list[str] = []
+        params: list[Any] = []
+
+        if user_id:
+            clauses.append("user_id = ?")
+            params.append(user_id)
+        if database_name:
+            clauses.append("database_name = ?")
+            params.append(database_name)
+        if status:
+            clauses.append("execution_status = ?")
+            params.append(status)
+
+        where = ""
+        if clauses:
+            where = "WHERE " + " AND ".join(clauses)
+
+        params.extend([limit, offset])
+        cursor = await self._conn.execute(
+            f"""
+            SELECT id, user_id, question, sql_text, sql_truncated,
+                   table_names, database_name, schema_id,
+                   execution_status, embedding_json, created_at
+            FROM sql_memories
+            {where}
+            ORDER BY created_at DESC
+            LIMIT ? OFFSET ?;
+            """,
+            params,
+        )
+        rows = await cursor.fetchall()
+        results: list[dict[str, Any]] = []
+        for row in rows:
+            rec = dict(row)
+            table_names_raw = rec.get("table_names", "[]")
+            if isinstance(table_names_raw, str):
+                try:
+                    parsed = json.loads(table_names_raw)
+                except (json.JSONDecodeError, TypeError):
+                    parsed = []
+            else:
+                parsed = table_names_raw
+            results.append({
+                "id": rec["id"],
+                "user_id": rec["user_id"],
+                "question": rec["question"],
+                "sql_text": rec["sql_text"],
+                "sql_truncated": rec.get("sql_truncated", ""),
+                "table_names": parsed,
+                "database_name": rec["database_name"],
+                "schema_id": rec["schema_id"],
+                "execution_status": rec.get("execution_status", ""),
+                "created_at": rec.get("created_at", ""),
+                "has_embedding": rec.get("embedding_json") is not None,
+            })
+        return results
+
+    async def count_records(
+        self,
+        user_id: str = "",
+        database_name: str = "",
+        status: str = "",
+    ) -> int:
+        """统计记录数量，支持按 user_id / database_name / execution_status 过滤。"""
+        if self._conn is None:
+            return 0
+
+        clauses: list[str] = []
+        params: list[Any] = []
+
+        if user_id:
+            clauses.append("user_id = ?")
+            params.append(user_id)
+        if database_name:
+            clauses.append("database_name = ?")
+            params.append(database_name)
+        if status:
+            clauses.append("execution_status = ?")
+            params.append(status)
+
+        where = ""
+        if clauses:
+            where = "WHERE " + " AND ".join(clauses)
+
+        cursor = await self._conn.execute(
+            f"SELECT COUNT(*) as cnt FROM sql_memories {where};", params
+        )
+        row = await cursor.fetchone()
+        return row["cnt"] if row else 0
+
+    async def delete_records(
+        self,
+        user_id: str = "",
+        database_name: str = "",
+        status: str = "",
+        older_than_days: int | None = None,
+    ) -> int:
+        """删除符合条件的记录，返回删除条数。
+
+        安全不变量：如果所有过滤参数均为空且 older_than_days 为 None，
+        拒绝操作并返回 0。
+        """
+        if self._conn is None:
+            return 0
+
+        if not user_id and not database_name and not status and older_than_days is None:
+            return 0
+
+        clauses: list[str] = []
+        params: list[Any] = []
+
+        if user_id:
+            clauses.append("user_id = ?")
+            params.append(user_id)
+        if database_name:
+            clauses.append("database_name = ?")
+            params.append(database_name)
+        if status:
+            clauses.append("execution_status = ?")
+            params.append(status)
+        if older_than_days is not None:
+            clauses.append(
+                "created_at < datetime('now', '-' || CAST(? AS TEXT) || ' days')"
+            )
+            params.append(str(older_than_days))
+
+        where = "WHERE " + " AND ".join(clauses)
+        cursor = await self._conn.execute(
+            f"DELETE FROM sql_memories {where};", params
+        )
+        await self._conn.commit()
+        return cursor.rowcount
+
+    async def get_status_summary(
+        self,
+        user_id: str = "",
+        database_name: str = "",
+        status: str = "",
+    ) -> dict:
+        """获取记录状态汇总：总量、状态分布、最早/最晚时间戳。
+        通过 SQL 聚合查询实现。
+        """
+        if self._conn is None:
+            return {
+                "total_records": 0,
+                "embedding_coverage": 0.0,
+                "status_breakdown": {},
+                "oldest_record": None,
+                "newest_record": None,
+            }
+
+        clauses: list[str] = []
+        params: list[Any] = []
+
+        if user_id:
+            clauses.append("user_id = ?")
+            params.append(user_id)
+        if database_name:
+            clauses.append("database_name = ?")
+            params.append(database_name)
+        if status:
+            clauses.append("execution_status = ?")
+            params.append(status)
+
+        where = ""
+        if clauses:
+            where = "WHERE " + " AND ".join(clauses)
+
+        # 总体统计：count + embedding 覆盖率 + earliest/latest
+        cursor = await self._conn.execute(
+            f"""
+            SELECT
+                COUNT(*) as total,
+                SUM(CASE WHEN embedding_json IS NOT NULL THEN 1 ELSE 0 END) as with_embedding,
+                MIN(created_at) as earliest,
+                MAX(created_at) as latest
+            FROM sql_memories
+            {where};
+            """,
+            params,
+        )
+        row = await cursor.fetchone()
+        total = row["total"] if row else 0
+        with_embedding = row["with_embedding"] if row else 0
+        embedding_coverage = round(with_embedding / total, 4) if total > 0 else 0.0
+
+        # 状态分布
+        cursor = await self._conn.execute(
+            f"""
+            SELECT execution_status, COUNT(*) as cnt
+            FROM sql_memories
+            {where}
+            GROUP BY execution_status;
+            """,
+            params,
+        )
+        status_rows = await cursor.fetchall()
+        status_breakdown: dict[str, int] = {}
+        for sr in status_rows:
+            status_breakdown[sr["execution_status"]] = sr["cnt"]
+
+        return {
+            "total_records": total,
+            "embedding_coverage": embedding_coverage,
+            "status_breakdown": status_breakdown,
+            "oldest_record": row["earliest"] if row else None,
+            "newest_record": row["latest"] if row else None,
+        }
+
+    async def get_stats_summary(
+        self,
+        user_id: str = "",
+        database_name: str = "",
+        status: str = "",
+        min_records: int = 20,
+    ) -> dict:
+        """获取记录统计摘要：表分布、数据库分布、每日直方图、挖掘模式。
+
+        table_names JSON 在 Python 中解析，不使用 SQLite JSON1 扩展。
+        JSON 解析失败时跳过表分布统计，但仍计入其他统计项。
+        mined_patterns 仅在提供单一 database_name 且记录数 >= min_records 时返回。
+        """
+        import re
+
+        if self._conn is None:
+            return {
+                "total_records": 0,
+                "table_distribution": {},
+                "database_distribution": {},
+                "daily_histogram": {},
+                "mined_patterns": None,
+            }
+
+        clauses: list[str] = []
+        params: list[Any] = []
+
+        if user_id:
+            clauses.append("user_id = ?")
+            params.append(user_id)
+        if database_name:
+            clauses.append("database_name = ?")
+            params.append(database_name)
+        if status:
+            clauses.append("execution_status = ?")
+            params.append(status)
+
+        where = ""
+        if clauses:
+            where = "WHERE " + " AND ".join(clauses)
+
+        # 查询匹配的记录
+        cursor = await self._conn.execute(
+            f"""
+            SELECT table_names, database_name, created_at, sql_text
+            FROM sql_memories
+            {where};
+            """,
+            params,
+        )
+        rows = await cursor.fetchall()
+
+        total = len(rows)
+
+        table_distribution: dict[str, int] = {}
+        db_distribution: dict[str, int] = {}
+        daily_histogram: dict[str, int] = {}
+
+        pattern_records: list[dict[str, Any]] = []
+
+        for row in rows:
+            rec = dict(row)
+
+            # database distribution
+            dbn = rec.get("database_name", "")
+            if dbn:
+                db_distribution[dbn] = db_distribution.get(dbn, 0) + 1
+
+            # daily histogram
+            created = rec.get("created_at", "")
+            if created:
+                day = created[:10]
+                daily_histogram[day] = daily_histogram.get(day, 0) + 1
+
+            # table distribution — parse JSON in Python; skip on failure but count in others
+            table_names_raw = rec.get("table_names", "[]")
+            if isinstance(table_names_raw, str):
+                try:
+                    parsed = json.loads(table_names_raw)
+                except (json.JSONDecodeError, TypeError):
+                    parsed = []
+            else:
+                parsed = table_names_raw
+            for t in parsed:
+                table_distribution[t] = table_distribution.get(t, 0) + 1
+
+            # collect for mined_patterns if single database_name
+            if database_name and rec.get("database_name") == database_name:
+                pattern_records.append(rec)
+
+        # mined_patterns — only when single database_name AND records >= min_records
+        mined_patterns = None
+        if database_name and len(pattern_records) >= min_records:
+            table_counts: dict[str, int] = {}
+            condition_patterns: dict[str, int] = {}
+            join_pairs: dict[str, int] = {}
+
+            for r in pattern_records:
+                table_names_raw = r.get("table_names", "[]")
+                if isinstance(table_names_raw, str):
+                    try:
+                        names = json.loads(table_names_raw)
+                    except (json.JSONDecodeError, TypeError):
+                        names = []
+                else:
+                    names = table_names_raw
+                for t in names:
+                    table_counts[t] = table_counts.get(t, 0) + 1
+
+                sql_text = r.get("sql_text") or ""
+                where_match = re.search(
+                    r"\bWHERE\b\s+(.+?)(?:\bGROUP\b|\bORDER\b|\bLIMIT\b|\bHAVING\b|$)",
+                    sql_text,
+                    re.IGNORECASE | re.DOTALL,
+                )
+                if where_match:
+                    condition = where_match.group(1).strip()
+                    normalized = re.sub(r"'[^']*'", "?", condition)
+                    normalized = re.sub(r"\b\d+\b", "?", normalized)
+                    normalized = " ".join(normalized.split()).rstrip(";")
+                    condition_patterns[normalized] = (
+                        condition_patterns.get(normalized, 0) + 1
+                    )
+
+                join_tables = re.findall(
+                    r"\bJOIN\b\s+`?(\w+)`?", sql_text, re.IGNORECASE
+                )
+                from_tables = re.findall(
+                    r"\bFROM\b\s+`?(\w+)`?", sql_text, re.IGNORECASE
+                )
+                for ft in from_tables:
+                    for jt in join_tables:
+                        pair = tuple(sorted([ft, jt]))
+                        key = f"{pair[0]},{pair[1]}"
+                        join_pairs[key] = join_pairs.get(key, 0) + 1
+
+            top_tables = sorted(
+                [{"table": k, "count": v} for k, v in table_counts.items()],
+                key=lambda x: x["count"],
+                reverse=True,
+            )[:10]
+
+            top_conditions = sorted(
+                [
+                    {"pattern": k, "count": v}
+                    for k, v in condition_patterns.items()
+                ],
+                key=lambda x: x["count"],
+                reverse=True,
+            )[:10]
+
+            common_joins = sorted(
+                [
+                    {"tables": k.split(","), "count": v}
+                    for k, v in join_pairs.items()
+                ],
+                key=lambda x: x["count"],
+                reverse=True,
+            )[:10]
+
+            mined_patterns = {
+                "total_records": len(pattern_records),
+                "top_tables": top_tables,
+                "top_condition_patterns": top_conditions,
+                "common_joins": common_joins,
+            }
+
+        return {
+            "total_records": total,
+            "table_distribution": table_distribution,
+            "database_distribution": db_distribution,
+            "daily_histogram": daily_histogram,
+            "mined_patterns": mined_patterns,
         }
 
 
