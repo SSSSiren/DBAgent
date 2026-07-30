@@ -85,6 +85,24 @@ class StorageBackend(Protocol):
         """
         ...
 
+    async def count_sessions(self) -> int:
+        """
+        返回跨所有用户的会话总数。
+
+        Returns:
+            会话总数
+        """
+        ...
+
+    async def count_distinct_users(self) -> int:
+        """
+        返回至少拥有一个会话的不重复用户数。
+
+        Returns:
+            不重复用户数
+        """
+        ...
+
     async def initialize(self) -> None:
         """初始化存储（创建表等），启动时调用一次"""
         ...
@@ -221,6 +239,24 @@ class InMemoryStore:
         # 按 last_active_at 降序
         sessions.sort(key=lambda s: s.get("last_active_at", ""), reverse=True)
         return sessions
+
+    async def count_sessions(self) -> int:
+        """
+        返回跨所有用户的会话总数。
+
+        遍历内存字典计算条目数。
+        """
+        with self._lock:
+            return len(self._store)
+
+    async def count_distinct_users(self) -> int:
+        """
+        返回至少拥有一个会话的不重复用户数。
+
+        遍历内存字典提取不重复的 user_id。
+        """
+        with self._lock:
+            return len({uid for (uid, _) in self._store})
 
     async def initialize(self) -> None:
         """初始化存储（内存存储无需操作）"""
@@ -429,6 +465,26 @@ class SqliteStore:
             })
 
         return summaries
+
+    async def count_sessions(self) -> int:
+        """
+        返回跨所有用户的会话总数。
+
+        使用 SQL 聚合查询 COUNT(*) 计算。
+        """
+        cursor = await self._conn.execute("SELECT COUNT(*) FROM sessions;")
+        row = await cursor.fetchone()
+        return row[0] if row else 0
+
+    async def count_distinct_users(self) -> int:
+        """
+        返回至少拥有一个会话的不重复用户数。
+
+        使用 SQL 聚合查询 COUNT(DISTINCT user_id) 计算。
+        """
+        cursor = await self._conn.execute("SELECT COUNT(DISTINCT user_id) FROM sessions;")
+        row = await cursor.fetchone()
+        return row[0] if row else 0
 
 
 # ============================================================================

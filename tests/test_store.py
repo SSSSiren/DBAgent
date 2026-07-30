@@ -698,3 +698,145 @@ async def test_any_store_preserves_complex_data(any_store):
     assert len(state["chat_history"]) == 2
     assert state["chat_history"][0]["metadata"]["priority"] == "high"
     assert state["chat_history"][1]["sql"] is True
+
+
+# ============================================================================
+# count_sessions 和 count_distinct_users 测试
+# ============================================================================
+
+@pytest.mark.asyncio
+async def test_count_sessions_empty_store(store):
+    """验证空存储中 count_sessions() 返回 0"""
+    assert await store.count_sessions() == 0
+
+
+@pytest.mark.asyncio
+async def test_count_distinct_users_empty_store(store):
+    """验证空存储中 count_distinct_users() 返回 0"""
+    assert await store.count_distinct_users() == 0
+
+
+@pytest.mark.asyncio
+async def test_count_sessions_basic(store):
+    """验证 count_sessions() 返回跨所有用户的会话总数"""
+    await store.create_session("alice", "sess-001", {"summary": "a1"})
+    await store.create_session("alice", "sess-002", {"summary": "a2"})
+    await store.create_session("bob", "sess-001", {"summary": "b1"})
+
+    assert await store.count_sessions() == 3
+
+
+@pytest.mark.asyncio
+async def test_count_distinct_users_basic(store):
+    """验证 count_distinct_users() 返回至少有一个会话的不重复用户数"""
+    await store.create_session("alice", "sess-001", {"summary": "a1"})
+    await store.create_session("alice", "sess-002", {"summary": "a2"})
+    await store.create_session("bob", "sess-001", {"summary": "b1"})
+
+    assert await store.count_distinct_users() == 2
+
+
+@pytest.mark.asyncio
+async def test_count_sessions_after_delete(store):
+    """验证删除会话后 count_sessions() 正确减少"""
+    await store.create_session("alice", "sess-001", {"summary": "a1"})
+    await store.create_session("alice", "sess-002", {"summary": "a2"})
+
+    assert await store.count_sessions() == 2
+
+    await store.delete_session("alice", "sess-001")
+
+    assert await store.count_sessions() == 1
+
+
+@pytest.mark.asyncio
+async def test_count_distinct_users_after_delete_all(store):
+    """验证删除某用户所有会话后 count_distinct_users() 正确减少"""
+    await store.create_session("alice", "sess-001", {"summary": "a1"})
+    await store.create_session("bob", "sess-001", {"summary": "b1"})
+
+    assert await store.count_distinct_users() == 2
+
+    await store.delete_session("alice", "sess-001")
+
+    assert await store.count_distinct_users() == 1
+
+
+# ── Parametrized: count_sessions 和 count_distinct_users ──────────────────
+
+@pytest.mark.asyncio
+async def test_any_store_count_sessions_empty(any_store):
+    """验证两种后端：空存储 count_sessions() 返回 0"""
+    assert await any_store.count_sessions() == 0
+
+
+@pytest.mark.asyncio
+async def test_any_store_count_distinct_users_empty(any_store):
+    """验证两种后端：空存储 count_distinct_users() 返回 0"""
+    assert await any_store.count_distinct_users() == 0
+
+
+@pytest.mark.asyncio
+async def test_any_store_count_sessions_basic(any_store):
+    """验证两种后端：count_sessions() 返回跨用户总数"""
+    await any_store.create_session("alice", "sess-001", {"summary": "a1"})
+    await any_store.create_session("alice", "sess-002", {"summary": "a2"})
+    await any_store.create_session("bob", "sess-001", {"summary": "b1"})
+
+    assert await any_store.count_sessions() == 3
+
+
+@pytest.mark.asyncio
+async def test_any_store_count_distinct_users_basic(any_store):
+    """验证两种后端：count_distinct_users() 返回不重复用户数"""
+    await any_store.create_session("alice", "sess-001", {"summary": "a1"})
+    await any_store.create_session("alice", "sess-002", {"summary": "a2"})
+    await any_store.create_session("bob", "sess-001", {"summary": "b1"})
+    await any_store.create_session("charlie", "sess-001", {"summary": "c1"})
+
+    assert await any_store.count_distinct_users() == 3
+
+
+@pytest.mark.asyncio
+async def test_any_store_count_sessions_after_delete(any_store):
+    """验证两种后端：删除后 count_sessions() 正确减少"""
+    await any_store.create_session("alice", "sess-001", {"summary": "a1"})
+    await any_store.create_session("alice", "sess-002", {"summary": "a2"})
+
+    assert await any_store.count_sessions() == 2
+    await any_store.delete_session("alice", "sess-001")
+    assert await any_store.count_sessions() == 1
+
+
+@pytest.mark.asyncio
+async def test_any_store_count_distinct_users_after_delete_all(any_store):
+    """验证两种后端：删除某用户所有会话后 count_distinct_users() 减少"""
+    await any_store.create_session("alice", "sess-001", {"summary": "a1"})
+    await any_store.create_session("bob", "sess-001", {"summary": "b1"})
+
+    assert await any_store.count_distinct_users() == 2
+    await any_store.delete_session("alice", "sess-001")
+    assert await any_store.count_distinct_users() == 1
+
+
+@pytest.mark.asyncio
+async def test_any_store_counts_consistent(any_store):
+    """验证两种后端：count_sessions 和 count_distinct_users 的一致性"""
+    # 空存储
+    assert await any_store.count_sessions() == 0
+    assert await any_store.count_distinct_users() == 0
+
+    # 一个用户一个会话
+    await any_store.create_session("alice", "sess-001", {"summary": "a1"})
+    assert await any_store.count_sessions() == 1
+    assert await any_store.count_distinct_users() == 1
+
+    # 同一用户再加一个会话
+    await any_store.create_session("alice", "sess-002", {"summary": "a2"})
+    assert await any_store.count_sessions() == 2
+    assert await any_store.count_distinct_users() == 1
+
+    # 新增用户
+    await any_store.create_session("bob", "sess-001", {"summary": "b1"})
+    assert await any_store.count_sessions() == 3
+    assert await any_store.count_distinct_users() == 2
