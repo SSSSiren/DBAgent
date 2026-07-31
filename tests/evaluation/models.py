@@ -137,7 +137,9 @@ class DimensionScores(BaseModel):
 class RunDetail(BaseModel):
     """单次运行的效率指标（用于重复执行时收集 per-run 数据）"""
     duration_ms: int = Field(default=0, description="本次运行耗时（毫秒）")
-    prep_ms: float = Field(default=0.0, description="上下文准备耗时（毫秒）")
+    prep_ms: float = Field(default=0.0, description="上下文准备耗时（毫秒，含构建上下文）")
+    hdc_prep_ms: float = Field(default=0.0, description="HDC 检索耗时（毫秒）")
+    sql_prep_ms: float = Field(default=0.0, description="SQL 记忆检索耗时（毫秒）")
     ttfb_ms: float | None = Field(default=None, description="首个输出到达时间（毫秒）")
     tool_call_count: int = Field(default=0, description="工具调用次数")
     tool_call_details: dict[str, int] = Field(default_factory=dict, description="各工具调用次数")

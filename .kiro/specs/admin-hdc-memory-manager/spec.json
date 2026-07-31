@@ -1,0 +1,22 @@
+{
+  "feature_name": "admin-hdc-memory-manager",
+  "created_at": "2026-07-30T10:00:00+08:00",
+  "updated_at": "2026-07-30T12:00:00+08:00",
+  "language": "zh",
+  "phase": "tasks-generated",
+  "approvals": {
+    "requirements": {
+      "generated": true,
+      "approved": true
+    },
+    "design": {
+      "generated": true,
+      "approved": true
+    },
+    "tasks": {
+      "generated": true,
+      "approved": false
+    }
+  },
+  "ready_for_implementation": false
+}

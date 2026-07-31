@@ -3,26 +3,32 @@
 Agent 性能评测 CLI 工具
 
 用法:
+    # 基础评测
     python -m tests.evaluation.cli run                     # 运行全部用例
     python -m tests.evaluation.cli run --ids TC-001 TC-005 # 指定用例
     python -m tests.evaluation.cli run --difficulty Hard   # 按难度筛选
     python -m tests.evaluation.cli run --baseline output/baseline.json  # 基线对比
     python -m tests.evaluation.cli list                    # 列出所有用例
 
-    # 列出 CS 用例
-    python -m tests.evaluation.cli list --test-file tests/docs/test_cases_onedba_cs_evaluation.md
+    # HDC 对比
+    python -m tests.evaluation.cli run --compare-hdc --ids CS-001 CS-007
 
-    # 运行 CS 用例
-    python -m tests.evaluation.cli run \
-        --test-file tests/docs/test_cases_onedba_cs_evaluation.md \
-        --schema-id 24223568 --db-name dw_onedba_cs \
+    # SQL 记忆对比（纯记忆 vs 无记忆）
+    python -m tests.evaluation.cli run --compare-sql-memory
+
+    # SQL 记忆 + HDC 叠加对比
+    python -m tests.evaluation.cli run --compare-sql-memory --with-hdc --verbose-hdc
+
+    # SQL 记忆增量评测（跳过基线，复用已有测评结果）
+    python -m tests.evaluation.cli run --compare-sql-memory --with-hdc \\
+        --skip-seed --skip-baseline --baseline output/baseline.json \\
+        --hdc-namespace recall_complete --verbose-hdc
+
+    # CS 用例
+    python -m tests.evaluation.cli run \\
+        --test-file tests/docs/test_cases_onedba_cs_evaluation.md \\
+        --schema-id 24223568 --db-name dw_onedba_cs \\
         --ids CS-001 CS-003 CS-005
-
-    # CS 用例 HDC 对比
-    python -m tests.evaluation.cli run \
-        --test-file tests/docs/test_cases_onedba_cs_evaluation.md \
-        --schema-id 24223568 --db-name dw_onedba_cs \
-        --compare-hdc --ids CS-001 CS-007
 """
 
 from __future__ import annotations
@@ -30,10 +36,9 @@ from __future__ import annotations
 import argparse
 import asyncio
 import sys
-from pathlib import Path
 
 from .loader import load_test_cases, filter_test_cases
-from .runner import run_evaluation
+from .runner import run_evaluation, _cleanup_sql_memory
 from .reporter import generate_report, generate_hdc_comparison_report
 
 
@@ -142,6 +147,9 @@ def cmd_run(args: argparse.Namespace) -> None:
 
         _print_summary(report, json_path, md_path)
 
+        # 关闭 SQL 记忆连接，避免 aiosqlite 后台线程阻塞进程退出
+        await _cleanup_sql_memory()
+
     asyncio.run(_run())
 
 
@@ -249,6 +257,9 @@ def _run_compare_hdc(args: argparse.Namespace, filtered) -> None:
         _print_summary(with_hdc_report, "", "")
         print(f"\nJSON 报告: {json_path}")
         print(f"Markdown 报告: {md_path}")
+
+        # 清理
+        await _cleanup_sql_memory()
 
     asyncio.run(_run())
 
@@ -391,6 +402,7 @@ def _run_compare_sql_memory(args: argparse.Namespace, filtered) -> None:
             seed_count,
             output_dir=args.output_dir,
             hdc_enabled=use_hdc,
+            cli_command=cli_cmd,
         )
 
         print(f"\n{'='*60}")
@@ -407,11 +419,8 @@ def _run_compare_sql_memory(args: argparse.Namespace, filtered) -> None:
         print(f"\nJSON 报告: {json_path}")
         print(f"Markdown 报告: {md_path}")
 
-        # 清理：关闭 SQLite 连接，避免 aiosqlite 后台线程阻塞进程退出
-        from app.memory.manager import get_storage as _gs
-        store = _gs().sql_memory_store
-        if store is not None:
-            await store.close()
+        # 清理
+        await _cleanup_sql_memory()
 
     asyncio.run(_run())
 
@@ -462,6 +471,9 @@ async def _seed_sql_memory_from_twin_cases(
         )
         count += 1
 
+    # 关闭连接，避免 aiosqlite 后台线程阻塞进程退出
+    await store.close()
+
     return count
 
 
@@ -471,6 +483,7 @@ def _generate_sql_memory_comparison_report(
     seed_count: int,
     output_dir: str = "tests/evaluation/output",
     hdc_enabled: bool = False,
+    cli_command: str = "",
 ) -> tuple[str, str]:
     """生成 SQL 记忆对比报告（JSON + Markdown），格式与 evaluation_report 对齐。"""
     import json
@@ -496,14 +509,6 @@ def _generate_sql_memory_comparison_report(
         ("average_input_tokens",    "平均输入 Token",  ".0f",  True),
         ("average_output_tokens",   "平均输出 Token",  ".0f",  True),
     ]
-
-    labels: dict[str, str] = {
-        "overall_pass_rate": "通过率", "average_score": "平均分",
-        "average_latency_ms": "平均延迟", "average_prep_ms": "平均准备耗时",
-        "average_ttfb_ms": "平均 TTFB", "average_tool_calls": "平均工具调用",
-        "average_turns": "平均 Turns", "average_tokens": "平均 Token",
-        "average_input_tokens": "平均输入 Token", "average_output_tokens": "平均输出 Token",
-    }
 
     def _val(report, field: str) -> float:
         v = getattr(report, field, 0)
@@ -569,6 +574,7 @@ def _generate_sql_memory_comparison_report(
     # ── JSON ──
     comparison_data = {
         "timestamp": timestamp, "seed_count": seed_count, "hdc_enabled": hdc_enabled,
+        "cli_command": cli_command,
         "baseline": {"passed": b.passed_cases, "failed": b.failed_cases, "errors": b.error_cases,
                       "pass_rate": b.overall_pass_rate, "avg_score": b.average_score,
                       "avg_latency_ms": b.average_latency_ms, "avg_prep_ms": b.average_prep_ms,
@@ -593,7 +599,7 @@ def _generate_sql_memory_comparison_report(
     # ── Markdown 报告 ──
     md_path = os.path.join(output_dir, f"sql_memory_comparison_{timestamp}.md")
 
-    def _delta_str(base: float, cur: float, fmt: str, lower_better: bool = False) -> str:
+    def _delta_str(base: float, cur: float, fmt: str) -> str:
         d = cur - base
         if fmt == "pct":
             return f"{base:.2%} → {cur:.2%} ({d:+.1%})"
@@ -617,6 +623,8 @@ def _generate_sql_memory_comparison_report(
         fm.write(f"**记忆库记录数**: {seed_count}\n")
         fm.write(f"**LLM 模型**: {b.llm_model}\n")
         fm.write(f"**LLM Base URL**: {b.llm_base_url}\n")
+        if cli_command:
+            fm.write(f"**CLI 命令**: `{cli_command}`\n")
         if hdc_enabled:
             fm.write(f"**HDC**: 已启用（两轮均注入 HDC 数据底座）\n")
         fm.write("\n")
@@ -630,7 +638,7 @@ def _generate_sql_memory_comparison_report(
             mv = _val(m, field)
             if bv == 0 and mv == 0:
                 continue
-            ds = _delta_str(bv, mv, fmt, lower)
+            ds = _delta_str(bv, mv, fmt)
             tr = _trend(bv, mv, lower)
             fm.write(f"| {label} | {ds} | {tr} |\n")
         fm.write("\n")
@@ -716,8 +724,14 @@ def _print_summary(report, json_path: str, md_path: str) -> None:
     print(f"通过: {report.passed_cases}/{report.total_cases} ({report.overall_pass_rate:.1%})")
     print(f"平均分: {report.average_score:.2%}")
     print(f"平均延迟: {report.average_latency_ms:.0f}ms")
+    print(f"平均准备耗时: {report.average_prep_ms:.0f}ms")
+    if report.average_ttfb_ms is not None:
+        print(f"平均 TTFB: {report.average_ttfb_ms:.0f}ms")
     print(f"平均工具调用: {report.average_tool_calls:.1f}")
+    print(f"平均 Turns: {report.average_turns:.1f}")
     print(f"平均 Token: {report.average_tokens:.0f}")
+    print(f"平均输入 Token: {report.average_input_tokens:.0f}")
+    print(f"平均输出 Token: {report.average_output_tokens:.0f}")
     if json_path:
         print(f"\nJSON 报告: {json_path}")
     if md_path:

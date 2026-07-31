@@ -440,10 +440,6 @@ async def _run_single_case(
     """
     started_at = datetime.now()
 
-    # 重复执行时并行运行，但用 semaphore 限制并发数。
-    # 限制为 4，避免过多 Claude Code CLI 子进程（每个 Agent 一个子进程）耗尽系统资源。
-    _repeat_semaphore = asyncio.Semaphore(4)
-
     # HDC 检索结果缓存：同一条用例的多次 repeat 共享一次检索，
     # 避免 N 个并发 find() 请求打满 OpenViking 连接池。
     _hdc_cache: dict[str, tuple[str, Any]] = {}  # key → (formatted_string, structured_hdc_ctx)
@@ -474,144 +470,135 @@ async def _run_single_case(
         return result
 
     async def _run_one(run_index: int) -> _AgentRunOutput:
-        async with _repeat_semaphore:
-            session_state = _make_session_state(schema_id, db_name)
-            hdc_context = ""
-            hdc_structured = None
-            if enable_hdc:
-                hdc_context, hdc_structured = await _get_hdc_context()
-                if hdc_context:
-                    session_state["_hdc_context"] = hdc_context
-                    if hdc_structured is not None:
-                        session_state["_hdc_structured"] = hdc_structured
-                    if verbose_hdc:
-                        chars = len(hdc_context)
-                        ref_table = _extract_ref_table(test_case.reference_sql)
-                        in_context = ref_table in hdc_context if ref_table else "N/A"
-                        in_context_str = "yes" if in_context else "no"
-                        if repeat > 1:
-                            print(f"    [HDC] {test_case.case_id}#{run_index}: 已注入({chars}字符) | 正确表在上下文中={in_context_str}")
-                        else:
-                            print(f"    [HDC] {test_case.case_id}: 已注入({chars}字符) | 正确表在上下文中={in_context_str}")
-                    elif run_index == 0 and not verbose_hdc:
-                        print(f"    [HDC] 上下文已注入")
-                else:
-                    print(f"    [HDC] {test_case.case_id}#{run_index}: 降级 — 检索失败，Agent 将盲搜")
-                    if verbose_hdc:
-                        print(f"    [HDC] {test_case.case_id}#{run_index}: 注入失败，跳过")
+        session_state = _make_session_state(schema_id, db_name)
+        hdc_context = ""
+        hdc_structured = None
+        if enable_hdc:
+            hdc_context, hdc_structured = await _get_hdc_context()
+            if hdc_context:
+                session_state["_hdc_context"] = hdc_context
+                if hdc_structured is not None:
+                    session_state["_hdc_structured"] = hdc_structured
+                if verbose_hdc:
+                    chars = len(hdc_context)
+                    ref_table = _extract_ref_table(test_case.reference_sql)
+                    in_context = ref_table in hdc_context if ref_table else "N/A"
+                    in_context_str = "yes" if in_context else "no"
+                    if repeat > 1:
+                        print(f"    [HDC] {test_case.case_id}#{run_index}: 已注入({chars}字符) | 正确表在上下文中={in_context_str}")
+                    else:
+                        print(f"    [HDC] {test_case.case_id}: 已注入({chars}字符) | 正确表在上下文中={in_context_str}")
+                elif run_index == 0 and not verbose_hdc:
+                    print(f"    [HDC] 上下文已注入")
+            else:
+                print(f"    [HDC] {test_case.case_id}#{run_index}: 降级 — 检索失败，Agent 将盲搜")
+                if verbose_hdc:
+                    print(f"    [HDC] {test_case.case_id}#{run_index}: 注入失败，跳过")
 
-            # ── SQL 记忆检索（参照 routes.py 逻辑）──
-            from app.config import get_settings as _eval_cfg
-            _eval_settings = _eval_cfg()
-            sql_memory_injected = False
-            sql_memory_count = 0
-            if getattr(_eval_settings, "sql_memory_enabled", False):
-                try:
-                    from app.memory.manager import get_storage as _eval_storage
-                    from app.memory.sql_memory import embed_text as _eval_embed
+        # ── SQL 记忆检索（参照 routes.py 逻辑）──
+        from app.config import get_settings as _eval_cfg
+        _eval_settings = _eval_cfg()
+        sql_memory_injected = False
+        sql_memory_count = 0
+        if getattr(_eval_settings, "sql_memory_enabled", False):
+            try:
+                from app.memory.manager import get_storage as _eval_storage
+                from app.memory.sql_memory import embed_text as _eval_embed
 
-                    store = _eval_storage().sql_memory_store
-                    if store is not None:
-                        scope = getattr(_eval_settings, "sql_memory_scope", "user")
-                        top_k = getattr(_eval_settings, "sql_memory_top_k", 5)
-                        min_sim = getattr(_eval_settings, "sql_memory_min_similarity", 0.0)
-                        db_name_selected = db_name or ""
-                        user_id = "default"
+                store = _eval_storage().sql_memory_store
+                if store is not None:
+                    await store.initialize()  # 确保数据库连接已建立（幂等）
+                    scope = getattr(_eval_settings, "sql_memory_scope", "user")
+                    top_k = getattr(_eval_settings, "sql_memory_top_k", 5)
+                    min_sim = getattr(_eval_settings, "sql_memory_min_similarity", 0.0)
+                    db_name_selected = db_name or ""
+                    user_id = "default"
 
-                        query_embedding = await _eval_embed(test_case.question)
-                        if query_embedding is not None:
-                            sql_memories = await store.search_similar(
-                                user_id=user_id,
-                                query_embedding=query_embedding,
-                                database_name=db_name_selected,
-                                scope=scope,
-                                limit=top_k,
-                                min_similarity=min_sim,
-                            )
-                            if sql_memories:
-                                session_state["_sql_memories"] = sql_memories
-                                sql_memory_injected = True
-                                sql_memory_count = len(sql_memories)
-                                print(f"    [SQLMem] {test_case.case_id}#{run_index}: 注入 {len(sql_memories)} 条记忆")
-                                for i, m in enumerate(sql_memories):
-                                    sql_preview = (m.get("sql_truncated") or m.get("sql_text", ""))[:80]
-                                    print(f"      {i+1}. sim={m.get('similarity', 0):.4f} | {m.get('question', '')[:50]} | {sql_preview}")
-                            elif run_index == 0:
-                                print(f"    [SQLMem] {test_case.case_id}#{run_index}: 未找到相关记忆")
+                    query_embedding = await _eval_embed(test_case.question)
+                    if query_embedding is not None:
+                        sql_memories = await store.search_similar(
+                            user_id=user_id,
+                            query_embedding=query_embedding,
+                            database_name=db_name_selected,
+                            scope=scope,
+                            limit=top_k,
+                            min_similarity=min_sim,
+                        )
+                        if sql_memories:
+                            session_state["_sql_memories"] = sql_memories
+                            sql_memory_injected = True
+                            sql_memory_count = len(sql_memories)
+                            print(f"    [SQLMem] {test_case.case_id}#{run_index}: 注入 {len(sql_memories)} 条记忆")
+                            for i, m in enumerate(sql_memories):
+                                sql_preview = (m.get("sql_truncated") or m.get("sql_text", ""))[:80]
+                                print(f"      {i+1}. sim={m.get('similarity', 0):.4f} | {m.get('question', '')[:50]} | {sql_preview}")
                         elif run_index == 0:
-                            print(f"    [SQLMem] {test_case.case_id}#{run_index}: embedding 不可用，降级")
-                except Exception as e:
-                    if run_index == 0:
-                        print(f"    [SQLMem] {test_case.case_id}#{run_index}: 检索失败 ({type(e).__name__})")
+                            print(f"    [SQLMem] {test_case.case_id}#{run_index}: 未找到相关记忆")
+                    elif run_index == 0:
+                        print(f"    [SQLMem] {test_case.case_id}#{run_index}: embedding 不可用，降级")
+            except Exception as e:
+                if run_index == 0:
+                    print(f"    [SQLMem] {test_case.case_id}#{run_index}: 检索失败 ({type(e).__name__})")
 
-            # ── NL2SQL 引擎富化注入日志（HDC 列描述 + SQL 历史记忆 → generate_sql prompt）──
-            hdc_cols_enriched = 0
-            if hdc_structured is not None:
-                try:
-                    matched_tables = getattr(hdc_structured, "matched_tables", []) or []
-                    refer_tables = {t.strip().lower() for t in (getattr(test_case, "tables", []) or [])}
-                    for tm in matched_tables:
-                        tm_name = getattr(tm, "table_name", "").lower()
-                        if tm_name in refer_tables:
-                            rel_cols = getattr(tm, "relevant_columns", []) or []
-                            hdc_cols_enriched += len(rel_cols)
-                except Exception:
-                    pass
+        # ── NL2SQL 引擎富化注入日志（HDC 列描述 + SQL 历史记忆 → generate_sql prompt）──
+        hdc_cols_enriched = 0
+        if hdc_structured is not None:
+            try:
+                matched_tables = getattr(hdc_structured, "matched_tables", []) or []
+                refer_tables = {t.strip().lower() for t in (getattr(test_case, "tables", []) or [])}
+                for tm in matched_tables:
+                    tm_name = getattr(tm, "table_name", "").lower()
+                    if tm_name in refer_tables:
+                        rel_cols = getattr(tm, "relevant_columns", []) or []
+                        hdc_cols_enriched += len(rel_cols)
+            except Exception:
+                pass
 
-            # 统计可用的安全 SQL 记忆数量
-            safe_sql_count = 0
-            if sql_memory_injected:
-                dangerous_kw = {"INSERT ", "UPDATE ", "DELETE ", "DROP ", "TRUNCATE ", "ALTER ", "CREATE "}
-                for m in session_state.get("_sql_memories", []):
-                    sql_upper = (m.get("sql_text", "") or "").upper()
-                    if not any(kw in sql_upper for kw in dangerous_kw):
-                        safe_sql_count += 1
+        # 统计可用的安全 SQL 记忆数量
+        safe_sql_count = 0
+        if sql_memory_injected:
+            dangerous_kw = {"INSERT ", "UPDATE ", "DELETE ", "DROP ", "TRUNCATE ", "ALTER ", "CREATE "}
+            for m in session_state.get("_sql_memories", []):
+                sql_upper = (m.get("sql_text", "") or "").upper()
+                if not any(kw in sql_upper for kw in dangerous_kw):
+                    safe_sql_count += 1
 
-            enrichment_parts: list[str] = []
-            if enable_hdc and hdc_cols_enriched > 0:
-                enrichment_parts.append(f"HDC列描述={hdc_cols_enriched}列")
-            elif enable_hdc:
-                enrichment_parts.append("HDC列描述=无匹配")
-            if sql_memory_count > 0:
-                enrichment_parts.append(
-                    f"SQL示例={safe_sql_count}/{sql_memory_count}条(安全/总计)"
-                )
-            if enrichment_parts:
-                prefix = f"    [{test_case.case_id}#{run_index}]" if repeat > 1 else f"    [{test_case.case_id}]"
-                print(f"{prefix} [NL2SQL富化] 注入状态: {', '.join(enrichment_parts)}")
-
-            trace_name = f"eval/{test_case.case_id}/run-{run_index}"
-            output = await _execute_agent_once(
-                test_case.question, session_state, timeout, trace_name=trace_name,
-                verbose=verbose,
-                log_prefix=f"  [{test_case.case_id}#{run_index}]" if verbose else "",
+        enrichment_parts: list[str] = []
+        if enable_hdc and hdc_cols_enriched > 0:
+            enrichment_parts.append(f"HDC列描述={hdc_cols_enriched}列")
+        elif enable_hdc:
+            enrichment_parts.append("HDC列描述=无匹配")
+        if sql_memory_count > 0:
+            enrichment_parts.append(
+                f"SQL示例={safe_sql_count}/{sql_memory_count}条(安全/总计)"
             )
-            output.hdc_context = hdc_context
-            return output
+        if enrichment_parts:
+            prefix = f"    [{test_case.case_id}#{run_index}]" if repeat > 1 else f"    [{test_case.case_id}]"
+            print(f"{prefix} [NL2SQL富化] 注入状态: {', '.join(enrichment_parts)}")
+
+        trace_name = f"eval/{test_case.case_id}/run-{run_index}"
+        output = await _execute_agent_once(
+            test_case.question, session_state, timeout, trace_name=trace_name,
+            verbose=verbose,
+            log_prefix=f"  [{test_case.case_id}#{run_index}]" if verbose else "",
+        )
+        output.hdc_context = hdc_context
+        return output
 
     if repeat > 1:
-        # 为 asyncio.gather 加整体超时保护，防止死锁导致评测永久卡住。
-        # 每个单独 run 已有 timeout 秒超时，gather 超时设为 repeat * timeout * 2 留足余量。
-        gather_timeout = repeat * timeout * 2
-        try:
-            runs = list(await asyncio.wait_for(
-                asyncio.gather(*[_run_one(i) for i in range(repeat)]),
-                timeout=gather_timeout,
-            ))
-        except asyncio.TimeoutError:
-            # 超时时尽力收集已完成的结果
-            print(f"    [WARN] {test_case.case_id}: asyncio.gather 超时（{gather_timeout}s），部分 run 可能未完成")
-            runs = []
-            for i in range(repeat):
-                runs.append(_AgentRunOutput(
-                    tool_calls=[], tool_call_details={}, sqls=[], final_response="",
-                    stats={}, error=f"评测超时（gather {gather_timeout}s）", duration_ms=int(gather_timeout * 1000),
-                ))
+        runs = []
+        for i in range(repeat):
+            print(f"    [{test_case.case_id}] run {i+1}/{repeat} 开始...")
+            run_output = await _run_one(i)
+            runs.append(run_output)
+            if run_output.error:
+                print(f"    [{test_case.case_id}] run {i+1}/{repeat} 异常: {run_output.error}")
+            else:
+                print(f"    [{test_case.case_id}] run {i+1}/{repeat} 完成 ({run_output.duration_ms}ms)")
     else:
         runs = [await _run_one(0)]
 
     completed_at = datetime.now()
-    total_duration_ms = int((completed_at - started_at).total_seconds() * 1000)
 
     # 取最后一次运行的回复用于 Judge
     last_run = runs[-1]
@@ -837,7 +824,7 @@ async def _run_single_case(
         test_case=test_case,
         started_at=started_at,
         completed_at=completed_at,
-        duration_ms=total_duration_ms,
+        duration_ms=int(avg_duration),
         agent_response=last_run.final_response[:5000],
         generated_sqls=last_run.sqls,
         tool_calls=last_run.tool_calls,
@@ -992,9 +979,10 @@ async def run_evaluation(
             _run_with_semaphore(i, tc)
             for i, tc in enumerate(test_cases)
         ]
-        # 整体超时保护：每条用例 timeout * repeat * 2（留足余量），
-        # 防止死锁导致整个评测永久卡住。
-        overall_timeout = timeout * repeat * 2 * total
+        # 整体超时保护：批次数 ceil(total/concurrency) × repeat × timeout × 2 安全余量
+        import math
+        batch_count = max(1, math.ceil(total / max(concurrency, 1)))
+        overall_timeout = batch_count * repeat * timeout * 2
         try:
             await asyncio.wait_for(asyncio.gather(*tasks), timeout=overall_timeout)
         except asyncio.TimeoutError:
@@ -1112,3 +1100,14 @@ async def run_evaluation(
         case_results=case_results,
         hdc_generation_tokens=hdc_gen_tokens,
     )
+
+
+async def _cleanup_sql_memory() -> None:
+    """关闭 SQL 记忆存储连接，避免 aiosqlite 后台线程阻塞进程退出。"""
+    try:
+        from app.memory.manager import get_storage as _storage
+        store = _storage().sql_memory_store
+        if store is not None:
+            await store.close()
+    except Exception:
+        pass

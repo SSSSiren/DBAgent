@@ -1,0 +1,685 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>DBAgent 汇报图稿</title>
+  <style>
+    :root {
+      --ink: #172033;
+      --muted: #607089;
+      --line: #cbd5e1;
+      --bg: #eef3f8;
+      --panel: #ffffff;
+      --blue: #1464d2;
+      --blue2: #e7f1ff;
+      --green: #11845b;
+      --green2: #e9f8f0;
+      --orange: #d97904;
+      --orange2: #fff4df;
+      --violet: #7452d6;
+      --violet2: #f1edff;
+      --red: #c83e3e;
+      --red2: #fff0f0;
+      --slate: #334155;
+      --shadow: 0 18px 42px rgba(15, 23, 42, .12);
+    }
+
+    * { box-sizing: border-box; }
+
+    body {
+      margin: 0;
+      background: var(--bg);
+      color: var(--ink);
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif;
+      line-height: 1.35;
+    }
+
+    .deck {
+      display: grid;
+      gap: 28px;
+      padding: 28px;
+    }
+
+    .slide {
+      width: min(1480px, 100%);
+      min-height: 834px;
+      margin: 0 auto;
+      background: #fbfdff;
+      border: 1px solid rgba(148, 163, 184, .36);
+      border-radius: 8px;
+      box-shadow: var(--shadow);
+      padding: 30px 34px 26px;
+      position: relative;
+      overflow: hidden;
+    }
+
+    .slide::before {
+      content: "";
+      position: absolute;
+      top: 0;
+      left: 0;
+      right: 0;
+      height: 8px;
+      background: linear-gradient(90deg, var(--blue), var(--violet), var(--green), var(--orange));
+    }
+
+    .head {
+      display: flex;
+      justify-content: space-between;
+      gap: 24px;
+      align-items: flex-start;
+      margin-bottom: 20px;
+    }
+
+    .kicker {
+      color: var(--blue);
+      font-weight: 800;
+      font-size: 14px;
+      margin-bottom: 6px;
+    }
+
+    h1 {
+      margin: 0;
+      font-size: 34px;
+      line-height: 1.16;
+      letter-spacing: 0;
+    }
+
+    .sub {
+      margin: 8px 0 0;
+      color: var(--muted);
+      font-size: 15px;
+      max-width: 880px;
+    }
+
+    .stamp {
+      min-width: 252px;
+      padding: 12px 14px;
+      border-radius: 8px;
+      background: #ffffff;
+      border: 1px solid var(--line);
+      box-shadow: 0 8px 22px rgba(15, 23, 42, .06);
+    }
+
+    .stamp strong {
+      display: block;
+      font-size: 18px;
+      margin-bottom: 4px;
+    }
+
+    .stamp span {
+      color: var(--muted);
+      font-size: 13px;
+    }
+
+    .arch-canvas {
+      position: relative;
+      height: 590px;
+      border-radius: 8px;
+      background:
+        linear-gradient(90deg, rgba(20,100,210,.06) 0 24%, transparent 24% 76%, rgba(17,132,91,.06) 76% 100%),
+        #ffffff;
+      border: 1px solid var(--line);
+      overflow: hidden;
+    }
+
+    .arch-svg {
+      position: absolute;
+      inset: 0;
+      width: 100%;
+      height: 100%;
+      pointer-events: none;
+    }
+
+    .node {
+      position: absolute;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      background: #fff;
+      padding: 12px;
+      box-shadow: 0 10px 24px rgba(15, 23, 42, .07);
+      z-index: 2;
+    }
+
+    .node .title {
+      font-size: 16px;
+      font-weight: 850;
+      margin-bottom: 4px;
+    }
+
+    .node .desc {
+      color: var(--muted);
+      font-size: 12px;
+      margin: 0;
+    }
+
+    .user { left: 28px; top: 238px; width: 170px; background: var(--blue2); border-color: rgba(20,100,210,.28); }
+    .api { left: 235px; top: 215px; width: 185px; background: var(--blue2); border-color: rgba(20,100,210,.28); }
+    .context { left: 472px; top: 92px; width: 220px; background: var(--violet2); border-color: rgba(116,82,214,.28); }
+    .runner { left: 486px; top: 248px; width: 205px; background: var(--orange2); border-color: rgba(217,121,4,.28); }
+    .tools { left: 746px; top: 238px; width: 194px; background: #fff; border-color: rgba(217,121,4,.3); }
+    .nl2sql { left: 1000px; top: 154px; width: 220px; background: var(--green2); border-color: rgba(17,132,91,.28); }
+    .guard { left: 1000px; top: 338px; width: 220px; background: var(--red2); border-color: rgba(200,62,62,.28); }
+    .onedba { right: 28px; top: 248px; width: 172px; background: var(--green2); border-color: rgba(17,132,91,.28); }
+
+    .side {
+      position: absolute;
+      z-index: 3;
+      border-radius: 8px;
+      border: 1px solid rgba(116,82,214,.25);
+      background: #ffffff;
+      padding: 10px 12px;
+      box-shadow: 0 8px 18px rgba(15, 23, 42, .06);
+      width: 210px;
+    }
+
+    .side h3 {
+      margin: 0 0 5px;
+      font-size: 14px;
+    }
+
+    .side p {
+      margin: 0;
+      color: var(--muted);
+      font-size: 12px;
+    }
+
+    .hdc { left: 480px; top: 446px; border-left: 5px solid var(--violet); }
+    .memory { left: 710px; top: 40px; border-left: 5px solid var(--blue); }
+    .obs { left: 735px; top: 446px; border-left: 5px solid var(--orange); }
+    .llm { left: 740px; top: 126px; border-left: 5px solid var(--green); }
+
+    .legend {
+      display: grid;
+      grid-template-columns: repeat(5, minmax(0, 1fr));
+      gap: 10px;
+      margin-top: 14px;
+    }
+
+    .legend-item {
+      background: #fff;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      padding: 10px 12px;
+      min-height: 68px;
+    }
+
+    .legend-item b {
+      display: block;
+      font-size: 14px;
+      margin-bottom: 3px;
+    }
+
+    .legend-item span {
+      display: block;
+      color: var(--muted);
+      font-size: 12px;
+    }
+
+    .flow-layout {
+      display: grid;
+      grid-template-columns: 1fr 420px;
+      gap: 22px;
+      align-items: stretch;
+    }
+
+    .flow-canvas {
+      min-height: 604px;
+      background: #fff;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      padding: 22px;
+      position: relative;
+      overflow: hidden;
+    }
+
+    .pipeline {
+      display: grid;
+      grid-template-columns: repeat(6, minmax(0, 1fr));
+      gap: 12px;
+      margin-top: 12px;
+      position: relative;
+      z-index: 2;
+    }
+
+    .step {
+      min-height: 112px;
+      border-radius: 8px;
+      border: 1px solid var(--line);
+      background: #fff;
+      padding: 12px;
+      box-shadow: 0 8px 18px rgba(15, 23, 42, .05);
+      position: relative;
+    }
+
+    .step:not(:last-child)::after {
+      content: "";
+      position: absolute;
+      right: -17px;
+      top: 52px;
+      width: 20px;
+      height: 2px;
+      background: #94a3b8;
+    }
+
+    .num {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      width: 26px;
+      height: 26px;
+      border-radius: 50%;
+      color: #fff;
+      font-size: 13px;
+      font-weight: 850;
+      margin-bottom: 8px;
+      background: var(--blue);
+    }
+
+    .step:nth-child(3) .num { background: var(--violet); }
+    .step:nth-child(4) .num { background: var(--orange); }
+    .step:nth-child(5) .num { background: var(--green); }
+    .step:nth-child(6) .num { background: var(--red); }
+
+    .step h3 {
+      margin: 0 0 4px;
+      font-size: 15px;
+    }
+
+    .step p {
+      margin: 0;
+      color: var(--muted);
+      font-size: 12px;
+    }
+
+    .enrich-band {
+      margin-top: 28px;
+      display: grid;
+      grid-template-columns: repeat(4, minmax(0, 1fr));
+      gap: 12px;
+    }
+
+    .mini {
+      border-radius: 8px;
+      background: var(--violet2);
+      border: 1px solid rgba(116,82,214,.24);
+      padding: 12px;
+      min-height: 82px;
+    }
+
+    .mini b {
+      display: block;
+      font-size: 14px;
+      margin-bottom: 4px;
+    }
+
+    .mini span {
+      color: var(--muted);
+      font-size: 12px;
+    }
+
+    .decision {
+      margin-top: 22px;
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 14px;
+    }
+
+    .decision-card {
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      padding: 14px;
+      background: #fff;
+      min-height: 142px;
+    }
+
+    .decision-card h3 {
+      margin: 0 0 8px;
+      font-size: 17px;
+    }
+
+    .chip-row {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+    }
+
+    .chip {
+      border-radius: 999px;
+      padding: 6px 10px;
+      font-size: 12px;
+      background: #f1f5f9;
+      color: #334155;
+      border: 1px solid #dbe3ee;
+    }
+
+    .mock {
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      overflow: hidden;
+      background: #0f172a;
+      min-height: 604px;
+      color: #e2e8f0;
+      box-shadow: 0 14px 32px rgba(15, 23, 42, .16);
+    }
+
+    .mock-top {
+      height: 38px;
+      background: #111827;
+      border-bottom: 1px solid #334155;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      padding: 0 12px;
+    }
+
+    .dot {
+      width: 10px;
+      height: 10px;
+      border-radius: 50%;
+      background: #ef4444;
+    }
+
+    .dot:nth-child(2) { background: #f59e0b; }
+    .dot:nth-child(3) { background: #22c55e; }
+
+    .mock-body {
+      padding: 16px;
+    }
+
+    .bubble {
+      background: #1e293b;
+      border: 1px solid #334155;
+      border-radius: 8px;
+      padding: 12px;
+      margin-bottom: 12px;
+      font-size: 13px;
+    }
+
+    .waterfall {
+      display: grid;
+      gap: 8px;
+      margin: 12px 0;
+    }
+
+    .wf {
+      display: grid;
+      grid-template-columns: 82px 1fr 48px;
+      gap: 8px;
+      align-items: center;
+      font-size: 12px;
+      color: #cbd5e1;
+    }
+
+    .bar {
+      height: 9px;
+      border-radius: 999px;
+      background: linear-gradient(90deg, #38bdf8, #a78bfa);
+    }
+
+    .sql-box {
+      background: #020617;
+      color: #a7f3d0;
+      border: 1px solid #1e293b;
+      border-radius: 8px;
+      padding: 12px;
+      font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+      font-size: 12px;
+      line-height: 1.45;
+      margin: 12px 0;
+    }
+
+    .table {
+      border: 1px solid #334155;
+      border-radius: 8px;
+      overflow: hidden;
+      font-size: 12px;
+    }
+
+    .row {
+      display: grid;
+      grid-template-columns: 1fr 1fr 1fr;
+    }
+
+    .cell {
+      padding: 8px;
+      border-right: 1px solid #334155;
+      border-bottom: 1px solid #334155;
+    }
+
+    .row:last-child .cell { border-bottom: 0; }
+    .cell:last-child { border-right: 0; }
+    .thead { background: #1e293b; color: #f8fafc; font-weight: 800; }
+
+    .foot {
+      margin-top: 14px;
+      display: flex;
+      justify-content: space-between;
+      gap: 16px;
+      color: var(--muted);
+      font-size: 12px;
+    }
+
+    @media (max-width: 1080px) {
+      .slide { min-height: auto; padding: 24px 18px; }
+      .head, .flow-layout { grid-template-columns: 1fr; display: grid; }
+      .arch-canvas { height: auto; padding: 16px; display: grid; gap: 12px; }
+      .node, .side { position: static; width: auto; }
+      .arch-svg { display: none; }
+      .legend, .pipeline, .enrich-band, .decision { grid-template-columns: 1fr; }
+      .step:not(:last-child)::after { display: none; }
+    }
+
+    @media print {
+      body { background: #fff; }
+      .deck { padding: 0; gap: 0; }
+      .slide {
+        width: 100vw;
+        min-height: 100vh;
+        box-shadow: none;
+        border: 0;
+        border-radius: 0;
+        page-break-after: always;
+      }
+    }
+  </style>
+</head>
+<body>
+  <main class="deck">
+    <section class="slide">
+      <header class="head">
+        <div>
+          <div class="kicker">DBAgent / 模块关系图</div>
+          <h1>增强能力围绕主链路增益</h1>
+          <p class="sub">用户请求进入 Agent 主链路，HDC、记忆和观测作为增强侧翼，最终落到 OneDBA 的安全查询执行。</p>
+        </div>
+        <div class="stamp">
+          <strong>一句话定位</strong>
+          <span>OneDBA 上的自然语言查数 Agent</span>
+        </div>
+      </header>
+
+      <div class="arch-canvas">
+        <svg class="arch-svg" viewBox="0 0 1410 590" preserveAspectRatio="none" aria-hidden="true">
+          <defs>
+            <marker id="arrow" markerWidth="10" markerHeight="10" refX="8" refY="3" orient="auto" markerUnits="strokeWidth">
+              <path d="M0,0 L0,6 L9,3 z" fill="#64748b"></path>
+            </marker>
+            <marker id="arrowBlue" markerWidth="10" markerHeight="10" refX="8" refY="3" orient="auto" markerUnits="strokeWidth">
+              <path d="M0,0 L0,6 L9,3 z" fill="#1464d2"></path>
+            </marker>
+          </defs>
+          <path d="M198 296 C218 296 218 276 235 276" stroke="#1464d2" stroke-width="3" fill="none" marker-end="url(#arrowBlue)"></path>
+          <path d="M420 276 C452 276 452 306 486 306" stroke="#64748b" stroke-width="3" fill="none" marker-end="url(#arrow)"></path>
+          <path d="M691 306 C720 306 720 296 746 296" stroke="#64748b" stroke-width="3" fill="none" marker-end="url(#arrow)"></path>
+          <path d="M940 296 C974 296 974 214 1000 214" stroke="#11845b" stroke-width="3" fill="none" marker-end="url(#arrow)"></path>
+          <path d="M1220 398 C1256 398 1256 306 1238 306" stroke="#64748b" stroke-width="3" fill="none"></path>
+          <path d="M1220 214 C1260 214 1260 296 1238 296" stroke="#64748b" stroke-width="3" fill="none" marker-end="url(#arrow)"></path>
+          <path d="M1220 398 C1260 398 1260 316 1238 316" stroke="#64748b" stroke-width="3" fill="none" marker-end="url(#arrow)"></path>
+          <path d="M1220 306 C1290 306 1290 306 1238 306" stroke="#64748b" stroke-width="3" fill="none" marker-end="url(#arrow)"></path>
+
+          <path d="M585 248 C585 212 585 188 585 168" stroke="#7452d6" stroke-width="2" stroke-dasharray="7 6" fill="none" marker-end="url(#arrow)"></path>
+          <path d="M690 288 C728 252 746 218 746 185" stroke="#11845b" stroke-width="2" stroke-dasharray="7 6" fill="none" marker-end="url(#arrow)"></path>
+          <path d="M585 342 C585 384 585 418 585 446" stroke="#7452d6" stroke-width="2" stroke-dasharray="7 6" fill="none" marker-end="url(#arrow)"></path>
+          <path d="M735 310 C735 366 778 418 840 446" stroke="#d97904" stroke-width="2" stroke-dasharray="7 6" fill="none" marker-end="url(#arrow)"></path>
+        </svg>
+
+        <div class="node user">
+          <div class="title">用户</div>
+          <p class="desc">自然语言查数、追问、探索数据库</p>
+        </div>
+        <div class="node api">
+          <div class="title">API / 会话</div>
+          <p class="desc">FastAPI、SSE、会话隔离、取消</p>
+        </div>
+        <div class="node context">
+          <div class="title">上下文增强</div>
+          <p class="desc">把可复用知识压缩进本轮 Agent 输入</p>
+        </div>
+        <div class="node runner">
+          <div class="title">ReAct Agent</div>
+          <p class="desc">LLM 决策 -> 工具调用 -> 观察反馈</p>
+        </div>
+        <div class="node tools">
+          <div class="title">工具注册表</div>
+          <p class="desc">发现库表、查结构、查询数据库</p>
+        </div>
+        <div class="node nl2sql">
+          <div class="title">NL2SQL 闭环</div>
+          <p class="desc">生成 -> 验证 -> 修复</p>
+        </div>
+        <div class="node guard">
+          <div class="title">安全分级</div>
+          <p class="desc">只读放行，写/DDL 拦截，LIMIT 保护</p>
+        </div>
+        <div class="node onedba">
+          <div class="title">OneDBA</div>
+          <p class="desc">平台权限、schema、SQL 执行</p>
+        </div>
+
+        <div class="side memory">
+          <h3>多层记忆</h3>
+          <p>会话历史、长期记忆、查询偏好、SQL Memory</p>
+        </div>
+        <div class="side llm">
+          <h3>OpenAI 兼容 LLM</h3>
+          <p>DeepSeek-V4，模型端点可替换</p>
+        </div>
+        <div class="side hdc">
+          <h3>HDC 三层语义底座</h3>
+          <p>列摘要 -> 表描述 -> 库摘要，降低找表成本</p>
+        </div>
+        <div class="side obs">
+          <h3>可观测侧信道</h3>
+          <p>SSE step/sql/final，Langfuse，timings，token</p>
+        </div>
+      </div>
+
+      <div class="legend">
+        <div class="legend-item"><b>主链路</b><span>用户问题一路流向安全 SQL 执行。</span></div>
+        <div class="legend-item"><b>增强链路</b><span>HDC 和记忆在请求前注入上下文。</span></div>
+        <div class="legend-item"><b>闭环链路</b><span>生成失败可验证、可修复、可解释。</span></div>
+        <div class="legend-item"><b>治理链路</b><span>OneDBA 权限不绕开，风险 SQL 不执行。</span></div>
+        <div class="legend-item"><b>观测链路</b><span>推理过程和性能指标可回放。</span></div>
+      </div>
+
+      <div class="foot">
+        <span>已同步最新 `.kiro`：HDC 为三层，SSE 为前端主通道，WebSocket 端点已实现但未接入前端。</span>
+        <span>建议作为 PPT 第一张架构图。</span>
+      </div>
+    </section>
+
+    <section class="slide">
+      <header class="head">
+        <div>
+          <div class="kicker">DBAgent / 业务流程图 + 效果示意</div>
+          <h1>用户看到的是“流式查数体验”，背后是上下文、Agent、SQL、安全的协同</h1>
+          <p class="sub">左侧：后台流转，右侧：实时推理与查询结果。</p>
+        </div>
+        <div class="stamp">
+          <strong></strong>
+          <span>不是替人写 SQL，而是把找表、生成、验证、执行串成闭环</span>
+        </div>
+      </header>
+
+      <div class="flow-layout">
+        <div class="flow-canvas">
+          <div class="pipeline">
+            <div class="step"><span class="num">1</span><h3>提问</h3><p>“查最近 30 天订单趋势”</p></div>
+            <div class="step"><span class="num">2</span><h3>会话</h3><p>恢复历史、选库、用户隔离</p></div>
+            <div class="step"><span class="num">3</span><h3>增强</h3><p>并行检索 HDC 与记忆</p></div>
+            <div class="step"><span class="num">4</span><h3>决策</h3><p>ReAct 选择找表或查询</p></div>
+            <div class="step"><span class="num">5</span><h3>生成</h3><p>NL2SQL 生成、验证、修复</p></div>
+            <div class="step"><span class="num">6</span><h3>输出</h3><p>SSE 推送 SQL 和结果</p></div>
+          </div>
+
+          <div class="enrich-band">
+            <div class="mini"><b>HDC</b><span>列 -> 表 -> 库的业务语义，减少盲搜。</span></div>
+            <div class="mini"><b>查询偏好</b><span>用户常用表优先进入 Agent 视野。</span></div>
+            <div class="mini"><b>SQL Memory</b><span>相似历史 SQL 作为 few-shot 参考。</span></div>
+            <div class="mini"><b>长期记忆</b><span>跨轮保留业务上下文和用户习惯。</span></div>
+          </div>
+
+          <div class="decision">
+            <div class="decision-card">
+              <h3>Agent 如何理解问题</h3>
+              <div class="chip-row">
+                <span class="chip">选库状态</span>
+                <span class="chip">HDC 表语义</span>
+                <span class="chip">列描述</span>
+                <span class="chip">历史 SQL</span>
+                <span class="chip">用户偏好</span>
+                <span class="chip">工具观察结果</span>
+              </div>
+            </div>
+            <div class="decision-card">
+              <h3>系统如何控制风险</h3>
+              <div class="chip-row">
+                <span class="chip">字段校验</span>
+                <span class="chip">表名约束</span>
+                <span class="chip">只读自动执行</span>
+                <span class="chip">写操作拦截</span>
+                <span class="chip">DDL 拦截</span>
+                <span class="chip">LIMIT 500</span>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <aside class="mock" aria-label="效果示意">
+          <div class="mock-top"><span class="dot"></span><span class="dot"></span><span class="dot"></span></div>
+          <div class="mock-body">
+            <div class="bubble">用户：查最近 30 天订单趋势，按天聚合。</div>
+            <div class="bubble">DBAgent 正在检索上下文：HDC 命中 3 张候选表，SQL Memory 命中 2 条历史查询。</div>
+            <div class="waterfall">
+              <div class="wf"><span>find_table</span><div class="bar" style="width:72%"></div><span>96ms</span></div>
+              <div class="wf"><span>describe</span><div class="bar" style="width:48%"></div><span>64ms</span></div>
+              <div class="wf"><span>generate</span><div class="bar" style="width:88%"></div><span>420ms</span></div>
+              <div class="wf"><span>validate</span><div class="bar" style="width:34%"></div><span>18ms</span></div>
+              <div class="wf"><span>execute</span><div class="bar" style="width:62%"></div><span>130ms</span></div>
+            </div>
+            <div class="sql-box">SELECT dt, COUNT(*) AS order_cnt
+FROM dwd_order_detail
+WHERE dt >= DATE_SUB(CURRENT_DATE, 30)
+GROUP BY dt
+ORDER BY dt;</div>
+            <div class="table">
+              <div class="row thead"><div class="cell">日期</div><div class="cell">订单数</div><div class="cell">趋势</div></div>
+              <div class="row"><div class="cell">07-28</div><div class="cell">128,904</div><div class="cell">+4.2%</div></div>
+              <div class="row"><div class="cell">07-29</div><div class="cell">132,118</div><div class="cell">+2.5%</div></div>
+              <div class="row"><div class="cell">07-30</div><div class="cell">136,772</div><div class="cell">+3.5%</div></div>
+            </div>
+            <div class="bubble" style="margin-top:12px;">最终：已执行只读查询，返回前 500 条并展示真实总数。过程、SQL、耗时均可追踪。</div>
+          </div>
+        </aside>
+      </div>
+
+      <div class="foot">
+        <span>右侧为汇报用效果示意，不代表真实数据。</span>
+        <span>建议作为 PPT 第二张流程图。</span>
+      </div>
+    </section>
+  </main>
+</body>
+</html>

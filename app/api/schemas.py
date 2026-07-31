@@ -183,3 +183,10 @@ class CleanRequest(BaseModel):
 class ReEmbedRequest(BaseModel):
     """SQL Memory embedding 重建请求"""
     user_id: Optional[str] = Field(default="", description="按用户过滤（空字符串表示全部）")
+
+
+class SeedSqlMemoryRequest(BaseModel):
+    """SQL Memory 批量灌入请求"""
+    user_id: str = Field(..., min_length=1, description="目标用户标识")
+    records: list[dict] = Field(..., min_length=1, description="待灌入的记录列表")
+    # 每条 record 需包含: question, sql, table_names, database_name, schema_id, execution_result(可选)

@@ -3,17 +3,17 @@
 # python tools/hdc/generate.py 65938636 dw_onedba     --namespace recall_complete     --tables "order_record,db_alert_history,effect_dba_domain_cost_v2,effect_daily_work_v2,order_audit_record" -v
 
 
-rep=20
+rep=1
 conc=6
 ids="TC-005"
 a="TC-003 TC-015 TC-017 TC-029 TC-027"
 
-cmd="python -u -m tests.evaluation.cli run --compare-sql-memory --with-hdc  --skip-seed --skip-baseline  --baseline /Users/admin/DBR/DB-Agent/Infra-DB-Agent/DBAgent/tests/output/incremental_hdc_eval/01-noHDC-2.json  --verbose --verbose-hdc --repeat $rep --concurrency $conc"
+cmd="python -u -m tests.evaluation.cli run  --concurrency $conc --ids $ids --compare-sql-memory --with-hdc  --skip-seed --skip-baseline  --baseline /Users/admin/DBR/DB-Agent/Infra-DB-Agent/DBAgent/tests/output/incremental_hdc_eval/01-noHDC-2.json  --verbose --verbose-hdc"
 
 # $cmd  2>&1 | tee HDCno.log
 
+# $cmd --hdc-namespace recall_complete 2>&1 | tee HDCcomplete_eval.log
 
-
-$cmd --hdc-namespace recall_complete 2>&1 | tee HDCcomplete_eval.log
-
-$cmd --hdc-namespace recall_extra 2>&1 | tee HDCextra_eval.log
+$cmd --repeat 5  --hdc-namespace recall_extra 2>&1 | tee HDCextra_eval.log
+# $cmd --repeat 2  --hdc-namespace recall_extra 2>&1 | tee HDCextra_eval.log
+# $cmd --repeat 4  --hdc-namespace recall_extra 2>&1 | tee HDCextra_eval.log

@@ -14,7 +14,7 @@
           <div class="brand-mark">DB</div>
           <div>
             <h1>DBAgent</h1>
-            <p>智能数据库助手</p>
+            <p>智能数据库助手 · <a href="/static/admin.html" style="color:var(--accent);text-decoration:none">管理</a></p>
           </div>
         </div>
 
@@ -23,6 +23,15 @@
           <label for="userId">用户标识</label>
           <input id="userId" autocomplete="off" placeholder="输入用户标识…" />
           <div id="userIdStatus" class="status-line"></div>
+        </section>
+
+        <section class="panel">
+          <div class="panel-title">数据库</div>
+          <label for="dbSelector">选择数据库</label>
+          <select id="dbSelector" style="width:100%;padding:6px;border:1px solid var(--border);border-radius:4px;font-size:0.85rem">
+            <option value="">-- 自动发现 --</option>
+          </select>
+          <div id="dbSelectorStatus" class="status-line" style="margin-top:4px"></div>
         </section>
 
         <section class="panel session-panel">

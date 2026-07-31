@@ -111,43 +111,33 @@ async def _run_agent(
             cancelled = True
             break
 
-        # ── LLM 调用（竞速取消信号）──
+        # ── LLM 调用（轮询取消信号，避免 asyncio.wait/Task 调度开销）──
         if cancel_event is not None:
-            # 使用 asyncio.wait 竞速 LLM 调用和取消信号
-            async def _llm_call():
-                return await client.chat.completions.create(
+            llm_task = asyncio.ensure_future(
+                client.chat.completions.create(
                     model=settings.llm_model,
                     messages=messages,
                     tools=openai_tools,
                     temperature=0.1,
                 )
-
-            async def _wait_cancel():
-                await cancel_event.wait()
-
-            llm_task = asyncio.create_task(_llm_call())
-            cancel_wait_task = asyncio.create_task(_wait_cancel())
-
-            done, pending = await asyncio.wait(
-                [llm_task, cancel_wait_task],
-                return_when=asyncio.FIRST_COMPLETED,
             )
 
-            # 取消未完成的任务
-            for task in pending:
-                task.cancel()
+            while not llm_task.done():
+                if cancel_event.is_set():
+                    llm_task.cancel()
+                    try:
+                        await llm_task
+                    except asyncio.CancelledError:
+                        pass
+                    print(f"[Cancel] LLM task 已取消")
+                    cancelled = True
+                    break
+                await asyncio.sleep(0.05)  # 50ms 轮询间隔
 
-            if llm_task in done:
-                response = llm_task.result()
-            else:
-                # 取消信号先触发：取消 LLM task 并等待清理
-                try:
-                    await llm_task
-                except asyncio.CancelledError:
-                    pass  # 正常取消流程
-                print(f"[Cancel] LLM task 已取消")
-                cancelled = True
+            if cancelled:
                 break
+
+            response = await llm_task
         else:
             response = await client.chat.completions.create(
                 model=settings.llm_model,
@@ -359,6 +349,7 @@ async def run_agent_stream(
         (event_type, data) 元组
     """
     session_id = session_state.get("session_id", "")
+    t0 = time.monotonic()
 
     # 0. 创建 Langfuse 观测器
     observer = LangfuseObserver(
@@ -375,6 +366,9 @@ async def run_agent_stream(
         full_prompt = f"{context}\n\n用户问题: {user_input}"
     else:
         full_prompt = user_input
+
+    # 1.5. 记录准备耗时（context 构建 + 上游检索耗时）
+    prep_ms = (time.monotonic() - t0) * 1000
 
     # 2. 构建工具 schema
     tool_schemas = _build_tool_schemas()
@@ -510,10 +504,10 @@ async def run_agent_stream(
                 if ttfb_ms is not None:
                     final_stats["ttfb_ms"] = round(ttfb_ms, 2)
                 else:
-                    # 在首个事件前就结束（取消等），此时 ttfb_ms 为 None
                     final_stats["ttfb_ms"] = None
-                # 注入 ctx_tokens
+                # 注入 ctx_tokens 和 prep_ms
                 final_stats["ctx_tokens"] = ctx_tokens
+                final_stats["prep_ms"] = round(prep_ms, 2)
 
     except Exception as e:
         error_msg = str(e)

@@ -1,0 +1,345 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>DBAgent Admin</title>
+    <link rel="icon" type="image/svg+xml" href="/static/favicon.svg" />
+    <link rel="stylesheet" href="/static/styles.css" />
+    <style>
+                  .admin-shell { max-width: 1200px; margin: 0 auto; padding: 20px; }
+      .admin-header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 24px; padding: 16px 22px; border-radius: 12px; background: linear-gradient(135deg, #0f766e 0%, #14b8a6 100%); color: #f0fdfa; box-shadow: 0 4px 14px rgba(15,118,110,0.18); }
+      .admin-header h1 { font-size: 1.4rem; margin: 0; color: #f0fdfa; }
+      .admin-header h1 + span { color: rgba(240,253,250,0.78); }
+      .auth-row { display: flex; gap: 8px; align-items: center; }
+      .auth-row input { width: 220px; padding: 6px 10px; border: none; border-radius: 4px; background: rgba(255,255,255,0.95); font-size: 0.85rem; }
+      .auth-row .status-dot { width: 9px; height: 9px; border-radius: 50%; display: inline-block; flex-shrink: 0; }
+      .auth-row .status-dot.ok { background: #6ee7b7; box-shadow: 0 0 0 3px rgba(110,231,183,0.3); }
+      .auth-row .status-dot.err { background: #fca5a5; box-shadow: 0 0 0 3px rgba(252,165,165,0.3); }
+      .auth-row .btn-primary { background: rgba(255,255,255,0.22); color: #f0fdfa; border: 1px solid rgba(240,253,250,0.4); }
+      .auth-row .btn-primary:hover { background: rgba(255,255,255,0.32); }
+
+      .tabs { display: flex; gap: 4px; border-bottom: 2px solid var(--line); margin-bottom: 20px; }
+      .tabs button { padding: 8px 18px; border: none; background: var(--panel-2); cursor: pointer; font-size: 0.9rem; color: var(--muted); border-radius: 8px 8px 0 0; border-bottom: 3px solid transparent; margin-bottom: -2px; transition: all 0.15s; }
+      .tabs button:hover { color: var(--text); background: #e6eef0; }
+      .tabs button.active { color: #0f766e; border-bottom-color: #0f766e; font-weight: 600; background: var(--panel); }
+
+      .tab-panel { display: none; }
+      .tab-panel.active { display: block; }
+
+      .stat-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 12px; margin-bottom: 20px; }
+      .stat-card { background: var(--panel); border: 1px solid var(--line); border-left: 4px solid #14b8a6; border-radius: 8px; padding: 14px; transition: transform 0.15s, box-shadow 0.15s; }
+      .stat-card.alt-1 { border-left-color: #94a3b8; }
+      .stat-card.alt-2 { border-left-color: #f59e0b; }
+      .stat-card.alt-3 { border-left-color: #a78bfa; }
+      .stat-card:hover { transform: translateY(-2px); box-shadow: 0 4px 12px rgba(15,118,110,0.08); }
+      .stat-card .label { font-size: 0.8rem; color: var(--muted); margin-bottom: 4px; }
+      .stat-card .value { font-size: 1.6rem; font-weight: 700; color: #0f766e; }
+
+      /* Module card —— 低饱和柔色容器 */
+      .module { background: var(--panel); border: 1px solid var(--line); border-radius: 12px; padding: 18px; margin-bottom: 20px; box-shadow: 0 1px 3px rgba(31,45,61,0.04); }
+      .module-header { display: flex; align-items: center; gap: 12px; margin-bottom: 14px; padding-bottom: 12px; border-bottom: 1px solid var(--line); }
+      .module-icon { width: 36px; height: 36px; border-radius: 9px; display: flex; align-items: center; justify-content: center; font-size: 1.15rem; flex-shrink: 0; }
+      .module-icon.teal { background: #ccfbf1; color: #0f766e; }
+      .module-icon.slate { background: #e2e8f0; color: #475569; }
+      .module-icon.amber { background: #fef3c7; color: #b45309; }
+      .module-icon.violet { background: #ede9fe; color: #6d28d9; }
+      .module-icon.rose { background: #fce7f3; color: #be185d; }
+      .module-icon.sky { background: #dbeafe; color: #1d4ed8; }
+      .module-icon.emerald { background: #d1fae5; color: #047857; }
+      .module-title { font-size: 1.05rem; font-weight: 700; margin: 0; color: var(--text); }
+      .module-desc { font-size: 0.78rem; color: var(--muted); margin-top: 2px; }
+
+      .section { margin-bottom: 18px; }
+      .section h3 { font-size: 1rem; margin-bottom: 10px; padding-bottom: 6px; border-bottom: 1px solid var(--line); display: flex; align-items: center; gap: 8px; color: var(--text); }
+      .section h3::before { content: ''; display: inline-block; width: 4px; height: 14px; background: #14b8a6; border-radius: 2px; }
+
+      table { width: 100%; border-collapse: collapse; font-size: 0.85rem; }
+      th, td { padding: 8px 10px; text-align: left; border-bottom: 1px solid var(--line); }
+      th { font-weight: 600; color: var(--muted); font-size: 0.8rem; text-transform: uppercase; background: #f0f4f8; }
+      tr:hover { background: #f0f4f8; }
+
+      .form-row { display: flex; gap: 8px; margin-bottom: 10px; flex-wrap: wrap; align-items: flex-end; }
+      .form-row label { font-size: 0.8rem; color: var(--muted); display: block; margin-bottom: 2px; }
+      .form-row input, .form-row select { padding: 6px 10px; border: 1px solid var(--line); border-radius: 4px; font-size: 0.85rem; background: var(--panel); color: var(--text); }
+      .form-row input:focus, .form-row select:focus { outline: none; border-color: #14b8a6; box-shadow: 0 0 0 3px rgba(20,184,166,0.15); }
+      .form-row input { width: 160px; }
+
+      .btn { padding: 6px 14px; border: none; border-radius: 4px; cursor: pointer; font-size: 0.85rem; font-weight: 500; transition: all 0.15s; }
+      .btn-primary { background: #0f766e; color: #f0fdfa; }
+      .btn-primary:hover { background: #115e59; transform: translateY(-1px); box-shadow: 0 2px 6px rgba(15,118,110,0.25); }
+      .btn-danger { background: #b42318; color: #fef2f2; }
+      .btn-danger:hover { background: #991b1b; transform: translateY(-1px); box-shadow: 0 2px 6px rgba(180,35,24,0.25); }
+      .btn-secondary { background: var(--panel); border: 1px solid var(--line); color: var(--text); }
+      .btn-secondary:hover { background: #f0f4f8; border-color: #94a3b8; }
+      .btn-sm { padding: 4px 10px; font-size: 0.8rem; }
+
+      .toast { position: fixed; top: 16px; right: 16px; padding: 10px 18px; border-radius: 6px; color: #fff; font-size: 0.85rem; z-index: 999; animation: fadeIn 0.2s; box-shadow: 0 4px 14px rgba(0,0,0,0.12); }
+      .toast.success { background: #0f766e; }
+      .toast.error { background: #b42318; }
+      @keyframes fadeIn { from { opacity: 0; transform: translateY(-8px); } to { opacity: 1; transform: translateY(0); } }
+
+      .empty { color: var(--muted); font-style: italic; padding: 12px 0; }
+      .loading { color: var(--muted); padding: 12px 0; }
+      .badge-tag { display: inline-block; padding: 2px 9px; border-radius: 10px; font-size: 0.75rem; background: #e2e8f0; color: #475569; margin: 1px; }
+      .badge-tag.teal { background: #ccfbf1; color: #0f766e; }
+      .badge-tag.amber { background: #fef3c7; color: #b45309; }
+      .badge-tag.rose { background: #fce7f3; color: #be185d; }
+      .badge-tag.sky { background: #dbeafe; color: #1d4ed8; }
+      .mono { font-family: monospace; font-size: 0.8rem; }
+      .text-right { text-align: right; }
+      .truncate { max-width: 300px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+      /* User card grid */
+      .user-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 10px; }
+      .user-card { display: flex; align-items: center; gap: 10px; background: var(--panel); border: 1px solid var(--line); border-radius: 8px; padding: 10px 12px; transition: border-color 0.15s, box-shadow 0.15s; }
+      .user-card:hover { border-color: #14b8a6; box-shadow: 0 2px 8px rgba(15,118,110,0.06); }
+      .user-card-check { flex-shrink: 0; }
+      .user-card-check input { transform: scale(1.1); cursor: pointer; accent-color: #0f766e; }
+      .user-card-avatar { width: 36px; height: 36px; border-radius: 50%; background: linear-gradient(135deg, #0f766e, #14b8a6); color: #f0fdfa; display: flex; align-items: center; justify-content: center; font-weight: 700; font-size: 0.95rem; flex-shrink: 0; }
+      .user-card-body { flex: 1; min-width: 0; }
+      .user-card-name { font-weight: 600; font-size: 0.9rem; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; color: var(--text); }
+      .user-card-meta { font-size: 0.75rem; color: var(--muted); display: flex; gap: 12px; margin-top: 2px; }
+      .user-card-btn { flex-shrink: 0; }
+    </style>
+  </head>
+  <body>
+    <div class="admin-shell">
+      <header class="admin-header">
+        <div>
+          <h1>⚙ DBAgent Admin</h1>
+          <span style="font-size:0.8rem;color:var(--muted)">HDC · SQL Memory 管理</span>
+        </div>
+        <div class="auth-row">
+          <span class="status-dot" id="authDot" title="未认证"></span>
+          <input id="adminToken" type="password" placeholder="Admin Token" autocomplete="off" />
+          <button class="btn btn-primary btn-sm" onclick="connect()">连接</button>
+        </div>
+      </header>
+
+      <nav class="tabs">
+        <button class="active" data-tab="overview">📊 概览</button>
+        <button data-tab="users">👥 用户</button>
+        <button data-tab="hdc">📚 HDC 管理</button>
+        <button data-tab="sqlmem">🧠 SQL Memory</button>
+      </nav>
+
+      <!-- Overview Tab -->
+      <section class="tab-panel active" id="tab-overview">
+        <div class="module">
+          <div class="module-header">
+            <div class="module-icon emerald">📊</div>
+            <div>
+              <div class="module-title">系统概览</div>
+              <div class="module-desc">DBAgent 运行状态与资源使用</div>
+            </div>
+          </div>
+          <div class="stat-grid" id="overviewStats"></div>
+          <div class="section">
+            <h3>HDC Namespace 映射</h3>
+            <div id="overviewMappings"></div>
+          </div>
+        </div>
+      </section>
+
+      <!-- Users Tab -->
+      <section class="tab-panel" id="tab-users">
+        <div class="module">
+          <div class="module-header">
+            <div class="module-icon rose">👥</div>
+            <div>
+              <div class="module-title">用户管理 <button class="btn btn-secondary btn-sm" onclick="loadUserList()" style="margin-left:12px">🔄 刷新</button></div>
+              <div class="module-desc">查看用户、分配情况，支持批量注销</div>
+            </div>
+          </div>
+          <div id="userListTable"></div>
+        </div>
+        <div class="module" id="userDetailSection" style="display:none">
+          <div class="module-header">
+            <div class="module-icon amber">📄</div>
+            <div>
+              <div class="module-title">用户详情</div>
+              <div class="module-desc">单用户的 HDC 映射与 SQL 记忆明细</div>
+            </div>
+          </div>
+          <div id="userDetail"></div>
+        </div>
+      </section>
+
+            <!-- HDC Tab -->
+      <section class="tab-panel" id="tab-hdc">
+
+        <!-- 模块一：映射管理 -->
+        <div class="module">
+          <div class="module-header">
+            <div class="module-icon violet">🔗</div>
+            <div>
+              <div class="module-title">映射管理</div>
+              <div class="module-desc">为用户分配 HDC namespace，浏览已有 namespace</div>
+            </div>
+          </div>
+
+          <div class="section">
+            <h3>浏览 Namespace</h3>
+            <div class="form-row">
+              <label>Schema / DB <select id="hdcBrowseSchemaDb" onchange="browseNamespaces()" style="width:280px"><option value="">-- 请先连接 --</option></select></label>
+              <button class="btn btn-secondary" onclick="browseNamespaces()" style="align-self:flex-end">浏览</button>
+            </div>
+            <div id="namespaceList"></div>
+          </div>
+
+          <div class="section">
+            <h3>创建映射</h3>
+            <div class="form-row">
+              <label>用户 <select id="mapUser" style="width:180px"><option value="">-- 选择用户 --</option></select></label>
+              <label>Schema / DB <select id="mapSchemaDb" onchange="onMapSchemaChange()" style="width:280px"><option value="">-- 选择数据库 --</option></select></label>
+              <label>Namespace <select id="mapNs" style="width:200px"><option value="">-- 先浏览 --</option></select></label>
+              <button class="btn btn-primary" onclick="createMapping()" style="align-self:flex-end">创建</button>
+            </div>
+          </div>
+
+          <div class="section">
+            <h3>现有映射</h3>
+            <div class="form-row">
+              <label>用户 <select id="mapFilterUser" onchange="listMappings()" style="width:180px"><option value="">全部用户</option></select></label>
+              <label>Schema / DB <select id="mapFilterSchemaDb" onchange="listMappings()" style="width:280px"><option value="">全部数据库</option></select></label>
+            </div>
+            <div id="mappingTable"></div>
+          </div>
+        </div>
+
+        <!-- 模块二：知识库管理 -->
+        <div class="module">
+          <div class="module-header">
+            <div class="module-icon sky">📚</div>
+            <div>
+              <div class="module-title">知识库管理</div>
+              <div class="module-desc">构建 / 增量更新 / 状态查询 / 删除 HDC 知识库</div>
+            </div>
+          </div>
+
+          <div class="form-row">
+            <label>Schema / DB <select id="hdcKbSchemaDb" style="width:280px"><option value="">-- 选择数据库 --</option></select></label>
+            <label>Namespace <input id="hdcKbNs" type="text" placeholder="留空=默认；如 recall_extra" style="width:180px"></label>
+            <label>Tables <input id="hdcKbTables" type="text" placeholder="逗号分隔，留空=全库" style="width:200px"></label>
+          </div>
+          <div class="form-row" style="gap:8px;flex-wrap:wrap">
+            <button class="btn btn-primary btn-sm" onclick="hdcKbAction('status')">📊 查状态</button>
+            <button class="btn btn-primary btn-sm" onclick="hdcKbAction('generate')">🔨 构建</button>
+            <button class="btn btn-secondary btn-sm" onclick="hdcKbAction('update')">🔄 增量更新</button>
+            <button class="btn btn-secondary btn-sm" onclick="hdcKbAction('dry_run')">🔍 检测变更</button>
+            <button class="btn btn-secondary btn-sm" onclick="hdcKbAction('rebuild')">🧱 重建摘要</button>
+            <button class="btn btn-danger btn-sm" onclick="hdcKbAction('delete')">🗑 删除</button>
+            <button class="btn btn-secondary btn-sm" onclick="hdcKbListNamespaces()">📋 列出 Namespace</button>
+          </div>
+          <div id="hdcKbResult" style="margin-top:12px"></div>
+        </div>
+
+      </section>
+
+      <!-- SQL Memory Tab -->
+      <section class="tab-panel" id="tab-sqlmem">
+        <div class="module">
+          <div class="module-header">
+            <div class="module-icon emerald">🧠</div>
+            <div>
+              <div class="module-title">SQL Memory 状态</div>
+              <div class="module-desc">历史 SQL 记忆记录的总量、覆盖率与分布</div>
+            </div>
+          </div>
+          <div class="stat-grid" id="sqlMemStats"></div>
+        </div>
+
+        <div class="module">
+          <div class="module-header">
+            <div class="module-icon amber">📥</div>
+            <div>
+              <div class="module-title">灌入种子数据
+                <button class="btn btn-secondary btn-sm" onclick="toggleSeedExample()" style="margin-left:12px;font-weight:normal">📄 格式示例</button>
+              </div>
+              <div class="module-desc">批量导入历史 SQL 记忆（JSON / CSV）</div>
+            </div>
+          </div>
+          <div id="seedExample" style="display:none;background:var(--surface);border:1px solid var(--border);border-radius:6px;padding:12px;margin-bottom:12px;font-size:0.8rem;max-height:260px;overflow:auto">
+            <div style="margin-bottom:8px;display:flex;gap:8px">
+              <button class="btn btn-secondary btn-sm" onclick="showSeedExample('json')" id="seedTabJson" style="font-weight:600">JSON</button>
+              <button class="btn btn-secondary btn-sm" onclick="showSeedExample('csv')" id="seedTabCsv">CSV</button>
+            </div>
+            <pre id="seedExampleJson" style="margin:0;white-space:pre-wrap;font-family:monospace">{
+  "user_id": "alice",
+  "records": [
+    {
+      "question": "查询 dataExport 类型的工单",
+      "sql": "SELECT id, committer_name, status_desc FROM order_record WHERE order_type = 'dataExport'",
+      "table_names": ["order_record"],
+      "database_name": "dw_onedba",
+      "schema_id": 65938636,
+      "execution_result": {"status": "success", "row_count": 50, "column_names": ["id","committer_name","status_desc"]}
+    },
+    {
+      "question": "统计每种告警级别的数量",
+      "sql": "SELECT level, COUNT(*) AS cnt FROM db_alert_history GROUP BY level",
+      "table_names": ["db_alert_history"],
+      "database_name": "dw_onedba",
+      "schema_id": 65938636
+    }
+  ]
+}</pre>
+            <pre id="seedExampleCsv" style="margin:0;white-space:pre-wrap;font-family:monospace;display:none">问题,sql,表名,数据库,schema_id,行数,列名
+查询 dataExport 类型的工单,SELECT id,committer_name,status_desc FROM order_record WHERE order_type='dataExport',order_record,dw_onedba,65938636,50,"id,committer_name,status_desc"
+统计每种告警级别的数量,SELECT level,COUNT(*) AS cnt FROM db_alert_history GROUP BY level,db_alert_history,dw_onedba,65938636,4,"level,cnt"
+统计每种工单类型的数量,SELECT order_type,COUNT(*) AS cnt FROM order_record GROUP BY order_type,order_record,dw_onedba,65938636,8,"order_type,cnt"</pre>
+            <div style="margin-top:8px;color:var(--muted)">
+              <strong>CSV 列名映射：</strong>question / 问题, sql, table_names / 表名, database_name / 数据库, schema_id, row_count / 行数, column_names / 列名<br>
+              必填：question, sql。其余可选。
+            </div>
+          </div>
+          <div class="form-row">
+            <label>用户 <select id="seedUser" style="width:180px"><option value="">-- 选择用户 --</option></select></label>
+            <label>JSON/CSV 文件 <input id="seedFile" type="file" accept=".json,.csv" /></label>
+            <button class="btn btn-primary" onclick="seedFromFile()" style="align-self:flex-end">灌入</button>
+          </div>
+          <div id="seedResult"></div>
+        </div>
+
+        <div class="module">
+          <div class="module-header">
+            <div class="module-icon sky">📋</div>
+            <div>
+              <div class="module-title">记录列表</div>
+              <div class="module-desc">分页浏览历史 SQL 记忆，支持逐条删除</div>
+            </div>
+          </div>
+          <div class="form-row">
+            <label>用户 <select id="recUser" onchange="listRecords(0)" style="width:180px"><option value="">全部用户</option></select></label>
+            <label>数据库 <select id="recDb" onchange="listRecords(0)" style="width:200px"><option value="">全部数据库</option></select></label>
+            <label>状态 <select id="recStatus"><option value="">全部</option><option value="success">success</option><option value="error">error</option></select></label>
+            <label>每页 <input id="recLimit" value="20" type="number" style="width:60px" /></label>
+            <button class="btn btn-secondary" onclick="listRecords(0)" style="align-self:flex-end">查询</button>
+          </div>
+          <div id="recordTable"></div>
+          <div id="recordPager" style="margin-top:8px"></div>
+        </div>
+
+        <div class="module">
+          <div class="module-header">
+            <div class="module-icon violet">⚙️</div>
+            <div>
+              <div class="module-title">操作</div>
+              <div class="module-desc">清理过期记录、重建 embedding、加载统计</div>
+            </div>
+          </div>
+          <div style="display:flex;gap:8px;flex-wrap:wrap">
+            <button class="btn btn-danger btn-sm" onclick="cleanRecords()">清理过期记录</button>
+            <button class="btn btn-secondary btn-sm" onclick="reEmbed()">重建 Embedding</button>
+            <button class="btn btn-secondary btn-sm" onclick="loadStats()">加载统计</button>
+          </div>
+          <div id="statsResult" style="margin-top:10px"></div>
+        </div>
+      </section>
+    </div>
+
+    <div id="toastContainer"></div>
+    <script src="/static/admin.js"></script>
+  </body>
+</html>

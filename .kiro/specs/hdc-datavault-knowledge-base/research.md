@@ -168,7 +168,7 @@ Settings (app/config.py)
 
 ### Design Decisions
 - **双路召回策略**：tags 精确过滤（main_entity 同义词）+ 向量语义检索（自然语言描述），互补而非替代
-- **目录结构设计**：`viking://resources/hdc/{db}/_tables/{table}/` — 文件名不与 `_DERIVED_FILENAMES` 冲突
+- **目录结构设计**：`viking://resources/hdc/{schemaId}/{db}/_tables/{table}/` — 文件名不与 `_DERIVED_FILENAMES` 冲突
 - **降级策略**：完全遵循项目现有 try/except 模式，HDC 不可用时 Agent 行为与 HDC 未启用时完全一致
 - **配置粒度**：单一 `hdc_enabled` 开关控制全部 HDC 功能（生成 + 检索），避免过度配置
 
@@ -179,11 +179,9 @@ Settings (app/config.py)
 - **增量更新天然兼容**：`HDCUpdater.check_and_update()` 的变更检测逻辑是"对比已存储 hash 表 vs 当前 schema 表"——它不假设知识库覆盖了全部表。部分表模式下未生成的表在增量更新时被识别为 `new_tables`（OpenViking 中无对应目录），自动纳入更新范围。无需修改 updater 代码。
 - **关系和摘要的范围缩小**：部分表模式下，关系检测仅扫描指定表之间的关联（LLM prompt 中限定的表集合变小），数据库摘要仅基于已生成表的核心实体编写。这既符合需求，也天然节省了 LLM 调用成本。
 
-### Design Decisions (2026-07-23 — 存储路径迁移到 memory 路径)
+### Design Decisions (2026-07-23 — 保持 resources 路径)
 
-- **存储路径变更**：从 `viking://resources/hdc/` → `viking://user/hdc-system/memories/hdc/`。根因：`resources` 路径走 `_write_direct_with_refresh`，强制触发 VLM 生成 L0/L1 摘要。VLM 调用慢（30-120s/次）且 OpenViking 内部 VLM 连接池无限流，并发写入时连接池耗尽导致 `PoolTimeout` + `APITimeoutError`。改为 `memories` 路径后走 `_write_memory_with_refresh`，VLM 被硬编码跳过（`semantic_status="skipped"`），仅保留 embedding 向量化（2-5s）。
-- **HDC 不依赖 VLM**：HDC 的 `_INDEX.md` 已是 LLM 精炼的结构化业务描述，VLM 再摘要一遍是冗余的。检索靠 tags 精确过滤 + embedding 向量语义检索，不依赖 L0/L1 摘要。
-- **`content/read` API 自动兼容**：`raw=False`（默认）时自动剥除 `MemoryFileUtils` 包装，`_read_index()` 拿到原始 markdown——无需改动解析逻辑。
-- **`registry.get("hdc")` 返回 None**：MemoryUpdater 找不到 `hdc` 的 schema → `refresh_schema_overview` 静默跳过 → 零 VLM 调用。
-- **`find()` 和 `set_tags` 不受 context_type 影响**：embedding 走的是独立的 embedding 队列，不经过 VLM。tags 直接写入向量存储搜索索引（`update_search_tags` 同步写入）。
-- **伪用户名 `hdc-system`**：作为路径中的用户标识符，不充当真实用户。HDC 数据是数据库级共享知识，不受用户隔离影响。`context_type_for_uri` 只看 `memories` 段到 "memory" 类型，后续路径任意。
+- **当前存储路径**：HDC 数据存储在 `viking://resources/hdc/{schemaId}/{database_name}/`，与 `app.datavault.uploader._HDC_ROOT` 保持一致。
+- **使用 resources 路径的理由**：`resources` 写入路径会触发 OpenViking SemanticProcessor，为表目录生成 `.abstract.md`（L0）和 `.overview.md`（L1）摘要，并保留 embedding 向量化；当前 `HDCRetriever.retrieve()` 依赖 `level=[0,1]` 在 `_tables` 目录下做表级召回。
+- **HDC 内容与自动摘要互补**：HDC 的 `_INDEX.md` 提供结构化业务描述，OpenViking 自动摘要用于目录级语义检索入口；tags 精确过滤和向量语义检索共同参与召回。
+- **路径兼容约束**：后续涉及 namespace、目录浏览或增量更新的设计必须复用 `storage_key()`、`_db_uri()`、`_tables_dir_uri()` 等 helper，不应硬编码路径。

@@ -195,6 +195,8 @@ class HDCUpdater:
         database_name: str,
         tables: list[str] | None = None,
         namespace: str | None = None,
+        dry_run: bool = False,
+        rebuild: bool = False,
     ) -> dict[str, Any]:
         """Check for schema changes and perform incremental updates.
 
@@ -216,6 +218,12 @@ class HDCUpdater:
                 a list limits change detection to only those tables.
             namespace: Optional HDC namespace variant.
                 When set, operates on the isolated directory.
+            dry_run: When True, only detect and report changes without
+                performing any regeneration or deletion. The returned
+                summary still describes what *would* change.
+            rebuild: When True, treat every existing table as "changed",
+                forcing full regeneration of column summaries and table
+                descriptions. Bypasses hash comparison.
 
         Returns:
             ``{"changed": False}`` when no schema changes are detected.
@@ -277,6 +285,32 @@ class HDCUpdater:
         # ── 5. No changes: return early (zero LLM calls) ──
         for name in needs_hash_store:
             await self._store_hash(key, name, current_hashes[name])
+
+        # rebuild 模式：强制把所有已知表标记为 changed，触发全量重算
+        if rebuild:
+            changed_tables = [name for name in current_tables if name in existing_tables]
+            new_tables = [name for name in current_tables if name not in existing_tables]
+            log.info(
+                "HDCUpdater: rebuild mode for '%s' — forcing regeneration of %d table(s)",
+                key, len(new_tables) + len(changed_tables),
+            )
+
+        # dry_run 模式：只报告变更，不执行任何重算/删除
+        if dry_run:
+            log.info(
+                "HDCUpdater: dry-run for '%s' — new=%d, changed=%d, deleted=%d (no changes applied)",
+                key, len(new_tables), len(changed_tables), len(deleted_tables),
+            )
+            return {
+                "changed": bool(new_tables or changed_tables or deleted_tables),
+                "dry_run": True,
+                "new": len(new_tables),
+                "changed_tables": len(changed_tables),
+                "deleted": len(deleted_tables),
+                "new_tables": new_tables,
+                "changed_table_names": changed_tables,
+                "deleted_tables": deleted_tables,
+            }
 
         if not new_tables and not changed_tables and not deleted_tables:
             log.info("HDCUpdater: no schema changes detected for '%s'", key)

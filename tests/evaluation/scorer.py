@@ -85,20 +85,26 @@ def compute_dimension_scores(
     )
 
 
-def compute_overall_score(dimensions: DimensionScores) -> float:
+def compute_overall_score(dimensions: DimensionScores, quality_score: float | None = None) -> float:
     """
     计算加权总分。
 
-    权重：
+    SQL 维度权重（80%）：
     - SQL 语法正确：10%
     - 表/列引用正确：10%
     - 过滤条件正确：10%
     - 结果数据正确：60%
     - SQL 规范：10%
 
-    硬性约束：结果数据正确不通过（< 0.5）→ 总分上限 70%
+    回答质量维度权重（20%，可选）：
+    - quality_score：来自 QualityJudge 的综合评分（completeness/accuracy/clarity/sql_transparency 平均）
+
+    总分 = 0.80 × sql_weighted + 0.20 × quality_score（有 quality_judge 时）
+    总分 = sql_weighted（无 quality_judge 时，如 --no-quality-judge）
+
+    硬性约束：result_data < 0.5 → sql_weighted 上限 70%
     """
-    weighted = (
+    sql_weighted = (
         dimensions.sql_syntax * 0.10
         + dimensions.table_column * 0.10
         + dimensions.filter_condition * 0.10
@@ -106,11 +112,15 @@ def compute_overall_score(dimensions: DimensionScores) -> float:
         + dimensions.sql_standard * 0.10
     )
 
-    # 硬性约束：结果数据正确不通过 → 上限 70%
+    # 硬性约束：结果数据正确不通过 → SQL 部分上限 70%
     if dimensions.result_data < 0.5:
-        weighted = min(weighted, 0.70)
+        sql_weighted = min(sql_weighted, 0.70)
 
-    return round(weighted, 4)
+    if quality_score is not None:
+        # 融合质量评分：80% SQL + 20% 回答质量
+        return round(0.80 * sql_weighted + 0.20 * quality_score, 4)
+
+    return round(sql_weighted, 4)
 
 
 def score_case(case_result: CaseResult) -> CaseResult:
@@ -125,6 +135,12 @@ def score_case(case_result: CaseResult) -> CaseResult:
         case_result.efficiency,
     )
     case_result.dimensions = dimensions
-    case_result.overall_score = compute_overall_score(dimensions)
+
+    # 提取 quality_score（来自 QualityJudge），传入 overall 计算
+    quality_score: float | None = None
+    if case_result.quality_judge is not None:
+        quality_score = case_result.quality_judge.score
+
+    case_result.overall_score = compute_overall_score(dimensions, quality_score)
     case_result.passed = case_result.overall_score >= 0.80
     return case_result

@@ -25,7 +25,7 @@ DBAgent 的 NL2SQL 查询助手在面对陌生数据库时，需要反复调用 
 - **数据库摘要**：影响力最大化（关系数最多的 Top N 表 → LLM 推断实体）
 
 存储于 OpenViking `viking://resources/hdc/` 资源目录：
-- 库=目录、表=子目录、列=`.md` 文件
+- 库=`{schemaId}/{database_name}` 目录、表=子目录、列=`.md` 文件
 - 结构化元数据（main_entity、table_type、pk）打入 tags 做精确检索
 - OpenViking SemanticProcessor 自动生成 L0/L1 摘要
 
@@ -77,6 +77,6 @@ DBAgent 的 NL2SQL 查询助手在面对陌生数据库时，需要反复调用 
 ## Constraints
 - OpenViking 服务必须可用（不可用时静默降级）
 - HDC 生成的 LLM 成本可控（首次批量生成 ~100 库 × 50 表 = ~$15-30，增量更新成本极低）
-- 目录结构 `viking://resources/hdc/{db}/_tables/{table}/{column}.md` 不与 OpenViking 自动生成的 `.abstract.md`/`.overview.md` 冲突
+- 目录结构 `viking://resources/hdc/{schemaId}/{db}/_tables/{table}/{column}.md` 不与 OpenViking 自动生成的 `.abstract.md`/`.overview.md` 冲突
 - HDC 生成不阻塞 Agent 正常服务（后台异步执行）
 - 遵循项目现有架构模式：Protocol 驱动的可插拔设计、工厂 + 进程级单例、try/except 静默降级

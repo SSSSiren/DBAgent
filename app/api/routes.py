@@ -312,11 +312,16 @@ async def _execute_agent_stream(
                 from app.datavault.retriever import HDCRetriever
                 from app.knowledge.openviking import OpenVikingClient as OVC
                 selected_db = initial_state.get("selected_database")
-                if selected_db:
+                hdc_namespace = initial_state.get("_hdc_namespace")
+
+                if not selected_db:
+                    print(f"[HDC][INFO] 跳过: 未选择数据库")
+                elif not hdc_namespace:
+                    print(f"[HDC][INFO] 跳过: db={selected_db.get('schemaName')} 无 namespace 映射且未显式指定")
+                else:
                     hdc_ov = OVC(_hdc_settings.kb_openviking_url, user_id)
                     await hdc_ov.start()
                     retriever = HDCRetriever(hdc_ov)
-                    hdc_namespace = initial_state.get("_hdc_namespace")
                     hdc_ctx = await retriever.retrieve(
                         initial_state["user_input"],
                         selected_db.get("schemaId", 0),
@@ -326,11 +331,17 @@ async def _execute_agent_stream(
                     if hdc_ctx:
                         initial_state["_hdc_context"] = retriever.format_context(hdc_ctx)
                         initial_state["_hdc_structured"] = hdc_ctx
-                        print(f"[HDC][OK] 检索成功: db={selected_db.get('schemaName')}, tables={len(hdc_ctx.matched_tables)}")
+                        print(f"[HDC][OK] 检索成功: db={selected_db.get('schemaName')}, namespace={hdc_namespace}, tables={len(hdc_ctx.matched_tables)}")
+                    else:
+                        print(f"[HDC][INFO] 检索无结果: db={selected_db.get('schemaName')}, namespace={hdc_namespace}")
                     await hdc_ov.close()
                     ctx_timings["hdc_ms"] = (time.monotonic() - t_hdc_start) * 1000
             except Exception as e:
                 print(f"[HDC][ERROR] 检索失败: {type(e).__name__}: {e}")
+
+        # ── 清理不可序列化的上下文对象 ──
+        # HDCContext 对象不能 JSON 序列化，保存会话前需移除
+        initial_state.pop("_hdc_structured", None)
 
         # ── 上下文准备完成，记录 prep_ms ──
         t_prep = time.monotonic()
@@ -510,10 +521,13 @@ async def _execute_agent_stream(
         )
 
         # 保存会话状态
+        # 移除不可 JSON 序列化的对象（如 HDCContext）
+        state_to_save = final_payload["updated_state"]
+        state_to_save.pop("_hdc_structured", None)
         await get_storage().session_store.save_session(
             user_id,
             initial_state.get("session_id", ""),
-            final_payload["updated_state"],
+            state_to_save,
         )
         print(f"[Session] 保存会话: user={user_id} session={initial_state.get('session_id', '')}")
 
@@ -601,6 +615,13 @@ async def resolve_hdc_namespace(
     mapping = await storage.admin_store.get_mapping(user_id, schema_id, database_name)
     if mapping:
         return mapping.get("hdc_namespace")
+
+    # 回落：查通配映射（* 表示全局默认）
+    if user_id != "*":
+        mapping = await storage.admin_store.get_mapping("*", schema_id, database_name)
+        if mapping:
+            return mapping.get("hdc_namespace")
+
     return None
 
 
@@ -969,13 +990,59 @@ async def update_session_info(
 # HDC 管理端点
 # ═══════════════════════════════════════════════════════════════
 
+@router.get("/schemas")
+async def list_available_schemas() -> list[dict]:
+    """返回可用的 (schema_id, database_name) 列表，供前端数据库选择器使用。
+
+    公开端点，无需认证。数据来源：HDC 文件系统。
+    """
+    from app.config import get_settings
+    from app.knowledge.openviking import OpenVikingClient
+
+    settings = get_settings()
+    schemas: dict[str, dict] = {}
+
+    if not settings.kb_enabled:
+        return []
+
+    try:
+        ov = OpenVikingClient(settings.kb_openviking_url, "hdc-admin")
+        await ov.start()
+        try:
+            schema_entries = await ov.list_directory("viking://resources/hdc")
+            for schema_entry in schema_entries:
+                if not schema_entry.get("is_dir") or not schema_entry.get("name"):
+                    continue
+                try:
+                    schema_id = int(schema_entry["name"])
+                except (ValueError, TypeError):
+                    continue
+                db_entries = await ov.list_directory(schema_entry["uri"])
+                for db_entry in db_entries:
+                    if not db_entry.get("is_dir") or not db_entry.get("name"):
+                        continue
+                    db_name = db_entry["name"]
+                    key = f"{schema_id}/{db_name}"
+                    schemas[key] = {"schema_id": schema_id, "database_name": db_name}
+        finally:
+            await ov.close()
+    except Exception:
+        pass  # OpenViking 不可用时不阻塞
+
+    return sorted(schemas.values(), key=lambda x: (x["schema_id"], x["database_name"]))
+
 # 内存任务状态存储
 _hdc_tasks: dict[str, dict[str, Any]] = {}
 
 
 @router.post("/hdc/generate")
 async def hdc_generate(payload: dict[str, Any]):
-    """触发生成指定数据库的 HDC 知识库。异步执行，立即返回 task_id。"""
+    """触发生成指定数据库的 HDC 知识库。异步执行，立即返回 task_id。
+
+    可选参数:
+      - namespace: HDC 命名空间变体（如 recall_complete）
+      - tables: 表名列表，为空时生成全库
+    """
     from app.config import get_settings as _gs
     settings = _gs()
     if not settings.hdc_enabled:
@@ -983,6 +1050,12 @@ async def hdc_generate(payload: dict[str, Any]):
 
     schema_id = payload.get("schema_id")
     database_name = payload.get("database_name", "").strip()
+    namespace = (payload.get("namespace") or "").strip() or None
+    tables = payload.get("tables")
+    if tables and not isinstance(tables, list):
+        tables = [t.strip() for t in str(tables).split(",") if t.strip()]
+    if tables == []:
+        tables = None
     if not schema_id or not database_name:
         raise HTTPException(status_code=400, detail="schema_id 和 database_name 为必填项")
 
@@ -990,17 +1063,21 @@ async def hdc_generate(payload: dict[str, Any]):
     _hdc_tasks[task_id] = {
         "task_id": task_id,
         "database_name": database_name,
+        "schema_id": schema_id,
+        "namespace": namespace,
+        "tables": tables,
+        "action": "generate",
         "status": "started",
         "progress": {"phase": "initializing", "tables_done": 0, "tables_total": 0},
         "result": None,
     }
 
     # 后台异步生成
-    asyncio.create_task(_run_hdc_generate(task_id, schema_id, database_name))
+    asyncio.create_task(_run_hdc_generate(task_id, schema_id, database_name, namespace=namespace, tables=tables))
     return {"task_id": task_id, "status": "started"}
 
 
-async def _run_hdc_generate(task_id: str, schema_id: int, database_name: str):
+async def _run_hdc_generate(task_id: str, schema_id: int, database_name: str, *, namespace: str | None = None, tables: list[str] | None = None):
     """后台执行 HDC 生成任务。"""
     try:
         from app.client.onedba import get_onedba_client
@@ -1024,7 +1101,90 @@ async def _run_hdc_generate(task_id: str, schema_id: int, database_name: str):
         _hdc_tasks[task_id]["status"] = "running"
         _hdc_tasks[task_id]["progress"] = {"phase": "generating", "tables_done": 0, "tables_total": 0}
 
-        result = await generator.generate(schema_id, database_name)
+        result = await generator.generate(schema_id, database_name, namespace=namespace, tables=tables)
+        _hdc_tasks[task_id]["status"] = "completed"
+        _hdc_tasks[task_id]["result"] = result
+
+        await ov.close()
+    except Exception as e:
+        _hdc_tasks[task_id]["status"] = "failed"
+        _hdc_tasks[task_id]["result"] = {"error": str(e)}
+
+
+@router.post("/hdc/update")
+async def hdc_update(payload: dict[str, Any]):
+    """触发 HDC 知识库增量更新。基于列签名 hash 检测变更，只重算变化部分。异步执行。
+
+    可选参数:
+      - namespace: HDC 命名空间变体
+      - tables: 限定更新的表名列表
+      - dry_run: True 时只检测变更不执行重算
+      - rebuild: True 时强制重建关系+数据库摘要（不重跑列摘要/表描述）
+    """
+    from app.config import get_settings as _gs
+    settings = _gs()
+    if not settings.hdc_enabled:
+        raise HTTPException(status_code=503, detail="HDC 功能未启用")
+
+    schema_id = payload.get("schema_id")
+    database_name = payload.get("database_name", "").strip()
+    namespace = (payload.get("namespace") or "").strip() or None
+    tables = payload.get("tables")
+    if tables and not isinstance(tables, list):
+        tables = [t.strip() for t in str(tables).split(",") if t.strip()]
+    if tables == []:
+        tables = None
+    dry_run = bool(payload.get("dry_run", False))
+    rebuild = bool(payload.get("rebuild", False))
+    if not schema_id or not database_name:
+        raise HTTPException(status_code=400, detail="schema_id 和 database_name 为必填项")
+
+    task_id = str(uuid6.uuid7())
+    _hdc_tasks[task_id] = {
+        "task_id": task_id,
+        "database_name": database_name,
+        "schema_id": schema_id,
+        "namespace": namespace,
+        "tables": tables,
+        "action": "update",
+        "dry_run": dry_run,
+        "rebuild": rebuild,
+        "status": "started",
+        "progress": {"phase": "initializing"},
+        "result": None,
+    }
+
+    asyncio.create_task(_run_hdc_update(task_id, schema_id, database_name, namespace=namespace, tables=tables, dry_run=dry_run, rebuild=rebuild))
+    return {"task_id": task_id, "status": "started"}
+
+
+async def _run_hdc_update(task_id: str, schema_id: int, database_name: str, *, namespace: str | None = None, tables: list[str] | None = None, dry_run: bool = False, rebuild: bool = False):
+    """后台执行 HDC 增量更新任务。"""
+    try:
+        from app.client.onedba import get_onedba_client
+        from app.datavault.collector import SchemaCollector
+        from app.datavault.generator import HDCGenerator
+        from app.datavault.uploader import HDCUploader
+        from app.datavault.updater import HDCUpdater
+        from app.knowledge.openviking import OpenVikingClient
+        from app.config import get_settings
+
+        settings = get_settings()
+        from openai import AsyncOpenAI
+        llm = AsyncOpenAI(api_key=settings.llm_api_key, base_url=settings.llm_base_url)
+        ov = OpenVikingClient(settings.kb_openviking_url, "hdc-admin")
+        await ov.start()
+        onedba = get_onedba_client()
+
+        collector = SchemaCollector(onedba)
+        uploader = HDCUploader(ov)
+        generator = HDCGenerator(llm_client=llm, collector=collector, uploader=uploader)
+        updater = HDCUpdater(collector=collector, generator=generator, uploader=uploader)
+
+        _hdc_tasks[task_id]["status"] = "running"
+        _hdc_tasks[task_id]["progress"] = {"phase": "checking_changes"}
+
+        result = await updater.check_and_update(schema_id, database_name, tables=tables, namespace=namespace, dry_run=dry_run, rebuild=rebuild)
         _hdc_tasks[task_id]["status"] = "completed"
         _hdc_tasks[task_id]["result"] = result
 
@@ -1035,27 +1195,103 @@ async def _run_hdc_generate(task_id: str, schema_id: int, database_name: str):
 
 
 @router.get("/hdc/status/{database_name}")
-async def hdc_status(database_name: str):
-    """查询指定数据库的 HDC 状态。"""
+async def hdc_status(database_name: str, schema_id: int = 0, namespace: str = ""):
+    """查询指定数据库的 HDC 状态。
+
+    可选 query 参数: schema_id（精确定位）、namespace（限定变体目录）。
+    返回: exists / namespace_count / total_tables / namespaces 明细。
+    """
     from app.config import get_settings as _gs
     settings = _gs()
     if not settings.hdc_enabled:
         raise HTTPException(status_code=503, detail="HDC 功能未启用")
 
-    # Check if HDC data exists in OpenViking by listing the directory
     try:
         from app.knowledge.openviking import OpenVikingClient
+        from app.datavault.uploader import _db_uri, _tables_dir_uri, storage_key
         ov = OpenVikingClient(settings.kb_openviking_url, "hdc-admin")
         await ov.start()
-        entries = await ov.ls(f"viking://user/hdc-system/memories/hdc/{database_name}")
-        await ov.close()
 
-        exists = len(entries) > 0 if isinstance(entries, list) else False
-        table_count = sum(1 for e in (entries if isinstance(entries, list) else []) if e.get("isDir"))
+        namespaces = []  # [{name, table_count}]
+        total_tables = 0
+
+        async def _count_tables_under(tables_uri: str) -> int:
+            """统计 _tables/ 目录下的表数（仅 is_dir 条目，排除 _INDEX.md 等文件）。"""
+            entries = await ov.list_directory(tables_uri)
+            cnt = 0
+            for e in (entries if isinstance(entries, list) else []):
+                if e.get("is_dir"):
+                    # 排除隐藏目录，表名不以 _ 开头
+                    name = (e.get("name") or "").rstrip("/")
+                    if name and not name.startswith("_"):
+                        cnt += 1
+            return cnt
+
+        async def _count_tables_in_namespace(db_uri: str, ns_name: str) -> int:
+            """统计单个 namespace 目录下的表数（{db}/{ns}/_tables/ 下的表目录数）。"""
+            ns_uri = f"{db_uri}/{ns_name}"
+            tables_uri = f"{ns_uri}/_tables"
+            return await _count_tables_under(tables_uri)
+
+        if schema_id:
+            # 精确定位到 schema_id + database_name
+            if namespace:
+                key = storage_key(schema_id, database_name, namespace=namespace)
+                uri = _db_uri(key)
+                # namespace 模式: uri 已是 {db}/{namespace}，直接数其 _tables
+                tables = await _count_tables_under(f"{uri}/_tables")
+                namespaces = [{"name": namespace, "table_count": tables}]
+                total_tables = tables
+            else:
+                key = storage_key(schema_id, database_name)
+                uri = _db_uri(key)
+                # 列出所有 namespace
+                entries = await ov.list_directory(uri)
+                for e in (entries if isinstance(entries, list) else []):
+                    if not e.get("is_dir"):
+                        continue
+                    ns_name = (e.get("name") or "").rstrip("/")
+                    if not ns_name or ns_name.startswith("_"):
+                        continue  # 跳过 _tables/_relationships 等保留目录
+                    tc = await _count_tables_in_namespace(uri, ns_name)
+                    namespaces.append({"name": ns_name, "table_count": tc})
+                    total_tables += tc
+        else:
+            # 不传 schema_id：遍历 hdc 根下所有 schema，找匹配 database_name 的
+            root_entries = await ov.list_directory("viking://resources/hdc")
+            for re in (root_entries if isinstance(root_entries, list) else []):
+                if not re.get("is_dir"):
+                    continue
+                # 列出该 schema 下的 db 目录
+                schema_uri = re.get("uri") or f"viking://resources/hdc/{re.get('name')}"
+                db_entries = await ov.list_directory(schema_uri)
+                for de in (db_entries if isinstance(db_entries, list) else []):
+                    if not de.get("is_dir"):
+                        continue
+                    if (de.get("name") or "").rstrip("/") != database_name:
+                        continue
+                    db_uri = de.get("uri") or f"{schema_uri}/{database_name}"
+                    # 列出该 db 下的所有 namespace
+                    ns_entries = await ov.list_directory(db_uri)
+                    for ne in (ns_entries if isinstance(ns_entries, list) else []):
+                        if not ne.get("is_dir"):
+                            continue
+                        ns_name = (ne.get("name") or "").rstrip("/")
+                        if not ns_name or ns_name.startswith("_"):
+                            continue
+                        tc = await _count_tables_in_namespace(db_uri, ns_name)
+                        namespaces.append({"name": ns_name, "table_count": tc})
+                        total_tables += tc
+
+        await ov.close()
         return {
             "database_name": database_name,
-            "exists": exists,
-            "table_count": table_count,
+            "schema_id": schema_id or None,
+            "namespace": namespace or None,
+            "exists": len(namespaces) > 0,
+            "namespace_count": len(namespaces),
+            "total_tables": total_tables,
+            "namespaces": namespaces,
         }
     except Exception as e:
         return {
@@ -1075,19 +1311,60 @@ async def hdc_task_status(task_id: str):
 
 
 @router.delete("/hdc/{database_name}")
-async def hdc_delete(database_name: str):
-    """删除指定数据库的全部 HDC 数据。"""
+async def hdc_delete(database_name: str, schema_id: int = 0, namespace: str = ""):
+    """删除指定数据库的 HDC 数据。
+
+    可选 query 参数:
+      - schema_id: 定位到具体 schema（推荐传入，否则遍历所有 schema 匹配 db_name）
+      - namespace: 限定只删除该 namespace 变体目录（不传则删除整个数据库的全部 namespace）
+    """
     from app.config import get_settings as _gs
     settings = _gs()
     if not settings.hdc_enabled:
         raise HTTPException(status_code=503, detail="HDC 功能未启用")
 
+    deleted_uris: list[str] = []
     try:
         from app.knowledge.openviking import OpenVikingClient
+        from app.datavault.uploader import _db_uri, storage_key
         ov = OpenVikingClient(settings.kb_openviking_url, "hdc-admin")
         await ov.start()
-        await ov.rm(f"viking://user/hdc-system/memories/hdc/{database_name}", recursive=True)
+
+        if schema_id:
+            # 精确定位：schema_id + database_name [+ namespace]
+            key = storage_key(schema_id, database_name, namespace=namespace or None)
+            uri = _db_uri(key)
+            await ov.rm(uri, recursive=True)
+            deleted_uris.append(uri)
+        else:
+            # 不传 schema_id：遍历 hdc 根下所有 schema，匹配 database_name
+            entries = await ov.list_directory("viking://resources/hdc")
+            for e in (entries if isinstance(entries, list) else []):
+                if not e.get("is_dir"):
+                    continue
+                schema_uri = e.get("uri") or f"viking://resources/hdc/{e.get('name')}"
+                db_entries = await ov.list_directory(schema_uri)
+                for de in (db_entries if isinstance(db_entries, list) else []):
+                    if not (de.get("is_dir") and de.get("name") == database_name):
+                        continue
+                    if namespace:
+                        # 只删单个 namespace 子目录
+                        ns_uri = f"{de.get('uri') or schema_uri + '/' + database_name}/{namespace}"
+                        await ov.rm(ns_uri, recursive=True)
+                        deleted_uris.append(ns_uri)
+                    else:
+                        # 删整个 db 目录（含全部 namespace）
+                        await ov.rm(de.get("uri"), recursive=True)
+                        deleted_uris.append(de.get("uri"))
+
         await ov.close()
-        return {"deleted": True, "database_name": database_name}
+        return {
+            "deleted": True,
+            "database_name": database_name,
+            "schema_id": schema_id or None,
+            "namespace": namespace or None,
+            "scope": "namespace" if namespace else "full_database",
+            "deleted_uris": deleted_uris,
+        }
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"删除失败: {e}")

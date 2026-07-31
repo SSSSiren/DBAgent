@@ -208,6 +208,17 @@ class SqlMemoryBackend(Protocol):
         """
         ...
 
+    async def delete_record_by_id(self, record_id: str) -> bool:
+        """按记录 ID 删除单条记录。
+
+        Args:
+            record_id: 记录的唯一 ID
+
+        Returns:
+            True 表示删除成功，False 表示记录不存在
+        """
+        ...
+
     async def get_status_summary(
         self,
         user_id: str = "",
@@ -700,6 +711,14 @@ class InMemorySqlMemoryStore(SqlMemoryBackend):
                 del self._records[rid]
                 deleted += 1
         return deleted
+
+    async def delete_record_by_id(self, record_id: str) -> bool:
+        """按记录 ID 删除单条记录。"""
+        with self._lock:
+            if record_id in self._records:
+                del self._records[record_id]
+                return True
+            return False
 
     async def get_status_summary(
         self,
@@ -1476,6 +1495,16 @@ class SqliteSqlMemoryStore(SqlMemoryBackend):
         )
         await self._conn.commit()
         return cursor.rowcount
+
+    async def delete_record_by_id(self, record_id: str) -> bool:
+        """按记录 ID 删除单条记录。"""
+        if self._conn is None:
+            return False
+        cursor = await self._conn.execute(
+            "DELETE FROM sql_memories WHERE id = ?", (record_id,)
+        )
+        await self._conn.commit()
+        return cursor.rowcount > 0
 
     async def get_status_summary(
         self,

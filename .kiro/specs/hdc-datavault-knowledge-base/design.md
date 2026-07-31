@@ -60,7 +60,7 @@
 - OpenViking `find` API 的请求/响应格式变更
 - `build_context()` 函数签名变更
 - `session_state` 字典中 `_hdc_context` 键的命名或结构变更
-- HDC OpenViking 目录结构 `viking://user/hdc-system/memories/hdc/{schemaId}/{db}/_tables/{table}/` 变更
+- HDC OpenViking 目录结构 `viking://resources/hdc/{schemaId}/{db}/_tables/{table}/` 变更
 - `Settings` 中 HDC 相关配置项命名或默认值变更
 - `HDCGenerator.generate()` 参数签名变更（如 `tables` 参数的类型或语义修改）
 - `SchemaCollector.collect_database()` 签名变更
@@ -118,23 +118,20 @@ graph TB
 | 后端 | Python 3.12 + FastAPI | HDC 管理 API 端点 | 已有 |
 | HTTP 客户端 | httpx | OpenViking API 调用 | 已有 |
 | LLM | OpenAI 兼容 API（deepseek-v4-flash） | HDC 生成时的描述生成 | 已有，复用 `Settings.llm_model` |
-| 存储 | OpenViking（`viking://user/hdc-system/memories/hdc/{schemaId}/{db}/`） | HDC 知识库持久化 + 向量检索 | 已有 |
-
-**设计决策 — HDC 存储路径选择 (2026-07-23)**：
-
-HDC 数据存储路径从 `viking://resources/hdc/...` 迁移到 `viking://user/hdc-system/memories/hdc/...`。
-
-**理由**：OpenViking 对 `resources` 路径的写入走 `_write_direct_with_refresh` 路径，强制触发 SemanticProcessor（VLM 生成 L0/L1 摘要 + embedding）。VLM 调用慢（30-120s）且对 HDC 冗余（HDC 的 `_INDEX.md` 已是 LLM 精炼的描述）。同时 VLM 连接池无并发限流，多表并行处理时连接池耗尽导致 `PoolTimeout`。
-
-改为 `memories/hdc` 路径后走 `_write_memory_with_refresh` 路径：VLM 被硬编码跳过（`semantic_status="skipped"`），仅保留 embedding 向量化（2-5s），彻底消除 VLM 连接池耗尽问题。
-
-**兼容性验证**：
-- `content/read` API（`raw=False`）自动剥除 `MemoryFileUtils` 包装 → `_read_index()` 拿到原始 markdown ✅
-- `registry.get("hdc")` 无注册项 → `refresh_schema_overview` 静默跳过 ✅
-- `find()` 向量检索不依赖 context_type ✅
-- `set_tags()` 不区分 context_type ✅
+| 存储 | OpenViking（`viking://resources/hdc/{schemaId}/{db}/`） | HDC 知识库持久化 + 向量检索 | 已有 |
 | Schema 源 | OneDBA 平台 | 数据库 schema 采集 | 已有 |
 | 异步 | asyncio | 生成管线并行调度 | 标准库 |
+
+**设计决策 — HDC 存储路径选择 (与当前代码一致)**：
+
+HDC 数据存储在 `viking://resources/hdc/{schemaId}/{database_name}/`，根路径由 `app.datavault.uploader._HDC_ROOT` 定义。
+
+**理由**：OpenViking 对 `resources` 路径的写入会触发 SemanticProcessor，为 HDC 表目录生成 `.abstract.md`（L0）和 `.overview.md`（L1）摘要并生成 embedding。当前 `HDCRetriever.retrieve()` 使用 `_tables_dir_uri(storage_key(...))` 并通过 `find(level=[0,1])` 做表级语义召回，因此文档和实现都应保持 resources 路径。
+
+**兼容性约束**：
+- 目录路径必须通过 `storage_key()`、`_db_uri()`、`_tables_dir_uri()` 等 helper 构造，避免硬编码。
+- namespace 变体追加在 `{schemaId}/{database_name}/{namespace}` 后，`namespace=None` 时保持默认路径。
+- `set_tags()` 继续用于结构化元数据检索索引。
 
 ## 文件结构计划
 
@@ -420,10 +417,10 @@ class HDCGenerator:
 | 需求 | 1.3, 1.4 |
 
 **职责与约束**
-- 创建目录结构：`viking://user/hdc-system/memories/hdc/{schemaId}/{db}/_tables/{table}/`、`viking://user/hdc-system/memories/hdc/{schemaId}/{db}/_relationships/`
+- 创建目录结构：`viking://resources/hdc/{schemaId}/{db}/_tables/{table}/`、`viking://resources/hdc/{schemaId}/{db}/_relationships/`
 - 写入 `_INDEX.md` 文件（表级 L2）和 `{column}.md` 文件（列级 L2）
 - 调用 `set_tags` 设置结构化元数据（main_entity、table_type、pk）
-- 使用 `user/memories/hdc` 路径走 `_write_memory_with_refresh` → 跳过 VLM，仅 embedding 向量化
+- 使用 `resources/hdc` 路径触发 OpenViking SemanticProcessor，生成 L0/L1 摘要和 embedding
 
 **依赖**
 - 外部：OpenVikingClient (P0) — `mkdir`/`write`/`set_tags` API
@@ -556,12 +553,12 @@ class HDCRetriever:
 
 HDC 数据存储在 OpenViking 文件系统中，非关系型数据库。目录结构即数据模型：
 
-- **数据库** → `viking://user/hdc-system/memories/hdc/{schemaId}/{database_name}/` 目录
+- **数据库** → `viking://resources/hdc/{schemaId}/{database_name}/` 目录
 - **表** → `_tables/{table_name}/` 子目录
 - **列** → `{column_name}.md` 文件
 - **关系** → `_relationships/{source}__{target}.md` 文件
 - **元数据** → OpenViking tags（`main_entity`、`table_type`、`pk`、`hdc_level`）
-- **embedding** → MemoryUpdater 纯文本向量化（跳过 VLM L0/L1 摘要）
+- **embedding** → OpenViking SemanticProcessor 生成目录级 L0/L1 摘要并向量化
 
 ### 数据合约与集成
 
@@ -619,6 +616,6 @@ HDC 数据存储在 OpenViking 文件系统中，非关系型数据库。目录�
 ## 安全考量
 
 - HDC 管理 API 端点无需额外认证（复用 OneDBA 平台已有的网络隔离）
-- HDC 数据存储在 `viking://user/hdc-system/memories/hdc/{schemaId}/{db}/`，所有用户共享读取（HDC 是数据库 schema 描述，不包含敏感数据）
+- HDC 数据存储在 `viking://resources/hdc/{schemaId}/{db}/`，所有用户共享读取（HDC 是数据库 schema 描述，不包含敏感数据）
 - HDC 生成时的 LLM 调用复用项目已有的 API key 配置，不新增凭证
 - 不将用户查询数据发送到 HDC 生成管线（生成管线仅使用 OneDBA schema 元数据）

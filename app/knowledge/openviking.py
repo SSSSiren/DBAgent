@@ -386,6 +386,12 @@ class OpenVikingClient:
         try:
             raw = await self._get_raw("/api/v1/fs/ls", uri)
             entries = raw if isinstance(raw, list) else raw.get("result", [])
+        except httpx.HTTPStatusError as he:
+            # 404 表示目录不存在，返回空列表，不打 WARN
+            if he.response.status_code == 404:
+                return []
+            log.warning("OpenViking list_directory failed: uri=%s", uri, exc_info=True)
+            return []
         except Exception:
             log.warning("OpenViking list_directory failed: uri=%s", uri, exc_info=True)
             return []
@@ -482,6 +488,12 @@ class OpenVikingClient:
             if timeout is not None:
                 params["timeout"] = timeout
             return await self._delete("/api/v1/fs", params)
+        except httpx.HTTPStatusError as he:
+            # 404 表示目录/文件不存在，删除操作视为已成功，不打 WARN
+            if he.response.status_code == 404:
+                return {}
+            log.warning("OpenViking rm failed: uri=%s", uri, exc_info=True)
+            return {}
         except Exception:
             log.warning("OpenViking rm failed: uri=%s", uri, exc_info=True)
             return {}

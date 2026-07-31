@@ -54,12 +54,12 @@
 
 - [x] 2.2 (P) 构建 HDCUploader — OpenViking 上传器
   - 在 `app/datavault/uploader.py` 中实现 `HDCUploader` 类
-  - 实现 `upload_database()` 方法：创建 `viking://resources/hdc/{db}/` 目录结构（`mkdir`），写入 `_INDEX.md`（数据库摘要），逐表写入 `_INDEX.md`（表描述）和 `{column}.md`（列详情），写入 `_relationships/{a}__{b}.md`（关系）
+  - 实现 `upload_database()` 方法：创建 `viking://resources/hdc/{schemaId}/{db}/` 目录结构（`mkdir`），写入 `_INDEX.md`（数据库摘要），逐表写入 `_INDEX.md`（表描述）和 `{column}.md`（列详情），写入 `_relationships/{a}__{b}.md`（关系）
   - 实现 `upload_table()` 方法：单表上传（增量更新时使用）
   - 实现 `set_tags()` 调用：表目录级别设置 `hdc_level:table`、`main_entity:{value}`、`table_type:{value}`、`pk:{value}`
   - 实现 `delete_database()` 和 `delete_table()` 方法：`rm` 递归删除
   - 内容格式遵循 Markdown，第一段包含 `main_entity` 同义词确保 VLM 摘要质量
-  - 完成后：调用 `upload_database("test_db", ...)` 后，`ov ls viking://resources/hdc/test_db/` 可见完整目录结构，且各表目录下存在 `.abstract.md`（L0）和 `.overview.md`（L1）摘要文件
+  - 完成后：调用 `upload_database(schema_id, "test_db", ...)` 后，`ov ls viking://resources/hdc/{schemaId}/test_db/` 可见完整目录结构，且各表目录下存在 `.abstract.md`（L0）和 `.overview.md`（L1）摘要文件
   - _Requirements: 1.3, 1.4, 3.3_
   - _Boundary: HDCUploader_
 

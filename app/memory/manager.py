@@ -66,6 +66,7 @@ class StorageManager:
         if self.admin_store is not None:
             await self.admin_store.initialize()
             print("[manager] AdminStore 已初始化")
+            print("[manager] Admin on http://localhost:8000/static/admin.html")
 
     async def close(self) -> None:
         """按逆序关闭所有已初始化的存储后端。

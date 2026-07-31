@@ -5,6 +5,7 @@ SQL 记忆库管理工具
 用法:
     python tools/sql_memory_admin.py status          # 查看记忆库概览
     python tools/sql_memory_admin.py list            # 列出所有记录
+    python tools/sql_memory_admin.py seed --file data.json --user alice  # 从文件灌入
     python tools/sql_memory_admin.py re-embed        # 重建所有 embedding
     python tools/sql_memory_admin.py re-embed --user default  # 指定用户
     python tools/sql_memory_admin.py clean           # 删除过期记录
@@ -24,6 +25,76 @@ import os
 import sys
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
+
+
+async def cmd_seed(args):
+    """从 JSON 文件批量灌入 SQL 记忆"""
+    from app.memory.manager import get_storage
+    from app.memory.sql_memory import embed_text
+
+    filepath = args.file
+    if not os.path.exists(filepath):
+        print(f"文件不存在: {filepath}")
+        return
+
+    with open(filepath, "r", encoding="utf-8") as f:
+        data = json.load(f)
+
+    # 支持两种格式: 直接 records 数组, 或 {"user_id": "...", "records": [...]}
+    if isinstance(data, list):
+        records = data
+    elif isinstance(data, dict) and "records" in data:
+        records = data["records"]
+        if not args.user or args.user == "default":
+            args.user = data.get("user_id", args.user)
+    else:
+        print("无效的 JSON 格式: 需要 records 数组或包含 user_id+records 的对象")
+        return
+
+    user_id = args.user or "default"
+    store = get_storage().sql_memory_store
+    if store is None:
+        print("SQL 记忆存储未初始化，请设置 SQL_MEMORY_ENABLED=true")
+        return
+
+    await store.initialize()
+    try:
+        success = 0
+        fail = 0
+        for i, rec in enumerate(records):
+            try:
+                question = rec.get("question", "")
+                sql = rec.get("sql", "")
+                if not question or not sql:
+                    print(f"  [{i}] 跳过: 缺少 question 或 sql")
+                    fail += 1
+                    continue
+
+                table_names = rec.get("table_names", [])
+                database_name = rec.get("database_name", "")
+                schema_id = rec.get("schema_id", 0)
+                execution_result = rec.get("execution_result", {})
+
+                embedding = await embed_text(question)
+                await store.record(
+                    user_id=user_id,
+                    question=question,
+                    sql=sql,
+                    table_names=table_names,
+                    database_name=database_name,
+                    schema_id=schema_id,
+                    execution_result=execution_result,
+                    embedding=embedding,
+                )
+                print(f"  [{i}] ✓ {question[:50]}")
+                success += 1
+            except Exception as e:
+                print(f"  [{i}] ✗ {type(e).__name__}: {e}")
+                fail += 1
+
+        print(f"\n完成: user={user_id}  total={len(records)}  success={success}  failed={fail}")
+    finally:
+        await store.close()
 
 
 async def cmd_status(args):
@@ -201,6 +272,11 @@ def main():
     p_list.add_argument("--user", default="default", help="用户 ID")
     p_list.add_argument("--limit", type=int, default=50, help="最大条数")
     p_list.set_defaults(func=cmd_list)
+
+    p_seed = sub.add_parser("seed", help="从 JSON 文件批量灌入 SQL 记忆")
+    p_seed.add_argument("--file", required=True, help="JSON 文件路径")
+    p_seed.add_argument("--user", default="default", help="目标用户 ID（文件中有 user_id 时可选）")
+    p_seed.set_defaults(func=cmd_seed)
 
     p_re = sub.add_parser("re-embed", help="重建 embedding")
     p_re.add_argument("--user", default="default", help="用户 ID")

@@ -46,6 +46,48 @@ function initUserId() {
   }
 }
 
+// ── 数据库选择器 ──────────────────────────────────────────────────
+
+const dbSelector = document.querySelector("#dbSelector");
+const dbSelectorStatus = document.querySelector("#dbSelectorStatus");
+let _availableSchemas = []; // [{schema_id, database_name}]
+
+/** 加载可用的数据库列表（从 /api/schemas 公开端点） */
+async function loadDbSelector() {
+  try {
+    const resp = await fetch("/api/schemas");
+    if (!resp.ok) return;
+    _availableSchemas = await resp.json();
+    // 保留 "自动发现" 选项
+    dbSelector.innerHTML = '<option value="">-- 自动发现 --</option>';
+    _availableSchemas.forEach(s => {
+      const key = `${s.schema_id}/${s.database_name}`;
+      dbSelector.innerHTML += `<option value="${key}">${s.schema_id} / ${s.database_name}</option>`;
+    });
+    dbSelectorStatus.textContent = _availableSchemas.length ? `${_availableSchemas.length} 个数据库可用` : "无可用数据库";
+    // 恢复上次选择
+    const saved = localStorage.getItem("vkdbagent.selectedDb");
+    if (saved && [...dbSelector.options].some(o => o.value === saved)) {
+      dbSelector.value = saved;
+    }
+  } catch (e) {
+    dbSelectorStatus.textContent = "加载失败";
+  }
+}
+
+/** 获取当前选中的 schema_id 和 database_name */
+function getSelectedDb() {
+  const val = dbSelector.value;
+  if (!val) return [null, null];
+  const idx = val.indexOf("/");
+  if (idx < 0) return [null, null];
+  return [parseInt(val.slice(0, idx)), val.slice(idx + 1)];
+}
+
+dbSelector.addEventListener("change", () => {
+  localStorage.setItem("vkdbagent.selectedDb", dbSelector.value);
+});
+
 /**
  * 设置用户标识并同步到 localStorage。
  * 返回 true 表示值发生了变化。
@@ -1443,10 +1485,16 @@ async function sendMessage(message) {
 
   let finalPayload = null;
   try {
+    const [schemaId, dbName] = getSelectedDb();
+    const body = { session_id: sessionId, user_id: getUserId(), message };
+    if (schemaId && dbName) {
+      body.schema_id = schemaId;
+      body.database_name = dbName;
+    }
     const response = await fetch("/api/chat", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ session_id: sessionId, user_id: getUserId(), message }),
+      body: JSON.stringify(body),
       signal: abortController.signal,
     });
     if (!response.ok || !response.body) throw new Error(`HTTP ${response.status}`);
@@ -1620,3 +1668,4 @@ document.querySelectorAll("[data-prompt]").forEach((button) => {
 
 initUserId();
 initSession();
+loadDbSelector();

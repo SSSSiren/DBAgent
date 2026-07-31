@@ -12,9 +12,9 @@ DBAgent 是一个 **NL2SQL（自然语言转 SQL）智能数据库助手**，运
 
 4. **安全分级 SQL 执行**：二级安全模型——只读查询（SELECT/SHOW/DESCRIBE/EXPLAIN）自动执行（自动附加 LIMIT 500 安全上限），所有写操作（INSERT/UPDATE/DELETE）和 DDL（CREATE/ALTER/DROP/TRUNCATE）直接拦截，不执行。
 
-5. **可观测的流式 Agent**：ReAct 推理循环通过 SSE 和 WebSocket 实时推送到前端，每一步（LLM 推理、工具调用、SQL 提取、最终响应）都可追踪。Langfuse 集成提供 trace、token 统计和性能可观测性。
+5. **可观测的流式 Agent**：ReAct 推理循环通过 SSE 实时推送到前端，每一步（LLM 推理、工具调用、SQL 提取、最终响应）都可追踪。WebSocket 端点已实现（含断开即取消机制）但前端当前使用 SSE。Langfuse 集成提供 trace、token 统计和性能可观测性。
 
-6. **HDC 数据底座**：离线 LLM 管线将数据库 schema 转化为四层业务语义描述（列→表→关系→库），存储于 OpenViking 资源目录，在线检索时注入 Agent 上下文，减少 Agent 面对陌生数据库时的 `find_table→describe_table` 盲搜往返。
+6. **HDC 数据底座**：离线 LLM 管线将数据库 schema 转化为三层业务语义描述（列→表→库），存储于 OpenViking 资源目录，在线检索时注入 Agent 上下文，减少 Agent 面对陌生数据库时的 `find_table→describe_table` 盲搜往返。
 
 ## Target Use Cases
 
@@ -29,7 +29,7 @@ DBAgent 是一个 **NL2SQL（自然语言转 SQL）智能数据库助手**，运
 - **消除手动 Schema 发现**：`find_table` 工具支持多关键词搜索、回退扫描、表注释语义匹配，跨多库多环境自动定位。
 - **内置安全与治理**：二级执行模型确保用户不会意外修改或破坏数据——只读查询自动放行，写操作和 DDL 直接拦截，同时保证读查询的流畅体验。
 - **平台集成而非独立**：运行在 OneDBA 平台上，复用已有的数据库连接、权限和访问控制，无需管理额外凭证。
-- **流式交互体验**：SSE/WebSocket 实时展示 Agent 推理过程，提升透明度和信任感。
+- **流式交互体验**：SSE（Server-Sent Events）实时展示 Agent 推理过程，提升透明度和信任感。WebSocket 端点已实现但前端未接入，当前主流式通道为 SSE。
 
 ---
 _updated_at: 2026-07-26_
