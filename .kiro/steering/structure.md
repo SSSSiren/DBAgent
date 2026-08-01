@@ -50,7 +50,7 @@
 
 ### 前端 (`app/static/`)
 **Purpose**: Web UI 单页应用（主聊天界面 + Admin 管理界面）  
-**Contents**: `index.html`、`app.js`（主聊天界面）、`admin.html`、`admin.js`（HDC namespace 映射管理 + SQL 记忆管理 + 存储概览）、`style.css`、`favicon.svg`  
+**Contents**: `index.html`、`app.js`（主聊天界面）、`admin.html`、`admin.js`（HDC namespace 映射管理 + SQL 记忆管理 + 存储概览）、`styles.css`、`favicon.svg`  
 **Pattern**: 原生 HTML/CSS/JS，无构建步骤、无打包器、无框架，通过 FastAPI `StaticFiles` 挂载
 
 ### 配置 (`app/config.py`)
@@ -122,7 +122,7 @@ from app.tools import TOOLS, TOOL_HANDLERS
 
 6. **错误隔离**：可选子系统（OpenViking、偏好追踪、Langfuse）包裹在 try/except 中，单点失败不影响主 Agent 流程。
 
-7. **测试镜像源结构**：`tests/test_{module}.py` 匹配源模块，`conftest.py` 提供共享 fixtures，`evaluation/` 子包为独立评估框架。
+7. **测试镜像源结构**：`tests/test_{module}.py` 匹配源模块，`evaluation/` 子包为独立评估框架（本仓库无根级 `conftest.py`，fixtures 由各测试文件或 `evaluation/` 内部定义）。
 
 8. **中文文档**：模块级和函数级 docstring 使用中文，代码注释中英混合。
 
