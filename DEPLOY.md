@@ -17,7 +17,16 @@
 
 ## 二、配置项总览
 
-### 必填（敏感，从环境变量/Secret 注入，禁止落文件）
+### 注入方式（二选一）
+
+DBAgent 支持两种敏感配置注入方式，docker compose 自动合并两者（命令行 export 的环境变量**优先级高于** `.env` 文件）：
+
+- **方式 A — `.env` 文件**（适合测试机/单机）：在项目根目录创建 `.env`，docker compose 启动时自动读取。`.env` 已被 `.gitignore` 忽略，填真实密钥不会被提交。
+- **方式 B — 环境变量/Secret**（适合生产/CI）：在部署环境 `export` 或经 K8s Secret 注入，不落任何文件，安全等级更高。
+
+> 若 `.env` 与环境变量同时存在同名 key，环境变量覆盖 `.env` 的值。
+
+### 必填（敏感，两种方式都须提供）
 
 | 环境变量 | 说明 |
 |---|---|
@@ -57,21 +66,35 @@ git clone <repo-url> dbagent
 cd dbagent
 ```
 
-### 2. 注入敏感配置（不落文件）
+### 2. 注入敏感配置
+
+**方式 A —— `.env` 文件（测试/单机推荐）**：
 
 ```bash
-# 必填 —— 用真实值替换
+cp .env.example .env
+# 编辑 .env，填入真实值（重点项如下）
+#   LLM_API_KEY=<真实 key>
+#   ONEDBA_ACCESS_TOKEN=<真实 token>
+#   ONEDBA_ENV=prd
+#   ADMIN_API_TOKEN=                        # 生产必填，留空则 /api/admin/* 503
+#   STORAGE_BACKEND=sqlite                  # 生产保持 sqlite
+#   LLM_EMBEDDING_PROVIDER=auto             # 避免 ollama 依赖
+#   LANGFUSE_ENABLED=true                   # 便于线上排障，需配 keys
+```
+
+`.env` 已被 `.gitignore` 忽略，填真实密钥不会被提交。下次 `docker compose up` 自动读取，无需额外参数。
+
+**方式 B —— 环境变量/Secret（生产推荐）**：
+
+```bash
 export LLM_API_KEY=<your_llm_key>
 export ONEDBA_ACCESS_TOKEN=<your_onedba_token>
 export ONEDBA_ENV=prd
 export ADMIN_API_TOKEN=$(openssl rand -hex 24)   # 生成强随机 token
 
-# 可选 —— 可观测性
 export LANGFUSE_PUBLIC_KEY=<your_langfuse_public_key>
 export LANGFUSE_SECRET_KEY=<your_langfuse_secret_key>
 ```
-
-> 若使用 CI/CD 或 K8s Secret，将上述变量注入部署环境即可，compose 会自动读取。
 
 ### 3. 按需覆盖非敏感默认值（可选）
 
