@@ -7,21 +7,66 @@ services:
     ports:
       - "${HOST_PORT:-8000}:8000"
     environment:
-      - LLM_API_KEY=${LLM_API_KEY}
+      # ========== LLM（敏感：从环境/Secret 注入，不落文件）==========
+      - LLM_API_KEY=${LLM_API_KEY:?LLM_API_KEY 必填，请通过环境变量/Secret 注入}
       - LLM_BASE_URL=${LLM_BASE_URL:-https://dwai-data.dewu-inc.com/openai/v1}
       - LLM_MODEL=${LLM_MODEL:-deepseek-v4-flash-260425}
+      # Embedding（SQL Memory 语义检索依赖；生产建议 openai 或 auto，避免依赖本地 ollama）
+      - LLM_EMBEDDING_PROVIDER=${LLM_EMBEDDING_PROVIDER:-ollama}
+      - LLM_EMBEDDING_MODEL=${LLM_EMBEDDING_MODEL:-text-embedding-3-small}
+      - OLLAMA_BASE_URL=${OLLAMA_BASE_URL:-http://localhost:11434}
+      - OLLAMA_EMBEDDING_MODEL=${OLLAMA_EMBEDDING_MODEL:-bge-m3:latest}
+
+      # ========== OneDBA 平台（敏感：access_token 从环境/Secret 注入）==========
       - ONEDBA_BASE_URL=${ONEDBA_BASE_URL:-https://onedba.shizhuang-inc.com}
-      - ONEDBA_ACCESS_TOKEN=${ONEDBA_ACCESS_TOKEN}
-      - ONEDBA_ENV=${ONEDBA_ENV:-test}
-      - LANGFUSE_ENABLED=${LANGFUSE_ENABLED:-false}
+      - ONEDBA_ACCESS_TOKEN=${ONEDBA_ACCESS_TOKEN:?ONEDBA_ACCESS_TOKEN 必填，请通过环境变量/Secret 注入}
+      - ONEDBA_ENV=${ONEDBA_ENV:?ONEDBA_ENV 必填（prd/test/uat/dev/pre）}
+
+      # ========== 存储后端（生产必须 sqlite 持久化，避免重启丢会话）==========
+      - STORAGE_BACKEND=${STORAGE_BACKEND:-sqlite}
+      - STORAGE_FILE_PATH=${STORAGE_FILE_PATH:-data/sessions.db}
+
+      # ========== 操作记忆（查询偏好）==========
+      - PREFERENCE_ENABLED=${PREFERENCE_ENABLED:-true}
+
+      # ========== SQL 历史记忆 ==========
+      - SQL_MEMORY_ENABLED=${SQL_MEMORY_ENABLED:-true}
+      - SQL_MEMORY_TOP_K=${SQL_MEMORY_TOP_K:-5}
+      - SQL_MEMORY_TOKEN_BUDGET=${SQL_MEMORY_TOKEN_BUDGET:-1500}
+      - SQL_MEMORY_SQL_MAX_LENGTH=${SQL_MEMORY_SQL_MAX_LENGTH:-2000}
+      - SQL_MEMORY_TTL_DAYS=${SQL_MEMORY_TTL_DAYS:-90}
+      - SQL_MEMORY_MIN_SIMILARITY=${SQL_MEMORY_MIN_SIMILARITY:-0.0}
+      - SQL_MEMORY_PATTERN_MIN_RECORDS=${SQL_MEMORY_PATTERN_MIN_RECORDS:-20}
+      - SQL_MEMORY_SCOPE=${SQL_MEMORY_SCOPE:-user}
+
+      # ========== HDC 数据底座 ==========
+      - HDC_ENABLED=${HDC_ENABLED:-true}
+      - HDC_AUTO_GENERATE=${HDC_AUTO_GENERATE:-false}
+      - HDC_SEMANTIC_TIMEOUT=${HDC_SEMANTIC_TIMEOUT:-300.0}
+      - HDC_COLUMN_BUDGET=${HDC_COLUMN_BUDGET:-1200}
+
+      # ========== OpenViking 对话长期记忆 ==========
+      - KB_ENABLED=${KB_ENABLED:-false}
+      - KB_OPENVIKING_URL=${KB_OPENVIKING_URL:-http://localhost:1933}
+      - KB_AUTO_COMMIT_TURNS=${KB_AUTO_COMMIT_TURNS:-10}
+
+      # ========== Admin API（敏感：token 从环境/Secret 注入；留空则 /api/admin/* 返回 503）==========
+      - ADMIN_API_TOKEN=${ADMIN_API_TOKEN:?ADMIN_API_TOKEN 必填，请通过环境变量/Secret 注入（留空则 Admin API 503 不可用）}
+
+      # ========== Langfuse 可观测性（敏感：keys 从环境/Secret 注入）==========
+      - LANGFUSE_ENABLED=${LANGFUSE_ENABLED:-true}
       - LANGFUSE_PUBLIC_KEY=${LANGFUSE_PUBLIC_KEY:-}
       - LANGFUSE_SECRET_KEY=${LANGFUSE_SECRET_KEY:-}
       - LANGFUSE_HOST=${LANGFUSE_HOST:-https://cloud.langfuse.com}
+
+      # ========== 服务 ==========
       - HOST=0.0.0.0
       - PORT=8000
       - DEBUG=${DEBUG:-false}
+      # gunicorn worker 数：不设则由 gunicorn_conf.py 按 (2*CPU+1) 自动计算（上限 8）
+      # 如需显式指定，在宿主环境导出 WEB_CONCURRENCY=<N> 即可生效
     volumes:
-      # 持久化数据
+      # 持久化数据：会话、偏好、SQL 记忆、Admin 映射共用 sessions.db
       - ./data:/app/data
     restart: unless-stopped
     healthcheck:
@@ -29,4 +74,4 @@ services:
       interval: 30s
       timeout: 10s
       retries: 3
-      start_period: 10s
+      start_period: 30s

@@ -12,6 +12,7 @@ RUN pip install --no-cache-dir \
 
 # 复制代码
 COPY app/ ./app/
+COPY gunicorn_conf.py ./
 COPY data/ ./data/
 
 # 创建数据目录
@@ -20,5 +21,7 @@ RUN mkdir -p /app/data/user_semantic_rules
 # 暴露端口
 EXPOSE 8000
 
-# 启动命令
-CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000"]
+# 启动命令：gunicorn 多 worker 生产部署
+# - UvicornWorker 保留 ASGI lifespan（StorageManager 初始化）与 SSE/WS 支持
+# - worker 数由 gunicorn_conf.py 按 CPU 自动计算，可经 WEB_CONCURRENCY 覆盖
+CMD ["gunicorn", "app.main:app", "-c", "gunicorn_conf.py"]
