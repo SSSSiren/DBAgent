@@ -91,6 +91,7 @@ fi
 
 # ── 启动服务 ─────────────────────────────────────────────────────────
 echo "  🚀 启动 DBAgent 服务 → http://0.0.0.0:${PORT}"
+echo "     Admin running on: http://localhost:8000/static/admin.html"
 echo ""
 echo "  📋 可用端点："
 echo "     GET  /health                 健康检查"
