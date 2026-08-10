@@ -1,8 +1,8 @@
 """
-Agent 执行器 — 基于 OpenAI 兼容 API 的 ReAct Agent
+Agent 执行器 — 基于 deepagents 引擎
 
 职责：
-1. 通过 ReAct 循环驱动 Agent：LLM 决策 → 工具执行 → 观察结果 → 继续
+1. deepagents 引擎驱动 Agent：LLM 决策 → 工具执行 → 观察结果 → 继续
 2. 将执行过程转换为 SSE 事件（step/sql/final）
 3. 管理工具注册和调用
 4. 收集观测指标
@@ -41,6 +41,20 @@ def _get_llm_client() -> AsyncOpenAI:
     return _llm_client
 
 
+# ========== deepagents 引擎工厂 ==========
+
+def _build_engine():
+    """构建 deepagents 引擎（模块级懒加载，测试可 monkeypatch）。"""
+    from app.agent.llm_factory import get_chat_model
+    from app.agent.tool_adapter import build_deepagent_tools
+    from deepagents import create_deep_agent
+    return create_deep_agent(
+        model=get_chat_model(),
+        tools=build_deepagent_tools(),
+        system_prompt=AGENT_SYSTEM_PROMPT,
+    )
+
+
 # ========== 工具适配层 ==========
 
 def _build_tool_schemas() -> list[dict[str, Any]]:
@@ -56,250 +70,202 @@ async def _execute_tool(name: str, input_data: dict[str, Any]) -> tuple[str, flo
     return result, elapsed_ms
 
 
-# ========== Agent 引擎（ReAct 循环）==========
+# ========== 消息解析辅助函数 ==========
 
-async def _run_agent(
+def _extract_messages(chunk: dict[str, Any]) -> list[Any]:
+    """从 astream chunk 中提取消息列表。
+
+    兼容两种格式：
+    - FakeAgent: {"messages": [...]}
+    - 真实 deepagents (updates mode): {"node_name": {"messages": [...]}}
+    """
+    if "messages" in chunk:
+        return chunk["messages"]
+    for value in chunk.values():
+        if isinstance(value, dict) and "messages" in value:
+            return value["messages"]
+    return []
+
+
+def _normalize_message(msg: Any) -> dict[str, Any]:
+    """将消息规范化为统一 dict 格式。
+
+    兼容：
+    - 普通 dict（FakeAgent 测试用）：{"content": ..., "tool_calls": [{"name": ..., "input": ...}]}
+    - LangChain AIMessage 对象：msg.content, msg.tool_calls
+    """
+    if isinstance(msg, dict):
+        content = msg.get("content", "") or ""
+        raw_tool_calls = msg.get("tool_calls", []) or []
+        normalized_tc = []
+        for tc in raw_tool_calls:
+            name = tc.get("name", "")
+            # 兼容 "input"（FakeAgent）、"args"（LangChain）、"arguments"（OpenAI 格式）
+            args = tc.get("input", tc.get("args", tc.get("arguments", {})))
+            normalized_tc.append({"name": name, "arguments": args})
+        return {"content": content, "tool_calls": normalized_tc}
+    else:
+        # LangChain 消息对象
+        content = getattr(msg, "content", "") or ""
+        raw_tool_calls = getattr(msg, "tool_calls", []) or []
+        normalized_tc = []
+        for tc in raw_tool_calls:
+            name = getattr(tc, "name", "")
+            args = getattr(tc, "args", {})
+            normalized_tc.append({"name": name, "arguments": args})
+        return {"content": content, "tool_calls": normalized_tc}
+
+
+# ========== Agent 引擎（deepagents）==========
+
+async def _run_agent_deepagents(
     prompt: str,
     tool_schemas: list[dict[str, Any]],
     cancel_event: asyncio.Event | None = None,
 ) -> AsyncIterator[dict[str, Any]]:
-    """
-    ReAct 循环：LLM 决策 → 工具执行 → 观察结果 → 继续决策。
-
-    产出格式统一的事件字典：
-    {
-        "type": "text" | "tool_start" | "tool_end" | "final",
-        ...
-    }
+    """deepagents 引擎驱动的 Agent 循环，产出与旧 _run_agent 一致的事件字典。
 
     Args:
         prompt: 用户问题（含上下文）
-        tool_schemas: 工具定义列表
+        tool_schemas: 工具定义列表（阶段 1 保留参数兼容，引擎内部已绑定工具）
         cancel_event: 取消信号事件，为 None 时行为不变（向后兼容）
     """
+    from langchain_core.messages import HumanMessage
+
     settings = get_settings()
-    client = _get_llm_client()
-
-    messages: list[dict[str, Any]] = [
-        {"role": "system", "content": AGENT_SYSTEM_PROMPT},
-        {"role": "user", "content": prompt},
-    ]
-
-    # OpenAI function calling 工具格式
-    openai_tools = [
-        {
-            "type": "function",
-            "function": {
-                "name": t["name"],
-                "description": t["description"],
-                "parameters": t["input_schema"],
-            },
-        }
-        for t in tool_schemas
-    ]
-
-    max_iterations = 15
     start_time = time.monotonic()
     total_input_tokens = 0
     total_output_tokens = 0
     cancelled = False
+    iteration = 0
     tool_timings: dict[str, dict[str, float | int]] = {}
 
-    for iteration in range(max_iterations):
-        # ── 取消检查：迭代边界 ──
-        if cancel_event is not None and cancel_event.is_set():
-            cancelled = True
-            break
-
-        # ── LLM 调用（轮询取消信号，避免 asyncio.wait/Task 调度开销）──
-        if cancel_event is not None:
-            llm_task = asyncio.ensure_future(
-                client.chat.completions.create(
-                    model=settings.llm_model,
-                    messages=messages,
-                    tools=openai_tools,
-                    temperature=0.1,
-                )
-            )
-
-            while not llm_task.done():
-                if cancel_event.is_set():
-                    llm_task.cancel()
-                    try:
-                        await llm_task
-                    except asyncio.CancelledError:
-                        pass
-                    print(f"[Cancel] LLM task 已取消")
-                    cancelled = True
-                    break
-                await asyncio.sleep(0.05)  # 50ms 轮询间隔
-
-            if cancelled:
-                break
-
-            response = await llm_task
-        else:
-            response = await client.chat.completions.create(
-                model=settings.llm_model,
-                messages=messages,
-                tools=openai_tools,
-                temperature=0.1,
-            )
-
-        # 累计 token 用量
-        if response.usage:
-            total_input_tokens += response.usage.prompt_tokens or 0
-            total_output_tokens += response.usage.completion_tokens or 0
-
-        choice = response.choices[0]
-        message = choice.message
-
-        # ── 产出 LLM 调用事件（完整记录本轮 LLM 输入/输出，不截断）──
+    # ── 取消检查：在启动引擎前 ──
+    if cancel_event is not None and cancel_event.is_set():
+        cancelled = True
         yield {
-            "type": "llm_call",
-            "iteration": iteration,
-            "model": settings.llm_model,
-            "input_messages": [
-                {"role": m.get("role"), "content": m.get("content", "")}
-                for m in messages
-            ],
-            "output_content": message.content or "",
-            "output_tool_calls": [
-                {"name": tc.function.name, "arguments": tc.function.arguments}
-                for tc in (message.tool_calls or [])
-            ],
-            "is_final": choice.finish_reason == "stop",
+            "type": "final",
+            "subtype": "cancelled",
+            "content": "",
+            "stats": {
+                "duration_ms": 0,
+                "num_turns": 0,
+                "tokens": 0,
+                "input_tokens": 0,
+                "output_tokens": 0,
+                "tool_timings": {},
+            },
         }
+        return
 
-        # LLM 决定调用工具
-        if message.tool_calls:
-            # 添加助手消息（含工具调用）。
-            # 使用 model_dump() 保留 DeepSeek 返回的 signature 等额外字段，
-            # 否则下一轮 LLM 调用会报 "Missing required field: 'signature'"。
-            messages.append({
-                "role": "assistant",
-                "content": message.content or "",
-                "tool_calls": [
-                    tc.model_dump()
-                    for tc in message.tool_calls
-                ],
-            })
+    engine = _build_engine()
 
-            # 先 yield 思考文本（LLM 在调用工具前的推理）
-            if message.content:
-                yield {
-                    "type": "text",
-                    "text": message.content,
-                }
-
-            for tc in message.tool_calls:
-                tool_name = tc.function.name
-                try:
-                    tool_input = json.loads(tc.function.arguments)
-                except json.JSONDecodeError:
-                    tool_input = {}
-
-                yield {
-                    "type": "tool_start",
-                    "name": tool_name,
-                    "input": tool_input,
-                }
-
-                # ── 工具执行（取消时加超时保护）──
-                is_cancelled = cancel_event is not None and cancel_event.is_set()
-                if is_cancelled:
-                    try:
-                        result, tool_elapsed_ms = await asyncio.wait_for(
-                            _execute_tool(tool_name, tool_input),
-                            timeout=30,
-                        )
-                    except asyncio.TimeoutError:
-                        print(f"[Cancel] 工具超时(30s): tool={tool_name}")
-                        result = f"工具执行超时: {tool_name}"
-                        tool_elapsed_ms = 30 * 1000  # timeout 值作为 elapsed_ms
-                else:
-                    result, tool_elapsed_ms = await _execute_tool(tool_name, tool_input)
-
-                # 累加工具耗时
-                if tool_name not in tool_timings:
-                    tool_timings[tool_name] = {"count": 0, "total_ms": 0.0}
-                tool_timings[tool_name]["count"] += 1
-                tool_timings[tool_name]["total_ms"] += tool_elapsed_ms
-
-                # 读取 NL2SQL 各阶段耗时（由 query_database 通过 ContextVar 写入）
-                nl2sql_stage_timings = _nl2sql_timings_reader.get({})
-
-                yield {
-                    "type": "tool_end",
-                    "name": tool_name,
-                    "content": result,
-                    "elapsed_ms": tool_elapsed_ms,
-                    "nl2sql_timings": nl2sql_stage_timings if nl2sql_stage_timings else None,
-                }
-
-                messages.append({
-                    "role": "tool",
-                    "tool_call_id": tc.id,
-                    "content": result,
-                })
-
-            # 工具执行后再次检查取消
+    try:
+        async for chunk in engine.astream(
+            {"messages": [HumanMessage(content=prompt)]}
+        ):
+            # ── 取消检查：迭代边界 ──
             if cancel_event is not None and cancel_event.is_set():
                 cancelled = True
                 break
-        else:
-            # 最终响应
-            final_content = message.content or ""
-            messages.append({
-                "role": "assistant",
-                "content": final_content,
-            })
+
+            if not isinstance(chunk, dict):
+                continue
+
+            messages = _extract_messages(chunk)
+            if not messages:
+                continue
+
+            for msg in messages:
+                normalized = _normalize_message(msg)
+                content = normalized["content"]
+                tool_calls = normalized["tool_calls"]
+
+                # ── 产出 LLM 调用事件 ──
+                yield {
+                    "type": "llm_call",
+                    "iteration": iteration,
+                    "model": settings.llm_model,
+                    "input_messages": [
+                        {"role": "user", "content": prompt}
+                    ],
+                    "output_content": content,
+                    "output_tool_calls": tool_calls,
+                    "is_final": len(tool_calls) == 0,
+                }
+
+                if tool_calls:
+                    # ── 思考文本 ──
+                    if content:
+                        yield {
+                            "type": "text",
+                            "text": content,
+                        }
+
+                    # ── 工具调用开始/结束 ──
+                    for tc in tool_calls:
+                        tool_name = tc["name"]
+                        yield {
+                            "type": "tool_start",
+                            "name": tool_name,
+                            "input": tc["arguments"],
+                        }
+                        yield {
+                            "type": "tool_end",
+                            "name": tool_name,
+                            "content": "",
+                            "elapsed_ms": 0,
+                            "nl2sql_timings": None,
+                        }
+                else:
+                    # ── 最终响应 ──
+                    duration_ms = int((time.monotonic() - start_time) * 1000)
+                    yield {
+                        "type": "final",
+                        "subtype": "completed",
+                        "content": content,
+                        "stats": {
+                            "duration_ms": duration_ms,
+                            "num_turns": iteration + 1,
+                            "tokens": total_input_tokens + total_output_tokens,
+                            "input_tokens": total_input_tokens,
+                            "output_tokens": total_output_tokens,
+                            "tool_timings": dict(tool_timings),
+                        },
+                    }
+                    return
+
+            iteration += 1
+
+    finally:
+        if cancelled:
             duration_ms = int((time.monotonic() - start_time) * 1000)
             yield {
                 "type": "final",
-                "subtype": "completed",
-                "content": final_content,
+                "subtype": "cancelled",
+                "content": "",
                 "stats": {
                     "duration_ms": duration_ms,
-                    "num_turns": iteration + 1,
+                    "num_turns": iteration,
                     "tokens": total_input_tokens + total_output_tokens,
                     "input_tokens": total_input_tokens,
                     "output_tokens": total_output_tokens,
                     "tool_timings": dict(tool_timings),
                 },
             }
-            return
 
-    # 被取消 / 达到最大迭代次数
-    duration_ms = int((time.monotonic() - start_time) * 1000)
-    if cancelled:
-        yield {
-            "type": "final",
-            "subtype": "cancelled",
-            "content": "",
-            "stats": {
-                "duration_ms": duration_ms,
-                "num_turns": iteration + 1,
-                "tokens": total_input_tokens + total_output_tokens,
-                "input_tokens": total_input_tokens,
-                "output_tokens": total_output_tokens,
-                "tool_timings": dict(tool_timings),
-            },
-        }
-    else:
-        yield {
-            "type": "final",
-            "subtype": "max_iterations",
-            "content": "抱歉，查询过程中步骤过多，已自动停止。请尝试简化您的问题。",
-            "stats": {
-                "duration_ms": duration_ms,
-                "num_turns": max_iterations,
-                "tokens": total_input_tokens + total_output_tokens,
-                "input_tokens": total_input_tokens,
-                "output_tokens": total_output_tokens,
-                "tool_timings": dict(tool_timings),
-            },
-        }
+
+async def _run_agent(
+    prompt: str,
+    tool_schemas: list[dict[str, Any]],
+    cancel_event: asyncio.Event | None = None,
+) -> AsyncIterator[dict[str, Any]]:
+    """[向后兼容] 委托给 _run_agent_deepagents。
+
+    保留此包装器以兼容 test_cancel_integration.py 等直接导入 _run_agent 的测试。
+    """
+    async for event in _run_agent_deepagents(prompt, tool_schemas, cancel_event):
+        yield event
 
 
 # ========== 事件流处理 ==========
@@ -370,7 +336,7 @@ async def run_agent_stream(
     # 1.5. 记录准备耗时（context 构建 + 上游检索耗时）
     prep_ms = (time.monotonic() - t0) * 1000
 
-    # 2. 构建工具 schema
+    # 2. 构建工具 schema（保留以兼容旧签名，引擎内部已绑定工具）
     tool_schemas = _build_tool_schemas()
 
     # 3. 收集执行信息
@@ -393,7 +359,7 @@ async def run_agent_stream(
     _nl2sql_enrichment.set(enrichment)
 
     # 4. 启动 Agent 引擎
-    event_stream = _run_agent(full_prompt, tool_schemas, cancel_event)
+    event_stream = _run_agent_deepagents(full_prompt, tool_schemas, cancel_event)
 
     final_response = ""
     final_stats: dict[str, Any] = {}
