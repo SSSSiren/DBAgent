@@ -93,27 +93,38 @@ def _normalize_message(msg: Any) -> dict[str, Any]:
     兼容：
     - 普通 dict（FakeAgent 测试用）：{"content": ..., "tool_calls": [{"name": ..., "input": ...}]}
     - LangChain AIMessage 对象：msg.content, msg.tool_calls
+    - LangChain ToolMessage 对象：msg.type="tool", msg.content, msg.name, msg.tool_call_id
+
+    返回 dict 含 role/name/content/tool_calls 字段。
+    tool_calls[*].arguments 保持为 dict（llm_call 产出时再序列化为 JSON 字符串）。
     """
     if isinstance(msg, dict):
         content = msg.get("content", "") or ""
         raw_tool_calls = msg.get("tool_calls", []) or []
+        role = msg.get("role", msg.get("type", ""))
+        name = msg.get("name", "")
+        # 带 tool_call_id 的 dict 是工具结果
+        if msg.get("tool_call_id"):
+            role = "tool"
         normalized_tc = []
         for tc in raw_tool_calls:
-            name = tc.get("name", "")
+            tc_name = tc.get("name", "")
             # 兼容 "input"（FakeAgent）、"args"（LangChain）、"arguments"（OpenAI 格式）
             args = tc.get("input", tc.get("args", tc.get("arguments", {})))
-            normalized_tc.append({"name": name, "arguments": args})
-        return {"content": content, "tool_calls": normalized_tc}
+            normalized_tc.append({"name": tc_name, "arguments": args})
+        return {"role": role, "name": name, "content": content, "tool_calls": normalized_tc}
     else:
         # LangChain 消息对象
         content = getattr(msg, "content", "") or ""
         raw_tool_calls = getattr(msg, "tool_calls", []) or []
+        role = getattr(msg, "type", "")
+        name = getattr(msg, "name", "")
         normalized_tc = []
         for tc in raw_tool_calls:
-            name = getattr(tc, "name", "")
+            tc_name = getattr(tc, "name", "")
             args = getattr(tc, "args", {})
-            normalized_tc.append({"name": name, "arguments": args})
-        return {"content": content, "tool_calls": normalized_tc}
+            normalized_tc.append({"name": tc_name, "arguments": args})
+        return {"role": role, "name": name, "content": content, "tool_calls": normalized_tc}
 
 
 # ========== Agent 引擎（deepagents）==========
@@ -138,11 +149,20 @@ async def _run_agent_deepagents(
     total_output_tokens = 0
     cancelled = False
     iteration = 0
+    max_iterations = 15
     tool_timings: dict[str, dict[str, float | int]] = {}
+
+    # 完整对话历史（供 llm_call.input_messages 使用，与旧版 _run_agent 一致）
+    messages: list[dict[str, Any]] = [
+        {"role": "system", "content": AGENT_SYSTEM_PROMPT},
+        {"role": "user", "content": prompt},
+    ]
+
+    # 待完成的工具调用（tool_start 已产出，等待 tool_end）
+    pending_tools: list[dict[str, Any]] = []
 
     # ── 取消检查：在启动引擎前 ──
     if cancel_event is not None and cancel_event.is_set():
-        cancelled = True
         yield {
             "type": "final",
             "subtype": "cancelled",
@@ -172,29 +192,77 @@ async def _run_agent_deepagents(
             if not isinstance(chunk, dict):
                 continue
 
-            messages = _extract_messages(chunk)
-            if not messages:
+            chunk_messages = _extract_messages(chunk)
+            if not chunk_messages:
                 continue
 
-            for msg in messages:
+            for msg in chunk_messages:
                 normalized = _normalize_message(msg)
                 content = normalized["content"]
                 tool_calls = normalized["tool_calls"]
+                role = normalized.get("role", "")
 
-                # ── 产出 LLM 调用事件 ──
+                # ── 工具结果消息（ToolMessage）→ 产出 tool_end ──
+                if role == "tool":
+                    tool_name = normalized.get("name", "")
+                    # 查找匹配的待处理工具调用
+                    matched = None
+                    for pt in pending_tools:
+                        if pt["name"] == tool_name and not pt.get("done"):
+                            matched = pt
+                            break
+                    if matched:
+                        matched["done"] = True
+                        elapsed_ms = 0
+                        if tool_name not in tool_timings:
+                            tool_timings[tool_name] = {"count": 0, "total_ms": 0.0}
+                        tool_timings[tool_name]["count"] += 1
+                        tool_timings[tool_name]["total_ms"] += elapsed_ms
+                        nl2sql_stage_timings = _nl2sql_timings_reader.get({})
+                        yield {
+                            "type": "tool_end",
+                            "name": tool_name,
+                            "content": content,
+                            "elapsed_ms": elapsed_ms,
+                            "nl2sql_timings": nl2sql_stage_timings if nl2sql_stage_timings else None,
+                        }
+                    # 追加 tool 消息到对话历史
+                    messages.append({
+                        "role": "tool",
+                        "tool_call_id": getattr(msg, "tool_call_id", ""),
+                        "content": content,
+                    })
+                    continue
+
+                # ── AI 消息 → 产出 llm_call + 决策事件 ──
+                # 产出 LLM 调用事件（input_messages 为当前完整对话历史）
                 yield {
                     "type": "llm_call",
                     "iteration": iteration,
                     "model": settings.llm_model,
                     "input_messages": [
-                        {"role": "user", "content": prompt}
+                        {"role": m.get("role"), "content": m.get("content", "")}
+                        for m in messages
                     ],
                     "output_content": content,
-                    "output_tool_calls": tool_calls,
+                    "output_tool_calls": [
+                        {
+                            "name": tc["name"],
+                            "arguments": json.dumps(tc["arguments"], ensure_ascii=False),
+                        }
+                        for tc in tool_calls
+                    ],
                     "is_final": len(tool_calls) == 0,
                 }
 
                 if tool_calls:
+                    # ── 追加助手消息到历史 ──
+                    messages.append({
+                        "role": "assistant",
+                        "content": content,
+                        "tool_calls": tool_calls,
+                    })
+
                     # ── 思考文本 ──
                     if content:
                         yield {
@@ -202,23 +270,26 @@ async def _run_agent_deepagents(
                             "text": content,
                         }
 
-                    # ── 工具调用开始/结束 ──
+                    # ── 工具调用开始（延迟 tool_end 直到工具结果）──
                     for tc in tool_calls:
                         tool_name = tc["name"]
+                        tool_input = tc["arguments"]
                         yield {
                             "type": "tool_start",
                             "name": tool_name,
-                            "input": tc["arguments"],
+                            "input": tool_input,
                         }
-                        yield {
-                            "type": "tool_end",
+                        pending_tools.append({
                             "name": tool_name,
-                            "content": "",
-                            "elapsed_ms": 0,
-                            "nl2sql_timings": None,
-                        }
+                            "input": tool_input,
+                            "done": False,
+                        })
                 else:
                     # ── 最终响应 ──
+                    messages.append({
+                        "role": "assistant",
+                        "content": content,
+                    })
                     duration_ms = int((time.monotonic() - start_time) * 1000)
                     yield {
                         "type": "final",
@@ -235,7 +306,12 @@ async def _run_agent_deepagents(
                     }
                     return
 
-            iteration += 1
+                iteration += 1
+                if iteration >= max_iterations:
+                    break
+
+            if iteration >= max_iterations:
+                break
 
     finally:
         if cancelled:
@@ -253,6 +329,37 @@ async def _run_agent_deepagents(
                     "tool_timings": dict(tool_timings),
                 },
             }
+
+    # ── 循环结束后：处理未完成的 tool_end 和 max_iterations ──
+    if not cancelled:
+        # 为所有未完成的 tool call 产出 tool_end（FakeAgent 兼容 + 兜底路径）
+        for pt in pending_tools:
+            if not pt.get("done"):
+                if pt["name"] not in tool_timings:
+                    tool_timings[pt["name"]] = {"count": 0, "total_ms": 0.0}
+                tool_timings[pt["name"]]["count"] += 1
+                yield {
+                    "type": "tool_end",
+                    "name": pt["name"],
+                    "content": "",
+                    "elapsed_ms": 0,
+                    "nl2sql_timings": None,
+                }
+
+        duration_ms = int((time.monotonic() - start_time) * 1000)
+        yield {
+            "type": "final",
+            "subtype": "max_iterations",
+            "content": "抱歉，查询过程中步骤过多，已自动停止。请尝试简化您的问题。",
+            "stats": {
+                "duration_ms": duration_ms,
+                "num_turns": max_iterations,
+                "tokens": total_input_tokens + total_output_tokens,
+                "input_tokens": total_input_tokens,
+                "output_tokens": total_output_tokens,
+                "tool_timings": dict(tool_timings),
+            },
+        }
 
 
 async def _run_agent(
