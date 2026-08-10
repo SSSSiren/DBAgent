@@ -18,6 +18,7 @@
 | 多 Agent | 多角色子代理架构 |
 | 安全模型 | SQL 校验保留在工具层（permissions 不适用自定义工具）；deepagents permissions 仅作未来文件系统备用 |
 | 部署与观测 | 保持 Docker，LangGraph 持久化 |
+| 会话层存储 | 选项 A：LangGraph checkpoint 主导，自建 StorageBackend 收窄为会话元数据 |
 
 ## 2. 阶段边界
 
@@ -67,7 +68,25 @@ FastAPI (app/api/routes.py)                    ← HTTP/SSE 不变（阶段2起�
 - **SSE 事件适配层（阶段 1）**：`stream_events(version="v3")` 的 `messages`/`tool_calls` projection → 现有 `step/sql/final` 事件，前端零改动
 - **取消机制**：`CancelEventRegistry` 保留为驱动层，驱动 `agent.ainvoke(..., interrupt_before=...)` 中断；阶段 1 保现有 cancel API 语义，阶段 2 可选演进 `interrupt_on=["tools"]`
 
-### 5.3 三层记忆的迁移映射（基于代码实证）
+### 5.3 会话层存储（选项 A：checkpoint 主导 + 元数据适配）
+
+**现状**（`app/memory/store.py`）：`StorageBackend` Protocol + 双实现，`(user_id, session_id)` 复合键隔离，`state_json` 整存整取；`DEFAULT_SESSION` 含 `chat_history` / `summary` / `selected_schema_id` / `selected_database` / `kb_session_id` / `kb_turn_count`。Runner 直接操作该 dict，与 Agent 循环耦合。
+
+**重构决策（选项 A）**：LangGraph checkpoint 主导，自建 StorageBackend 收窄为"会话元数据"。
+
+- **LangGraph checkpointer**（如 `SqliteSaver`）成为**对话历史与 Agent 运行状态的唯一事实源**——消息、中断恢复、运行状态都存 checkpoint
+- **自建 `StorageBackend` 职责收窄**为会话元数据：`summary`、`created_at`、`last_active_at`、`selected_schema_id`、`selected_database`、`kb_session_id`、`kb_turn_count` 等 `list_sessions` 需要的字段。**表结构/实现不动**，仅调用方语义从"整会话状态"收窄为"元数据"
+- **会话 CRUD 端点的拼装逻辑**：`GET /api/sessions/{id}` 时 `chat_history` 从 checkpointer 读、会话元数据从 `StorageBackend` 读，两者拼装后返回；`list_sessions` 仍走 `StorageBackend`（轻量，不解析大 JSON）
+- **`DEFAULT_SESSION` 字段归宿**：
+  - `chat_history` → checkpointer（对话消息由 LangGraph checkpoint 承载）
+  - `summary` → deepagents 内建 Summarization 自动维护
+  - `selected_schema_id` / `selected_database` → `DeepAgentState`（checkpoint 承载）
+  - `kb_session_id` / `kb_turn_count` → 会话元数据（StorageBackend）
+
+**收益**：避免 `state_json` 与 checkpoint 双写对话历史；`list_sessions` 轻量；与 LangGraph 生态对齐。
+**代价**：`get_session`/`save_session` 调用方（API 层）需改为拼装逻辑；session CRUD 端点小幅改动。
+
+### 5.4 三层记忆的迁移映射（基于代码实证）
 
 | 段 | 归属 | 迁移方式 |
 |---|---|---|
@@ -77,7 +96,7 @@ FastAPI (app/api/routes.py)                    ← HTTP/SSE 不变（阶段2起�
 
 三者的**存储实现（Protocol + SQLite）全部保留**，只改变**注入时机和位置**。
 
-### 5.4 不变量
+### 5.5 不变量
 
 - HDC、偏好、SQL 记忆、SQL 参考四类检索结果**永不进 system prompt 常量部分**，只进 runtime context / 工具内检索
 - `nl2sql/`、`memory/`、`datavault/`、`knowledge/` 业务模块零改动
