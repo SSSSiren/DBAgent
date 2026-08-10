@@ -17,14 +17,14 @@ class Settings(BaseSettings):
     llm_base_url: str = "https://dwai-data.dewu-inc.com/openai/v1"
     llm_model: str = "deepseek-v4-flash-260425"
     llm_embedding_model: str = "text-embedding-3-small"
-    llm_embedding_provider: str = "ollama"  # "ollama" | "openai" | "auto" (auto=openai优先回退ollama)
+    llm_embedding_provider: str = "auto"  # "ollama" | "openai" | "auto" (auto=openai优先回退ollama)
     ollama_base_url: str = "http://localhost:11434"
     ollama_embedding_model: str = "bge-m3:latest"
 
     # ========== OneDBA ==========
     onedba_base_url: str = "https://onedba.shizhuang-inc.com"
     onedba_access_token: str = ""
-    onedba_env: str = "test"  # prd/test/uat/dev/pre
+    onedba_env: str = "prd"  # prd/test/uat/dev/pre
 
     # ========== Langfuse ==========
     langfuse_enabled: bool = False
@@ -44,7 +44,7 @@ class Settings(BaseSettings):
     kb_auto_commit_turns: int = 10
 
     # ========== 存储后端 ==========
-    storage_backend: str = "memory"
+    storage_backend: str = "sqlite"
     redis_url: str = ""
     storage_file_path: str = "data/sessions.db"
 

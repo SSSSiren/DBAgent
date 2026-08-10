@@ -1,6 +1,6 @@
 # DBAgent 部署教程
 
-> 适用于单机 docker-compose 部署形态。生产推荐 K8s + 镜像仓库时，可参考本文档的配置项清单与环境变量约束。
+> 适用于单机 docker-compose 部署形态。
 
 ## 一、部署前提
 
@@ -19,7 +19,7 @@
 
 ### 注入方式（二选一）
 
-DBAgent 支持两种敏感配置注入方式，docker compose 自动合并两者（命令行 export 的环境变量**优先级高于** `.env` 文件）：
+DBAgent 支持两种敏感配置注入方式，docker compose 自动合并两者（命令行 export 的环境变量**优先级高于** `.env` 文件）。默认值以 `.env.example` 为准：
 
 - **方式 A — `.env` 文件**（适合测试机/单机）：在项目根目录创建 `.env`，docker compose 启动时自动读取。`.env` 已被 `.gitignore` 忽略，填真实密钥不会被提交。
 - **方式 B — 环境变量/Secret**（适合生产/CI）：在部署环境 `export` 或经 K8s Secret 注入，不落任何文件，安全等级更高。
@@ -33,7 +33,7 @@ DBAgent 支持两种敏感配置注入方式，docker compose 自动合并两者
 | `LLM_API_KEY` | LLM 网关 API Key |
 | `ONEDBA_ACCESS_TOKEN` | OneDBA 平台访问凭证 |
 | `ONEDBA_ENV` | OneDBA 环境：`prd`/`test`/`uat`/`dev`/`pre` |
-| `ADMIN_API_TOKEN` | Admin API Bearer token，留空则 `/api/admin/*` 返回 503 |
+| `ADMIN_API_TOKEN` | Admin API Bearer token；`.env.example` 中为示例值，生产必须替换 |
 
 > compose 用 `${VAR:?...}` 约束：以上任一缺失，容器**拒绝启动**（避免裸奔上线）。
 
@@ -41,19 +41,19 @@ DBAgent 支持两种敏感配置注入方式，docker compose 自动合并两者
 
 | 环境变量 | 默认值 | 生产建议 |
 |---|---|---|
+| `HOST_PORT` | `8000` | 宿主端口映射 |
+| `DEBUG` | `false` | 生产保持 `false` |
+| `WEB_CONCURRENCY` | 自动 `2*CPU+1` | 显式指定 worker 数（**勿设空字符串**，会导致 gunicorn 启动崩溃） |
 | `STORAGE_BACKEND` | `sqlite` | 保持 sqlite，持久化会话/偏好/SQL记忆/Admin 映射 |
-| `LLM_EMBEDDING_PROVIDER` | `ollama` | **生产建议 `openai` 或 `auto`**，容器内无 ollama |
+| `LLM_EMBEDDING_PROVIDER` | `auto` | OpenViking/SQL Memory 语义检索所需；生产建议 `openai` 或 `auto`，避免依赖容器内 ollama |
 | `LLM_EMBEDDING_MODEL` | `text-embedding-3-small` | provider=openai/auto 时生效 |
 | `OLLAMA_BASE_URL` | `http://localhost:11434` | provider=ollama/auto 回退时生效 |
 | `PREFERENCE_ENABLED` | `true` | 查询偏好记忆 |
-| `SQL_MEMORY_ENABLED` | `true` | SQL 历史记忆 |
-| `SQL_MEMORY_SCOPE` | `user` | `user`/`database`/`mixed` |
-| `HDC_ENABLED` | `true` | HDC 数据底座（依赖 OpenViking 已生成语义数据） |
 | `KB_ENABLED` | `false` | OpenViking 长期对话记忆，需可达 `KB_OPENVIKING_URL` |
-| `LANGFUSE_ENABLED` | `true` | LLM trace 可观测性，需配 `LANGFUSE_PUBLIC_KEY`/`LANGFUSE_SECRET_KEY` |
-| `DEBUG` | `false` | 生产保持 `false` |
-| `WEB_CONCURRENCY` | 自动 `2*CPU+1` | 显式指定 worker 数（**勿设空字符串**，会导致 gunicorn 启动崩溃） |
-| `HOST_PORT` | `8000` | 宿主端口映射 |
+| `SQL_MEMORY_ENABLED` | `false` | SQL 历史记忆，启用后需 embedding 服务可用 |
+| `SQL_MEMORY_SCOPE` | `user` | SQL历史记忆作用范围`user`/`database`/`mixed` |
+| `HDC_ENABLED` | `false` | HDC 数据底座（依赖 OpenViking 已生成语义数据） |
+| `LANGFUSE_ENABLED` | `false` | LLM trace 可观测性，需配 `LANGFUSE_PUBLIC_KEY`/`LANGFUSE_SECRET_KEY` |
 
 ---
 
@@ -76,10 +76,10 @@ cp .env.example .env
 #   LLM_API_KEY=<真实 key>
 #   ONEDBA_ACCESS_TOKEN=<真实 token>
 #   ONEDBA_ENV=prd
-#   ADMIN_API_TOKEN=                        # 生产必填，留空则 /api/admin/* 503
+#   ADMIN_API_TOKEN=<强随机 token>          # compose 模式必填；本地直启留空则 /api/admin/* 503
 #   STORAGE_BACKEND=sqlite                  # 生产保持 sqlite
 #   LLM_EMBEDDING_PROVIDER=auto             # 避免 ollama 依赖
-#   LANGFUSE_ENABLED=true                   # 便于线上排障，需配 keys
+#   LANGFUSE_ENABLED=false                  # 需要 trace 时再开启，并配置 keys
 ```
 
 `.env` 已被 `.gitignore` 忽略，填真实密钥不会被提交。下次 `docker compose up` 自动读取，无需额外参数。
@@ -127,9 +127,9 @@ curl http://localhost:8000/health
 docker compose logs dbagent | tail -20
 
 # Admin API 认证（应 401 拒绝 / 200 放行）
-curl -o /dev/null -w "%{http_code}\n" http://localhost:8000/api/admin/sql-memory/status
+curl -o /dev/null -w "%{http_code}\n" http://localhost:8000/api/admin/overview
 # 期望: 401
-curl -o /dev/null -w "%{http_code}\n" -H "Authorization: Bearer $ADMIN_API_TOKEN" http://localhost:8000/api/admin/sql-memory/status
+curl -o /dev/null -w "%{http_code}\n" -H "Authorization: Bearer $ADMIN_API_TOKEN" http://localhost:8000/api/admin/overview
 # 期望: 200
 ```
 
@@ -172,8 +172,8 @@ docker compose up -d      # 滚动重建，旧容器优雅退出
 
 ### 2. SQL Memory 语义检索无结果 / embedding 报错
 
-**原因**：`LLM_EMBEDDING_PROVIDER=ollama` 但容器内无 ollama 服务。
-**解决**：`export LLM_EMBEDDING_PROVIDER=openai`（用 LLM 网关 embedding）或 `auto`（OpenAI 优先回退 ollama）。
+**原因**：`SQL_MEMORY_ENABLED=true` 后 embedding 服务不可用，或 `LLM_EMBEDDING_PROVIDER=ollama` 但容器内无 ollama 服务。
+**解决**：优先使用 `.env.example` 默认的 `LLM_EMBEDDING_PROVIDER=auto`，或显式 `export LLM_EMBEDDING_PROVIDER=openai`。
 
 ### 3. 容器启动失败，提示某变量必填
 
@@ -194,10 +194,10 @@ docker compose up -d      # 滚动重建，旧容器优雅退出
 ## 七、生产环境检查清单
 
 - [ ] `ONEDBA_ENV=prd`（生产环境）
-- [ ] `ADMIN_API_TOKEN` 为强随机值，非空
+- [ ] `ADMIN_API_TOKEN` 已替换 `.env.example` 示例值，使用强随机值
 - [ ] `LLM_EMBEDDING_PROVIDER` 为 `openai` 或 `auto`（非 ollama）
 - [ ] `DEBUG=false`
-- [ ] `LANGFUSE_ENABLED=true` 且 keys 已注入（便于线上排障）
+- [ ] 如需线上 trace，`LANGFUSE_ENABLED=true` 且 keys 已注入；否则保持 `.env.example` 默认的 `false`
 - [ ] `./data` 目录已纳入定期备份
 - [ ] 健康检查通过：`curl localhost:8000/health` 返回 200
 - [ ] 宿主防火墙仅放行必要端口，`8000` 不直接暴露公网（经反代/网关）

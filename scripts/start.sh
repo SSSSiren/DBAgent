@@ -1,9 +1,9 @@
 #!/usr/bin/env bash
 # ============================================================================
-# DBAgent Demo 启动脚本
+# DBAgent 启动脚本
 #
 # 用途：一键启动 DBAgent API 服务，自动打印模块状态横幅
-# 用法：bash scripts/start_demo.sh [port]
+# 用法：bash scripts/start.sh [port]
 # ============================================================================
 set -euo pipefail
 
@@ -32,9 +32,9 @@ source_env() {
 HDC_ENABLED=$(source_env HDC_ENABLED false)
 SQL_MEMORY_ENABLED=$(source_env SQL_MEMORY_ENABLED false)
 KB_ENABLED=$(source_env KB_ENABLED false)
-STORAGE_BACKEND=$(source_env STORAGE_BACKEND memory)
+STORAGE_BACKEND=$(source_env STORAGE_BACKEND sqlite)
 LLM_MODEL=$(source_env LLM_MODEL unknown)
-ONEDBA_ENV=$(source_env ONEDBA_ENV test)
+ONEDBA_ENV=$(source_env ONEDBA_ENV prd)
 LANGFUSE_ENABLED=$(source_env LANGFUSE_ENABLED false)
 KB_OPENVIKING_URL=$(source_env KB_OPENVIKING_URL "http://localhost:1933")
 
@@ -56,7 +56,7 @@ echo "   ██║  ██║██╔══██╗██╔══██║█
 echo "   ██████╔╝██████╔╝██║  ██║╚██████╔╝███████╗██║ ╚████║   ██║   "
 echo "   ╚═════╝ ╚═════╝ ╚═╝  ╚═╝ ╚═════╝ ╚══════╝╚═╝  ╚═══╝   ╚═╝   "
 echo ""
-echo "        NL2SQL 智能数据库助手 — Demo 模式"
+echo "        NL2SQL 智能数据库助手"
 echo ""
 dash
 echo ""
@@ -91,20 +91,19 @@ fi
 
 # ── 启动服务 ─────────────────────────────────────────────────────────
 echo "  🚀 启动 DBAgent 服务 → http://0.0.0.0:${PORT}"
-echo "     Admin running on: http://localhost:8000/static/admin.html"
 echo ""
 echo "  📋 可用端点："
 echo "     GET  /health                 健康检查"
 echo "     POST /api/chat               对话接口（SSE 流式）"
-echo "     POST /api/chat/json          对话接口（JSON）"
+echo "     POST /api/chat/sync          对话接口（JSON）"
 echo "     GET  /api/hdc/status/{db}    HDC 数据状态"
 echo "     POST /api/hdc/generate       HDC 离线生成"
 echo "     GET  /                       前端页面"
 echo ""
-echo "  📋 Demo curl 示例："
+echo "  📋 curl 请求示例："
 echo "     curl -X POST http://localhost:${PORT}/api/chat \\"
 echo "       -H 'Content-Type: application/json' \\"
-echo "       -d '{\"message\":\"帮我查一下最近一个月的工单类型分布\",\"session_id\":\"demo\",\"schema_id\":65938636,\"database_name\":\"dw_onedba\",\"hdc_namespace\":\"recall_extra\"}'"
+echo "       -d '{\"message\":\"帮我查一下最近一个月的工单类型分布\",\"session_id\":\"session-main\",\"schema_id\":65938636,\"database_name\":\"dw_onedba\",\"hdc_namespace\":\"recall_extra\"}'"
 echo ""
 dash
 echo ""

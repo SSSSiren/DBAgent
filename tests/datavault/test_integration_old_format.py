@@ -41,6 +41,8 @@ import time
 
 import pytest
 
+pytestmark = pytest.mark.integration
+
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", ".."))
 
 from app.config import get_settings

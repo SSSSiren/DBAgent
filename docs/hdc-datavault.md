@@ -70,7 +70,7 @@ HDC 模块拥有两层测试：**单元/集成测试**（`tests/datavault/`）�
 #### 1.1 运行全部测试
 
 ```bash
-cd /Users/admin/DBR/DB-Agent/Infra-DB-Agent/DBAgent
+cd <project-root>
 
 # 运行全部 HDC 相关测试（32 个用例，无外部依赖）
 pytest tests/datavault/ -v
@@ -83,7 +83,6 @@ pytest tests/datavault/ -v
 | `test_collector.py` | 单元测试 | 11 | SchemaCollector：基本采集、空库、容错、表过滤、不存在表名 | 无 |
 | `test_retriever_updater.py` | 单元测试 | 16 | HDCRetriever（检索/降级/格式化）、HDCUpdater（hash/变更检测）、数据模型 | 无 |
 | `test_hdc_integration.py` | 集成测试 | 5 | `build_context()` 中 `[数据底座]` 段落注入/跳过/位置/并列 | 无 |
-| `tools/hdc/demo.py` | 模拟演示 | — | 纯模拟 e-commerce 场景，展示 HDC 减少 tool-call 轮次的原理 | 无 |
 
 #### 1.3 test_collector.py（11 个用例）
 
@@ -150,17 +149,6 @@ pytest tests/datavault/ -v
 | `test_hdc_context_alongside_other_sections` | HDC 段落与 memory/preferences 段落共存 |
 | `test_hdc_context_position` | HDC 段落出现在 preferences 之后（context 末尾） |
 
-#### 1.6 tools/hdc/demo.py（模拟演示，无需外部服务）
-
-```bash
-cd /Users/admin/DBR/DB-Agent/Infra-DB-Agent/DBAgent
-python tools/hdc/demo.py
-```
-
-纯模拟 e-commerce 数据库（`dwd_trade`）场景，包含 4 张表（order_info, after_sale_order, payment_info, user_info），使用 `MockRetriever` 模拟关键词匹配，演示 HDC 将 Agent 的 tool-call 轮次从 3-4 轮减少到 1 轮的效果。3 个测试问题覆盖退款、GMV、用户查询。
-
----
-
 ### 2. 评估框架（tests/evaluation/）
 
 结构化的 Agent 质量评估框架，通过 50 条测试用例 + 多维度评分，量化 HDC 对 Agent 表现的提升效果。
@@ -207,7 +195,7 @@ CLI (cli.py)
 **基本运行**：
 
 ```bash
-cd /Users/admin/DBR/DB-Agent/Infra-DB-Agent/DBAgent
+cd <project-root>
 
 # 列出所有测试用例
 python tests/evaluation/cli.py list
@@ -368,14 +356,14 @@ python tests/evaluation/debug_hdc_prompt.py --difficulty Hard
 
 ---
 
-### 3. 集成验证脚本（tests/datavault/，需外部服务）
+### 3. HDC 工具脚本（需外部服务）
 
 以下脚本需要 OneDBA + OpenViking + LLM 全部可用。
 
 #### 3.1 生成 HDC 知识库
 
 ```bash
-cd /Users/admin/DBR/DB-Agent/Infra-DB-Agent/DBAgent
+cd <project-root>
 
 # --- 基本用法 ---
 
@@ -423,7 +411,7 @@ python tools/hdc/generate.py 65938636 dw_onedba \
 **输出**：脚本执行**三个验证阶段**：
 
 1. **Phase 1 - 生成**：调用 `HDCGenerator.generate()` 完成 4 层 LLM 生成
-2. **Phase 2 - 持久化验证**：通过 OpenViking HTTP API 检查目录结构（`_tables/`、`_INDEX.md`、列 `.md` 文件、`_relationships/` 等）
+2. **Phase 2 - 持久化验证**：通过 OpenViking HTTP API 检查目录结构（`_tables/`、`_INDEX.md`、`_columns/` 列文件、`_relationships/` 等）
 3. **Phase 3 - 检索验证**：创建 `HDCRetriever`，用 "告警"、"权限"、"表结构" 三个关键词验证检索命中
 
 全部通过则 HDC 知识库就绪。
@@ -431,7 +419,7 @@ python tools/hdc/generate.py 65938636 dw_onedba \
 #### 3.2 增量更新
 
 ```bash
-cd /Users/admin/DBR/DB-Agent/Infra-DB-Agent/DBAgent
+cd <project-root>
 
 # --- 基本用法 ---
 
@@ -484,7 +472,7 @@ python tools/hdc/update.py 24223568 dw_onedba_cs --rebuild
 #### 3.3 对比实验
 
 ```bash
-cd /Users/admin/DBR/DB-Agent/Infra-DB-Agent/DBAgent
+cd <project-root>
 
 # HDC 对比实验（需先生成 HDC 知识库）
 python tools/hdc/compare.py 24223568 dw_onedba_cs
@@ -498,7 +486,7 @@ python tools/hdc/e2e.py 24223568 dw_onedba_cs
 #### 3.4 OpenViking 连通性调试
 
 ```bash
-cd /Users/admin/DBR/DB-Agent/Infra-DB-Agent/DBAgent
+cd <project-root>
 python tools/hdc/debug.py
 ```
 
@@ -507,9 +495,8 @@ python tools/hdc/debug.py
 ### 4. 典型工作流
 
 ```
-# 第 1 步：连通性检查（无外部依赖）
+# 第 1 步：本地回归检查
 pytest tests/datavault/ -v                        # 32 个单元+集成测试全部通过
-python tools/hdc/demo.py                 # 理解 HDC 概念（纯模拟）
 
 # 第 2 步：基础设施检查（需外部服务）
 python tools/hdc/debug.py                # 验证 OpenViking 连通性
@@ -549,7 +536,7 @@ HDC 相关配置在 `app/config.py` 的 `Settings` 中：
 |--------|------|--------|------|
 | `hdc_enabled` | `bool` | `False` | HDC 功能总开关 |
 | `hdc_auto_generate` | `bool` | `False` | 首次使用数据库时是否自动触发生成 |
-| `hdc_semantic_timeout` | `float` | `300.0` | write 时的 SemanticProcessor 超时秒数（已降为内联 60s） |
+| `hdc_semantic_timeout` | `float` | `300.0` | OpenViking `write(wait=True)` 等待 SemanticProcessor 的超时秒数 |
 
 通过环境变量设置：
 
@@ -566,7 +553,8 @@ viking://resources/hdc/{schemaId}/{db}/[/{namespace}/]
 │   ├── _INDEX.md                          # 表汇总
 │   ├── {table_name}/
 │   │   ├── _INDEX.md                      # 表描述（L2）
-│   │   ├── {column}.md                    # 列描述（L2）
+│   │   ├── _columns/
+│   │   │   └── {column}.md                # 列描述（L2）
 │   │   ├── .abstract.md                   # L0 摘要（VLM 自动生成）
 │   │   └── .overview.md                   # L1 概览（VLM 自动生成）
 │   └── ...
@@ -592,4 +580,3 @@ viking://resources/hdc/{schemaId}/{db}/[/{namespace}/]
 2. **VLM 超时**：`write(wait=True, timeout=60s)` 只等 embedding（~2-5s），VLM 生成的 L0/L1 摘要在服务端后台异步完成。服务端日志中的 VLM 超时警告不影响检索功能。
 3. **部分表模式**：使用 `--tables` 生成的 HDC 知识库仍然包含关系和摘要（基于已生成表的子集）。后续增量更新会自动将未生成的表识别为"待新增"。`tools/hdc/update.py` 的 Phase 3 变更预览在 `--tables` 模式下只对比指定表的 hash，OpenViking 中其余表不会误判为删除。
 4. **增量更新兼容性**：`check_and_update()` 不假设全库覆盖——未在 OpenViking 中出现的表均被视为"待新增"。
-5. **评估环境要求**：`cli.py` 强制要求 conda 环境为 `/Users/admin/miniconda3/envs/DBR/bin/python`，否则退出。

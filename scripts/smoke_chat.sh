@@ -1,9 +1,9 @@
 #!/usr/bin/env bash
 # ============================================================================
-# DBAgent Demo Curl 示例脚本
+# DBAgent 对话冒烟脚本
 #
-# 用途：提供可直接运行的 curl 示例，展示 HDC + SQL Memory 的对话效果
-# 用法：bash scripts/demo_curl.sh [port]
+# 用途：提供可直接运行的 curl 请求，检查 HDC + SQL Memory 对话链路
+# 用法：bash scripts/smoke_chat.sh [port]
 # ============================================================================
 set -euo pipefail
 
@@ -20,7 +20,7 @@ dash()   { echo -e "\033[2m─────────────────�
 echo ""
 echo "  ⏳ 检查服务连通性..."
 if ! curl -s -o /dev/null -w "%{http_code}" "${BASE}/health" 2>/dev/null | grep -q 200; then
-    echo "  $(red '❌') 服务未启动，请先运行: bash scripts/start_demo.sh"
+    echo "  $(red '❌') 服务未启动，请先运行: bash scripts/start.sh"
     echo ""
     exit 1
 fi
@@ -28,7 +28,7 @@ echo "  $(green '✅') DBAgent 服务运行中"
 echo ""
 
 # ── 场景选择菜单 ────────────────────────────────────────────────────
-echo "  请选择 Demo 场景："
+echo "  请选择检查场景："
 echo ""
 echo "  $(bold '1)') 基础 NL2SQL — 单表查询"
 echo "     工单系统的数据导出类工单"
@@ -89,7 +89,7 @@ curl -N -X POST "${BASE}/api/chat" \
     -H "Content-Type: application/json" \
     -d "{
         \"message\": \"${QUESTION}\",
-        \"session_id\": \"demo-$(date +%s)\",
+        \"session_id\": \"smoke-$(date +%s)\",
         \"schema_id\": 65938636,
         \"database_name\": \"dw_onedba\",
         \"hdc_namespace\": \"recall_extra\"

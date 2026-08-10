@@ -904,9 +904,4 @@ def main() -> None:
 
 if __name__ == "__main__":
     print("SDK-DBAgent Agent 性能评测工具") 
-    if (sys.executable == '/Users/admin/miniconda3/envs/DBR/bin/python'):
-        main()
-    else:
-        print(f"当前 Python 运行环境: {sys.executable}")
-        print("请使用 '/Users/admin/miniconda3/envs/DBR/bin/python' 提供的 Python 运行环境执行此脚本")
-        sys.exit(1)
+    main()

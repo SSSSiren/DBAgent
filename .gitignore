@@ -32,6 +32,7 @@ data/*
 *.txt
 *.log
 tests/evaluation/output
+acceptance-output/
 
 # Docker
 .docker/

@@ -12,7 +12,7 @@ services:
       - LLM_BASE_URL=${LLM_BASE_URL:-https://dwai-data.dewu-inc.com/openai/v1}
       - LLM_MODEL=${LLM_MODEL:-deepseek-v4-flash-260425}
       # Embedding（SQL Memory 语义检索依赖；生产建议 openai 或 auto，避免依赖本地 ollama）
-      - LLM_EMBEDDING_PROVIDER=${LLM_EMBEDDING_PROVIDER:-ollama}
+      - LLM_EMBEDDING_PROVIDER=${LLM_EMBEDDING_PROVIDER:-auto}
       - LLM_EMBEDDING_MODEL=${LLM_EMBEDDING_MODEL:-text-embedding-3-small}
       - OLLAMA_BASE_URL=${OLLAMA_BASE_URL:-http://localhost:11434}
       - OLLAMA_EMBEDDING_MODEL=${OLLAMA_EMBEDDING_MODEL:-bge-m3:latest}
@@ -30,7 +30,7 @@ services:
       - PREFERENCE_ENABLED=${PREFERENCE_ENABLED:-true}
 
       # ========== SQL 历史记忆 ==========
-      - SQL_MEMORY_ENABLED=${SQL_MEMORY_ENABLED:-true}
+      - SQL_MEMORY_ENABLED=${SQL_MEMORY_ENABLED:-false}
       - SQL_MEMORY_TOP_K=${SQL_MEMORY_TOP_K:-5}
       - SQL_MEMORY_TOKEN_BUDGET=${SQL_MEMORY_TOKEN_BUDGET:-1500}
       - SQL_MEMORY_SQL_MAX_LENGTH=${SQL_MEMORY_SQL_MAX_LENGTH:-2000}
@@ -40,7 +40,7 @@ services:
       - SQL_MEMORY_SCOPE=${SQL_MEMORY_SCOPE:-user}
 
       # ========== HDC 数据底座 ==========
-      - HDC_ENABLED=${HDC_ENABLED:-true}
+      - HDC_ENABLED=${HDC_ENABLED:-false}
       - HDC_AUTO_GENERATE=${HDC_AUTO_GENERATE:-false}
       - HDC_SEMANTIC_TIMEOUT=${HDC_SEMANTIC_TIMEOUT:-300.0}
       - HDC_COLUMN_BUDGET=${HDC_COLUMN_BUDGET:-1200}
@@ -54,7 +54,7 @@ services:
       - ADMIN_API_TOKEN=${ADMIN_API_TOKEN:?ADMIN_API_TOKEN 必填，请通过环境变量/Secret 注入（留空则 Admin API 503 不可用）}
 
       # ========== Langfuse 可观测性（敏感：keys 从环境/Secret 注入）==========
-      - LANGFUSE_ENABLED=${LANGFUSE_ENABLED:-true}
+      - LANGFUSE_ENABLED=${LANGFUSE_ENABLED:-false}
       - LANGFUSE_PUBLIC_KEY=${LANGFUSE_PUBLIC_KEY:-}
       - LANGFUSE_SECRET_KEY=${LANGFUSE_SECRET_KEY:-}
       - LANGFUSE_HOST=${LANGFUSE_HOST:-https://cloud.langfuse.com}

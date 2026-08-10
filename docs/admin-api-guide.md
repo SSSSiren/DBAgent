@@ -2,11 +2,11 @@
 
 ## 1. 启用 Admin API
 
-在 `.env` 中添加：
+复制 `.env.example` 后，将示例 token 替换为强随机值：
 
 ```bash
 # ========== Admin API（可选）==========
-ADMIN_API_TOKEN=your-admin-token-here
+ADMIN_API_TOKEN=<strong_random_token>
 ```
 
 - `ADMIN_API_TOKEN` 为空时，所有 `/api/admin/*` 端点返回 503，不暴露管理功能
@@ -15,7 +15,7 @@ ADMIN_API_TOKEN=your-admin-token-here
 重启服务后生效：
 
 ```bash
-bash scripts/start_demo.sh
+bash scripts/start.sh
 ```
 
 ## 2. 认证方式
@@ -46,9 +46,13 @@ curl -H "Authorization: Bearer your-admin-token-here" http://localhost:8000/api/
 | `POST` | `/api/admin/sql-memory/seed` | 批量灌入 SQL Memory |
 | `GET` | `/api/admin/sql-memory/status` | SQL Memory 状态概览 |
 | `GET` | `/api/admin/sql-memory/records` | SQL Memory 记录列表 |
+| `DELETE` | `/api/admin/sql-memory/records/{record_id}` | 删除单条 SQL Memory 记录 |
 | `DELETE` | `/api/admin/sql-memory/clean` | 清理 SQL Memory 记录 |
 | `POST` | `/api/admin/sql-memory/re-embed` | 重建 embedding |
 | `GET` | `/api/admin/sql-memory/stats` | SQL Memory 统计分析 |
+| `GET` | `/api/admin/options/users` | 查询已知用户选项 |
+| `GET` | `/api/admin/options/schemas` | 查询已知 schema/database 选项 |
+| `POST` | `/api/admin/users/purge` | 批量注销用户数据 |
 
 ## 4. 系统概览
 
@@ -155,7 +159,7 @@ curl -X POST http://localhost:8000/api/chat \
   -H "Content-Type: application/json" \
   -d '{
     "message": "帮我查一下工单类型的分布",
-    "session_id": "demo",
+    "session_id": "session-main",
     "schema_id": 65938636,
     "database_name": "dw_onedba"
   }'
@@ -263,6 +267,21 @@ curl -H "Authorization: Bearer $ADMIN_TOKEN" \
 
 每条记录包含 12 个字段，**不暴露** `embedding_json` 原始向量数据。
 
+### 6.2.1 删除单条记录
+
+```bash
+curl -X DELETE http://localhost:8000/api/admin/sql-memory/records/{record_id} \
+  -H "Authorization: Bearer $ADMIN_TOKEN"
+```
+
+响应：
+
+```json
+{"deleted": true, "record_id": "record-id"}
+```
+
+- 记录不存在时返回 404
+
 ### 6.3 清理记录
 
 ```bash
@@ -361,6 +380,32 @@ curl -X POST http://localhost:8000/api/admin/hdc-mappings \
 curl -H "Authorization: Bearer $ADMIN_TOKEN" \
   http://localhost:8000/api/admin/overview
 ```
+
+### 场景 5：查询管理页面下拉选项
+
+```bash
+curl -H "Authorization: Bearer $ADMIN_TOKEN" \
+  http://localhost:8000/api/admin/options/users
+
+curl -H "Authorization: Bearer $ADMIN_TOKEN" \
+  http://localhost:8000/api/admin/options/schemas
+```
+
+### 场景 6：批量注销用户
+
+```bash
+curl -X POST http://localhost:8000/api/admin/users/purge \
+  -H "Authorization: Bearer $ADMIN_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "user_ids": ["alice", "bob"],
+    "delete_sessions": true,
+    "delete_mappings": true,
+    "delete_sql_memories": true
+  }'
+```
+
+响应包含 `deleted_sessions`、`deleted_mappings`、`deleted_sql_memories`、`deleted_openviking`、`deleted_users`、`failed_users`。
 
 ## 8. 注意事项
 

@@ -330,5 +330,6 @@ class TestBuildContextTokenEstimation:
 
     def test_no_char_estimate_when_tiktoken_available(self):
         """当 tiktoken 可用时，_method 应不存在"""
+        pytest.importorskip("tiktoken")
         _, tokens = build_context({"summary": "test"})
         assert "_method" not in tokens, "Should not have _method when tiktoken is available"
