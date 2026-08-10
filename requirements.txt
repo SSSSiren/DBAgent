@@ -31,3 +31,9 @@ aiosqlite>=0.20.0
 
 # ID 生成
 uuid6>=2024.0.0
+
+# deepagents 引擎（阶段 1 引入）
+deepagents>=0.6.8
+langchain-openai>=0.2.0
+langgraph>=0.2.60
+langgraph-checkpoint-sqlite>=2.0.0
