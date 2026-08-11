@@ -35,6 +35,17 @@ def _needs_confirmation(sql: str) -> bool:
     return sql_upper.startswith(WRITE_PREFIXES)
 
 
+def _should_append_limit(sql: str) -> bool:
+    """判断语句类型是否支持 LIMIT 子句。
+
+    只对 SELECT（含 WITH...SELECT / UNION 等以 SELECT 开头的语句）追加安全 LIMIT。
+    SHOW / DESCRIBE / EXPLAIN / USE 等语句不支持 LIMIT，追加会导致 OneDBA
+    语法错误（实测报 near "LIMIT 500"）。
+    """
+    sql_upper = re.sub(r"\s+", " ", sql.strip()).upper()
+    return sql_upper.startswith(("SELECT", "WITH"))
+
+
 async def execute_sql(schema_id: int, sql: str) -> str:
     """直接执行 SQL 查询。
 
@@ -70,9 +81,13 @@ async def execute_sql(schema_id: int, sql: str) -> str:
 
     client = get_onedba_client()
 
-    # 剥离 LLM 可能习惯性加的 LIMIT（不可靠），执行时加安全兜底
+    # 剥离 LLM 可能习惯性加的 LIMIT（不可靠），对支持 LIMIT 的语句加安全兜底
     display_sql = strip_limit(sql)
-    execute_sql_str = f"{display_sql} LIMIT {DEFAULT_SAFETY_LIMIT}"
+    if _should_append_limit(display_sql):
+        execute_sql_str = f"{display_sql} LIMIT {DEFAULT_SAFETY_LIMIT}"
+    else:
+        # SHOW / DESCRIBE / EXPLAIN 等不支持 LIMIT，直接执行（OneDBA 会报语法错误）
+        execute_sql_str = display_sql
 
     try:
         result = await client.execute_sql(schema_id=schema_id, sql=execute_sql_str)

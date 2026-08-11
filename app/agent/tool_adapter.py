@@ -23,7 +23,9 @@ def build_deepagent_tools() -> list[StructuredTool]:
             coroutine=_make_async_handler(tool_def.name),
             name=tool_def.name,
             description=tool_def.description,
-            args_schema=_make_args_schema(tool_def.name, tool_def.parameters),
+            args_schema=_make_args_schema(
+                tool_def.name, tool_def.parameters, tool_def.handler
+            ),
         )
         tools.append(tool)
     return tools
@@ -37,19 +39,32 @@ def _make_async_handler(name: str):
     return _handler
 
 
-def _make_args_schema(name: str, parameters: dict):
+def _make_args_schema(name: str, parameters: dict, handler=None):
     """将 OpenAI parameters 字典转换为 pydantic schema 类。
 
     注意：langchain_core 1.5.x 不再提供 langchain_core.pydantic_v1，
     改用与 pydantic 2.x 一起打包的 pydantic.v1，其 create_model/Field 与
     StructuredTool.from_function 完全兼容。
 
-    仅把 parameters["required"] 中的字段设为必填，其余字段设默认值 None，
-    否则 brief 中以部分参数（如 {"keyword": ""}）调用工具会因缺字段校验失败。
+    仅把 parameters["required"] 中的字段设为必填；非 required 字段的默认值
+    从 handler 的 Python 签名读取（而非固定 None），否则 LLM 缺省该字段时
+    pydantic 会把 None 传入 handler，绕过 Python 默认值——例如
+    find_table(max_results=200) 会收到 max_results=None，触发
+    min(None, 500) 抛 TypeError。实测真实环境 SSE 中即复现此错误。
     """
+    import inspect
+
     from pydantic.v1 import create_model, Field
     props = parameters.get("properties", {})
     required = set(parameters.get("required", []))
+
+    # 从 handler 签名读取 Python 默认值（缺省字段的语义来源）
+    python_defaults: dict[str, object] = {}
+    if handler is not None:
+        for pname, p in inspect.signature(handler).parameters.items():
+            if p.default is not inspect.Parameter.empty:
+                python_defaults[pname] = p.default
+
     fields = {}
     for pname, pdef in props.items():
         ptype = pdef.get("type", "string")
@@ -64,8 +79,13 @@ def _make_args_schema(name: str, parameters: dict):
         if pname in required:
             fields[pname] = (pytype, Field(description=pdef.get("description", "")))
         else:
+            # 优先用工具签名默认值；无默认值时才是 None（保持可选语义）
+            default = python_defaults.get(pname)
             fields[pname] = (
                 Optional[pytype],
-                Field(default=None, description=pdef.get("description", "")),
+                Field(
+                    default=default,
+                    description=pdef.get("description", ""),
+                ),
             )
     return create_model(f"{name}Args", **fields)
