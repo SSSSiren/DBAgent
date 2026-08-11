@@ -176,11 +176,11 @@ FastAPI (app/api/routes.py)                    ← HTTP/SSE 不变（阶段2起�
 ### 8.2 阶段验收标准
 
 **阶段 1（引擎替换）验收**：
-- [x] 现有 pytest 全量通过（含评测框架） — 693 passed, 0 failed（排除外部服务依赖）；5 个 knowledge_memory 失败为 OpenViking 连接问题，非重构引入
+- [x] 现有 pytest 全量通过（含评测框架） — 812 passed, 11 failed, 1 skipped；11 个失败均为外部服务依赖测试（OpenViking 5 个 + datavault 6 个），非本任务回归
 - [x] `scripts/acceptance.sh` 冒烟通过 — 5 PASS, 0 FAIL, 8 SKIP（跳过项均为外部系统依赖）
-- [x] SSE 4 类事件与重构前逐字段一致（step/sql/llm_call/final） — 自动化层已验证（16 个 event_adapter 测试 + 48 个 observability 测试 + ~40 个 SSE 集成测试）；**待真实环境逐字段 diff**（需 LLM_API_KEY）
-- [x] cancel API 语义不变 — 10 个集成测试 + 13 个注册表测试全部通过；**待真实环境端到端手动验证**（需起服务 + 真实 LLM）
-- [x] DeepSeek 通过 `ChatOpenAI` 接入正常，function calling 行为等价 — 工厂层已验证（`test_llm_factory.py`）；**待真实环境 function calling 行为等价验证**（需 LLM_API_KEY）
+- [ ] SSE 4 类事件与重构前逐字段一致（step/sql/llm_call/final） — 自动化层已验证（16 个 event_adapter 测试 + 48 个 observability 测试 + ~40 个 SSE 集成测试）；**待真实环境逐字段 diff**（需 LLM_API_KEY）
+- [ ] cancel API 语义不变 — 10 个集成测试 + 13 个注册表测试全部通过；**待真实环境端到端手动验证**（需起服务 + 真实 LLM）
+- [ ] DeepSeek 通过 `ChatOpenAI` 接入正常，function calling 行为等价 — 工厂层已验证（`test_llm_factory.py`）；**待真实环境 function calling 行为等价验证**（需 LLM_API_KEY）
 
 **阶段 2（子代理）验收**：
 - [ ] 4 角色子代理组装完成，端到端行为等价
