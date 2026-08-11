@@ -56,3 +56,35 @@ def test_run_agent_stream_produces_expected_events(monkeypatch):
     final = [e for e in events if e[0] == "final"][0]
     assert "response" in final[1]
     assert "updated_state" in final[1]
+
+
+# ========== 真实引擎测试 ==========
+
+import os as _os
+
+_real_engine_available = bool(_os.environ.get("LLM_API_KEY"))
+
+
+@pytest.mark.skipif(
+    not _real_engine_available,
+    reason="LLM_API_KEY 未设置，跳过真实 LLM 调用测试",
+)
+@pytest.mark.asyncio
+async def test_real_engine_streams():
+    """真实 engine：用最小输入验证 astream 可被迭代并产出事件。
+
+    需要 LLM_API_KEY 环境变量。无凭据时自动跳过。
+    """
+    from app.agent import runner
+
+    events = []
+    session_state = {
+        "session_id": "s2", "user_id": "u2",
+        "chat_history": [], "summary": "",
+    }
+
+    async for etype, data in runner.run_agent_stream("你好", session_state):
+        events.append((etype, data))
+
+    etypes = [e[0] for e in events]
+    assert "final" in etypes

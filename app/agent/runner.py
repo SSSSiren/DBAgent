@@ -17,6 +17,7 @@ from openai import AsyncOpenAI
 
 from app.agent.prompts import AGENT_SYSTEM_PROMPT
 from app.agent.context import build_context, update_session_state, extract_sql_from_text
+from app.agent.event_adapter import translate_event, _normalize_message
 from app.config import get_settings
 from app.nl2sql.generator import EnrichmentContext, _nl2sql_enrichment
 from app.tools import registry
@@ -85,46 +86,6 @@ def _extract_messages(chunk: dict[str, Any]) -> list[Any]:
         if isinstance(value, dict) and "messages" in value:
             return value["messages"]
     return []
-
-
-def _normalize_message(msg: Any) -> dict[str, Any]:
-    """将消息规范化为统一 dict 格式。
-
-    兼容：
-    - 普通 dict（FakeAgent 测试用）：{"content": ..., "tool_calls": [{"name": ..., "input": ...}]}
-    - LangChain AIMessage 对象：msg.content, msg.tool_calls
-    - LangChain ToolMessage 对象：msg.type="tool", msg.content, msg.name, msg.tool_call_id
-
-    返回 dict 含 role/name/content/tool_calls 字段。
-    tool_calls[*].arguments 保持为 dict（llm_call 产出时再序列化为 JSON 字符串）。
-    """
-    if isinstance(msg, dict):
-        content = msg.get("content", "") or ""
-        raw_tool_calls = msg.get("tool_calls", []) or []
-        role = msg.get("role", msg.get("type", ""))
-        name = msg.get("name", "")
-        # 带 tool_call_id 的 dict 是工具结果
-        if msg.get("tool_call_id"):
-            role = "tool"
-        normalized_tc = []
-        for tc in raw_tool_calls:
-            tc_name = tc.get("name", "")
-            # 兼容 "input"（FakeAgent）、"args"（LangChain）、"arguments"（OpenAI 格式）
-            args = tc.get("input", tc.get("args", tc.get("arguments", {})))
-            normalized_tc.append({"name": tc_name, "arguments": args})
-        return {"role": role, "name": name, "content": content, "tool_calls": normalized_tc}
-    else:
-        # LangChain 消息对象
-        content = getattr(msg, "content", "") or ""
-        raw_tool_calls = getattr(msg, "tool_calls", []) or []
-        role = getattr(msg, "type", "")
-        name = getattr(msg, "name", "")
-        normalized_tc = []
-        for tc in raw_tool_calls:
-            tc_name = getattr(tc, "name", "")
-            args = getattr(tc, "args", {})
-            normalized_tc.append({"name": tc_name, "arguments": args})
-        return {"role": role, "name": name, "content": content, "tool_calls": normalized_tc}
 
 
 # ========== Agent 引擎（deepagents）==========
@@ -205,6 +166,8 @@ async def _run_agent_deepagents(
                 # ── 工具结果消息（ToolMessage）→ 产出 tool_end ──
                 if role == "tool":
                     tool_name = normalized.get("name", "")
+                    # 使用 translate_event 获取事件数据
+                    translated = translate_event(msg)
                     # 查找匹配的待处理工具调用
                     matched = None
                     for pt in pending_tools:
@@ -213,7 +176,12 @@ async def _run_agent_deepagents(
                             break
                     if matched:
                         matched["done"] = True
-                        elapsed_ms = 0
+                        # 从 translate_event 获取 tool_end 数据
+                        tool_end_data = next(
+                            (edata for etype, edata in translated if etype == "tool_end"),
+                            {"name": tool_name, "content": content, "elapsed_ms": 0},
+                        )
+                        elapsed_ms = tool_end_data.get("elapsed_ms", 0)
                         if tool_name not in tool_timings:
                             tool_timings[tool_name] = {"count": 0, "total_ms": 0.0}
                         tool_timings[tool_name]["count"] += 1
@@ -229,7 +197,7 @@ async def _run_agent_deepagents(
                     # 追加 tool 消息到对话历史
                     messages.append({
                         "role": "tool",
-                        "tool_call_id": getattr(msg, "tool_call_id", ""),
+                        "tool_call_id": getattr(msg, "tool_call_id", normalized.get("tool_call_id", "")),
                         "content": content,
                     })
                     continue
@@ -263,27 +231,27 @@ async def _run_agent_deepagents(
                         "tool_calls": tool_calls,
                     })
 
-                    # ── 思考文本 ──
-                    if content:
-                        yield {
-                            "type": "text",
-                            "text": content,
-                        }
-
-                    # ── 工具调用开始（延迟 tool_end 直到工具结果）──
-                    for tc in tool_calls:
-                        tool_name = tc["name"]
-                        tool_input = tc["arguments"]
-                        yield {
-                            "type": "tool_start",
-                            "name": tool_name,
-                            "input": tool_input,
-                        }
-                        pending_tools.append({
-                            "name": tool_name,
-                            "input": tool_input,
-                            "done": False,
-                        })
+                    # ── 使用 translate_event 产出 text + tool_start ──
+                    translated = translate_event(msg)
+                    for etype, edata in translated:
+                        if etype == "text":
+                            yield {
+                                "type": "text",
+                                "text": edata["text"],
+                            }
+                        elif etype == "tool_start":
+                            tool_name = edata["name"]
+                            tool_input = edata["input"]
+                            yield {
+                                "type": "tool_start",
+                                "name": tool_name,
+                                "input": tool_input,
+                            }
+                            pending_tools.append({
+                                "name": tool_name,
+                                "input": tool_input,
+                                "done": False,
+                            })
                 else:
                     # ── 最终响应 ──
                     messages.append({
