@@ -156,6 +156,27 @@ class TestTranslateEvent:
             ("tool_start", {"name": "find_table", "input": {"keyword": "order"}}),
         ]
 
+    def test_translate_langchain_aimessage_with_dict_tool_calls(self):
+        """LangChain AIMessage 对象，tool_calls 元素为 dict（langchain_core 常见格式）"""
+        from unittest.mock import MagicMock
+
+        msg = MagicMock()
+        msg.type = "ai"
+        msg.content = "调用工具"
+        # tool_calls 为 dict 列表 — langchain_core 中 AIMessage.tool_calls 的常见格式
+        msg.tool_calls = [
+            {"name": "find_table", "args": {"keyword": "order"}, "id": "call_1"},
+            {"name": "describe_table", "arguments": {"table_name": "orders"}, "id": "call_2"},
+        ]
+        msg.name = ""
+
+        events = translate_event(msg)
+        assert events == [
+            ("text", {"text": "调用工具"}),
+            ("tool_start", {"name": "find_table", "input": {"keyword": "order"}}),
+            ("tool_start", {"name": "describe_table", "input": {"table_name": "orders"}}),
+        ]
+
     def test_translate_langchain_toolmessage_object(self):
         """LangChain ToolMessage 对象 → tool_end 事件"""
         from unittest.mock import MagicMock

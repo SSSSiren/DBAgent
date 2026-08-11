@@ -52,8 +52,13 @@ def _normalize_message(msg: Any) -> dict[str, Any]:
         tool_call_id = getattr(msg, "tool_call_id", "")
         normalized_tc = []
         for tc in raw_tool_calls:
-            tc_name = getattr(tc, "name", "")
-            args = getattr(tc, "args", {})
+            if isinstance(tc, dict):
+                tc_name = tc.get("name", "")
+                # 兼容 "input"/"args"/"arguments"
+                args = tc.get("input", tc.get("args", tc.get("arguments", {})))
+            else:
+                tc_name = getattr(tc, "name", "")
+                args = getattr(tc, "args", {})
             normalized_tc.append({"name": tc_name, "arguments": args})
         return {
             "role": role,
