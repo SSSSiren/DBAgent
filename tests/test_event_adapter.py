@@ -80,7 +80,7 @@ class TestTranslateEvent:
         events = translate_event(msg)
         assert events == [
             ("text", {"text": "先查一下表"}),
-            ("tool_start", {"name": "find_table", "input": {"keyword": "order"}}),
+            ("tool_start", {"name": "find_table", "input": {"keyword": "order"}, "tool_call_id": ""}),
         ]
 
     def test_translate_ai_message_with_multiple_tool_calls(self):
@@ -92,8 +92,8 @@ class TestTranslateEvent:
         events = translate_event(msg)
         # 无文本内容，不产出 text
         assert events == [
-            ("tool_start", {"name": "find_table", "input": {"keyword": "order"}}),
-            ("tool_start", {"name": "describe_table", "input": {"table_name": "orders"}}),
+            ("tool_start", {"name": "find_table", "input": {"keyword": "order"}, "tool_call_id": ""}),
+            ("tool_start", {"name": "describe_table", "input": {"table_name": "orders"}, "tool_call_id": ""}),
         ]
 
     def test_translate_ai_message_without_content(self):
@@ -134,7 +134,7 @@ class TestTranslateEvent:
         events = translate_event(msg)
         # 有 tool_calls 所以被识别为 AI 消息
         assert ("text", {"text": "先查一下表"}) in events
-        assert ("tool_start", {"name": "find_table", "input": {"keyword": "order"}}) in events
+        assert ("tool_start", {"name": "find_table", "input": {"keyword": "order"}, "tool_call_id": ""}) in events
 
     def test_translate_langchain_aimessage_object(self):
         """LangChain AIMessage 对象 → 正确的内部事件"""
@@ -151,10 +151,12 @@ class TestTranslateEvent:
         msg.name = ""
 
         events = translate_event(msg)
-        assert events == [
-            ("text", {"text": "我需要查一下"}),
-            ("tool_start", {"name": "find_table", "input": {"keyword": "order"}}),
-        ]
+        assert len(events) == 2
+        assert events[0] == ("text", {"text": "我需要查一下"})
+        assert events[1][0] == "tool_start"
+        assert events[1][1]["name"] == "find_table"
+        assert events[1][1]["input"] == {"keyword": "order"}
+        assert "tool_call_id" in events[1][1]
 
     def test_translate_langchain_aimessage_with_dict_tool_calls(self):
         """LangChain AIMessage 对象，tool_calls 元素为 dict（langchain_core 常见格式）"""
@@ -173,8 +175,8 @@ class TestTranslateEvent:
         events = translate_event(msg)
         assert events == [
             ("text", {"text": "调用工具"}),
-            ("tool_start", {"name": "find_table", "input": {"keyword": "order"}}),
-            ("tool_start", {"name": "describe_table", "input": {"table_name": "orders"}}),
+            ("tool_start", {"name": "find_table", "input": {"keyword": "order"}, "tool_call_id": "call_1"}),
+            ("tool_start", {"name": "describe_table", "input": {"table_name": "orders"}, "tool_call_id": "call_2"}),
         ]
 
     def test_translate_langchain_toolmessage_object(self):

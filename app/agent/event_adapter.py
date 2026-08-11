@@ -33,9 +33,10 @@ def _normalize_message(msg: Any) -> dict[str, Any]:
         normalized_tc = []
         for tc in raw_tool_calls:
             tc_name = tc.get("name", "")
+            tc_id = tc.get("id", "")
             # 兼容 "input"（FakeAgent）、"args"（LangChain）、"arguments"（OpenAI 格式）
             args = tc.get("input", tc.get("args", tc.get("arguments", {})))
-            normalized_tc.append({"name": tc_name, "arguments": args})
+            normalized_tc.append({"name": tc_name, "arguments": args, "id": tc_id})
         return {
             "role": role,
             "name": name,
@@ -54,12 +55,14 @@ def _normalize_message(msg: Any) -> dict[str, Any]:
         for tc in raw_tool_calls:
             if isinstance(tc, dict):
                 tc_name = tc.get("name", "")
+                tc_id = tc.get("id", "")
                 # 兼容 "input"/"args"/"arguments"
                 args = tc.get("input", tc.get("args", tc.get("arguments", {})))
             else:
                 tc_name = getattr(tc, "name", "")
+                tc_id = getattr(tc, "id", "")
                 args = getattr(tc, "args", {})
-            normalized_tc.append({"name": tc_name, "arguments": args})
+            normalized_tc.append({"name": tc_name, "arguments": args, "id": tc_id})
         return {
             "role": role,
             "name": name,
@@ -118,6 +121,7 @@ def translate_event(msg: Any) -> list[tuple[str, dict[str, Any]]]:
             events.append(("tool_start", {
                 "name": tc["name"],
                 "input": tc["arguments"],
+                "tool_call_id": tc.get("id", ""),
             }))
 
     return events

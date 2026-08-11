@@ -13,6 +13,8 @@ import json
 import time
 from typing import Any, AsyncIterator
 
+from langchain_core.callbacks import BaseCallbackHandler
+from langchain_core.outputs import LLMResult
 from openai import AsyncOpenAI
 
 from app.agent.prompts import AGENT_SYSTEM_PROMPT
@@ -40,6 +42,30 @@ def _get_llm_client() -> AsyncOpenAI:
             base_url=settings.llm_base_url,
         )
     return _llm_client
+
+
+# ========== Token 统计回调 ==========
+
+class TokenCountingCallback(BaseCallbackHandler):
+    """LangChain 回调：从每次 LLM 调用中累计 token 用量。
+
+    通过 on_llm_end 从 LLMResult.llm_output["token_usage"] 提取
+    prompt_tokens 和 completion_tokens，累加到可变的容器属性上，
+    供 _run_agent_deepagents 在流结束后读取。
+    """
+
+    def __init__(self) -> None:
+        super().__init__()
+        self.total_input_tokens: int = 0
+        self.total_output_tokens: int = 0
+
+    def on_llm_end(self, response: LLMResult, **kwargs: Any) -> None:
+        """从 LLMResult 提取 token_usage 并累计。"""
+        llm_output = response.llm_output or {}
+        token_usage = llm_output.get("token_usage", {})
+        if token_usage:
+            self.total_input_tokens += token_usage.get("prompt_tokens", 0)
+            self.total_output_tokens += token_usage.get("completion_tokens", 0)
 
 
 # ========== deepagents 引擎工厂 ==========
@@ -106,8 +132,7 @@ async def _run_agent_deepagents(
 
     settings = get_settings()
     start_time = time.monotonic()
-    total_input_tokens = 0
-    total_output_tokens = 0
+    token_callback = TokenCountingCallback()
     cancelled = False
     iteration = 0
     max_iterations = 15
@@ -120,6 +145,7 @@ async def _run_agent_deepagents(
     ]
 
     # 待完成的工具调用（tool_start 已产出，等待 tool_end）
+    # 每个条目含 tool_call_id，用于精确匹配（避免并发同工具调用错配）
     pending_tools: list[dict[str, Any]] = []
 
     # ── 取消检查：在启动引擎前 ──
@@ -143,7 +169,8 @@ async def _run_agent_deepagents(
 
     try:
         async for chunk in engine.astream(
-            {"messages": [HumanMessage(content=prompt)]}
+            {"messages": [HumanMessage(content=prompt)]},
+            config={"callbacks": [token_callback]},
         ):
             # ── 取消检查：迭代边界 ──
             if cancel_event is not None and cancel_event.is_set():
@@ -166,17 +193,17 @@ async def _run_agent_deepagents(
                 # ── 工具结果消息（ToolMessage）→ 产出 tool_end ──
                 if role == "tool":
                     tool_name = normalized.get("name", "")
+                    tc_id = normalized.get("tool_call_id", "")
                     # 使用 translate_event 获取事件数据
                     translated = translate_event(msg)
-                    # 查找匹配的待处理工具调用
+                    # 按 tool_call_id 精确匹配待处理工具调用（避免并发同工具调用错配）
                     matched = None
                     for pt in pending_tools:
-                        if pt["name"] == tool_name and not pt.get("done"):
+                        if pt.get("tool_call_id") == tc_id and not pt.get("done"):
                             matched = pt
                             break
                     if matched:
                         matched["done"] = True
-                        # 从 translate_event 获取 tool_end 数据
                         tool_end_data = next(
                             (edata for etype, edata in translated if etype == "tool_end"),
                             {"name": tool_name, "content": content, "elapsed_ms": 0},
@@ -194,10 +221,26 @@ async def _run_agent_deepagents(
                             "elapsed_ms": elapsed_ms,
                             "nl2sql_timings": nl2sql_stage_timings if nl2sql_stage_timings else None,
                         }
+                    else:
+                        # 无匹配 pending（deepagents 引擎内部执行工具时可能出现）
+                        # 仍然产出 tool_end 以确保 SSE 客户端可见，但省略 nl2sql_timings
+                        import warnings
+                        warnings.warn(
+                            f"ToolMessage with tool_call_id={tc_id!r} has no matching pending tool_call. "
+                            f"Yielding tool_end without nl2sql_timings.",
+                            RuntimeWarning,
+                        )
+                        yield {
+                            "type": "tool_end",
+                            "name": tool_name,
+                            "content": content,
+                            "elapsed_ms": 0,
+                            "nl2sql_timings": None,
+                        }
                     # 追加 tool 消息到对话历史
                     messages.append({
                         "role": "tool",
-                        "tool_call_id": getattr(msg, "tool_call_id", normalized.get("tool_call_id", "")),
+                        "tool_call_id": tc_id,
                         "content": content,
                     })
                     continue
@@ -242,6 +285,7 @@ async def _run_agent_deepagents(
                         elif etype == "tool_start":
                             tool_name = edata["name"]
                             tool_input = edata["input"]
+                            tc_id = edata.get("tool_call_id", "")
                             yield {
                                 "type": "tool_start",
                                 "name": tool_name,
@@ -251,6 +295,7 @@ async def _run_agent_deepagents(
                                 "name": tool_name,
                                 "input": tool_input,
                                 "done": False,
+                                "tool_call_id": tc_id,
                             })
                 else:
                     # ── 最终响应 ──
@@ -266,9 +311,9 @@ async def _run_agent_deepagents(
                         "stats": {
                             "duration_ms": duration_ms,
                             "num_turns": iteration + 1,
-                            "tokens": total_input_tokens + total_output_tokens,
-                            "input_tokens": total_input_tokens,
-                            "output_tokens": total_output_tokens,
+                            "tokens": token_callback.total_input_tokens + token_callback.total_output_tokens,
+                            "input_tokens": token_callback.total_input_tokens,
+                            "output_tokens": token_callback.total_output_tokens,
                             "tool_timings": dict(tool_timings),
                         },
                     }
@@ -291,9 +336,9 @@ async def _run_agent_deepagents(
                 "stats": {
                     "duration_ms": duration_ms,
                     "num_turns": iteration,
-                    "tokens": total_input_tokens + total_output_tokens,
-                    "input_tokens": total_input_tokens,
-                    "output_tokens": total_output_tokens,
+                    "tokens": token_callback.total_input_tokens + token_callback.total_output_tokens,
+                    "input_tokens": token_callback.total_input_tokens,
+                    "output_tokens": token_callback.total_output_tokens,
                     "tool_timings": dict(tool_timings),
                 },
             }
@@ -322,9 +367,9 @@ async def _run_agent_deepagents(
             "stats": {
                 "duration_ms": duration_ms,
                 "num_turns": max_iterations,
-                "tokens": total_input_tokens + total_output_tokens,
-                "input_tokens": total_input_tokens,
-                "output_tokens": total_output_tokens,
+                "tokens": token_callback.total_input_tokens + token_callback.total_output_tokens,
+                "input_tokens": token_callback.total_input_tokens,
+                "output_tokens": token_callback.total_output_tokens,
                 "tool_timings": dict(tool_timings),
             },
         }
