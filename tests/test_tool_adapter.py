@@ -66,3 +66,21 @@ async def test_optional_args_defaults_match_handler_for_all_affected_tools():
             assert defaults["env_type"].default == "test"
         elif t.name == "query_database":
             assert defaults["summary"].default == ""
+
+
+@pytest.mark.asyncio
+async def test_explicit_null_optional_arg_uses_handler_default():
+    """回归：LLM 显式传可选字段为 null 时，应回退到工具签名默认值而非 None。
+
+    DeepSeek 常把未使用的可选参数在 tool_calls JSON 中填 null（如
+    {"keyword": "alert", "max_results": null}）。pydantic Optional[int] 接受
+    null → None，覆盖了 schema 默认值 200，导致 find_table(max_results=None)
+    → min(None,500) 抛 TypeError（真实对话中反复出现）。
+    """
+    tools = build_deepagent_tools()
+    by_name = {t.name: t for t in tools}
+    tool = by_name["find_table"]
+    # 显式传 max_results=None（模拟 LLM 填 null）
+    result = await tool.ainvoke({"keyword": "nonexistent_table_xyz", "max_results": None})
+    assert isinstance(result, str)
+    assert "未找到" in result  # 走到正常搜索路径，而非 TypeError

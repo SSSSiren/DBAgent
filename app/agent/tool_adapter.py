@@ -32,9 +32,29 @@ def build_deepagent_tools() -> list[StructuredTool]:
 
 
 def _make_async_handler(name: str):
-    """包装 registry.execute 为可被 langchain 调用的 async 函数。"""
+    """包装 registry.execute 为可被 langchain 调用的 async 函数。
+
+    清洗 None 可选参数：LLM 常把未使用的可选字段在 tool_calls JSON 中填
+    null（如 {"keyword": "alert", "max_results": null}）。pydantic Optional 会
+    把 null 解析为 None 覆盖 schema 默认值，绕过 handler 的 Python 默认值，
+    导致 find_table(max_results=None) → min(None,500) 抛 TypeError。
+    此处把 None 替换为 handler 签名的默认值（无默认值的保留 None）。
+    """
+    import inspect
+    from app.tools import registry
+    tool = registry.get(name)
+    defaults: dict[str, object] = {}
+    if tool is not None:
+        for pname, p in inspect.signature(tool.handler).parameters.items():
+            if p.default is not inspect.Parameter.empty:
+                defaults[pname] = p.default
+
     async def _handler(**kwargs) -> str:
-        return await registry.execute(name, **kwargs)
+        cleaned = {
+            k: (defaults.get(k) if v is None and k in defaults else v)
+            for k, v in kwargs.items()
+        }
+        return await registry.execute(name, **cleaned)
     _handler.__name__ = name
     return _handler
 
