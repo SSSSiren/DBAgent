@@ -208,3 +208,51 @@ async def test_real_engine_streams():
 
     etypes = [e[0] for e in events]
     assert "final" in etypes
+
+
+class _CancellingFakeAgent:
+    """模拟 cancel_event 预置时引擎立即产出 cancelled final。"""
+
+    def astream(self, input, config=None):
+        async def _gen():
+            # 模拟：LLM 调用前已被取消 → 产出 subtype=cancelled
+            yield {"messages": [{"content": "", "tool_calls": []}]}
+        return _gen()
+
+    def invoke(self, input, config=None):
+        return {"messages": [{"content": ""}]}
+
+
+def test_run_agent_stream_forwards_cancel_subtype(monkeypatch):
+    """端到端 cancel 语义：run_agent_stream 最终 final 必须带 subtype='cancelled'。
+
+    回归测试：_run_agent_deepagents 正确产出 subtype='cancelled' 内部事件，
+    但 run_agent_stream 曾丢弃 subtype，导致 routes.py 的
+    data.get("subtype") == "cancelled" 恒为 False，端到端 cancelled 标记丢失。
+    """
+    monkeypatch.setattr(runner, "_build_engine", lambda: _CancellingFakeAgent())
+    monkeypatch.setattr(runner, "_get_llm_client", lambda: object())
+
+    events = []
+    session_state = {
+        "session_id": "s3", "user_id": "u3",
+        "chat_history": [], "summary": "",
+    }
+    cancel_event = asyncio.Event()
+    cancel_event.set()  # 预置取消：引擎应在首个迭代边界立即取消
+
+    async def _run():
+        async for etype, data in runner.run_agent_stream(
+            "查订单", session_state, cancel_event=cancel_event,
+        ):
+            events.append((etype, data))
+
+    asyncio.run(_run())
+
+    finals = [e for e in events if e[0] == "final"]
+    assert finals, "must emit a final event"
+    final_data = finals[-1][1]
+    assert final_data.get("subtype") == "cancelled", (
+        f"final must carry subtype='cancelled' for end-to-end cancel, "
+        f"got {final_data.get('subtype')!r}"
+    )

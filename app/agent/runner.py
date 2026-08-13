@@ -483,6 +483,7 @@ async def run_agent_stream(
 
     final_response = ""
     final_stats: dict[str, Any] = {}
+    final_subtype: str | None = None
 
     try:
         async for event in event_stream:
@@ -586,6 +587,9 @@ async def run_agent_stream(
             elif event_type == "final":
                 final_response = event.get("content", "")
                 final_stats = event.get("stats", {})
+                # 透传 subtype（cancelled / max_iterations / completed），
+                # 供 API 层判定取消语义（routes.py 读 data["subtype"]）
+                final_subtype = event.get("subtype")
                 # 注入 TTFB（若首个事件前被取消，则以取消时刻为准）
                 if ttfb_ms is not None:
                     final_stats["ttfb_ms"] = round(ttfb_ms, 2)
@@ -629,4 +633,5 @@ async def run_agent_stream(
         "pending_action": None,
         "tool_calls": tool_calls_info,
         "stats": final_stats,
+        "subtype": final_subtype,
     }
