@@ -838,6 +838,8 @@ def _render_hdc_comparison_md(
     # 每条用例对比
     per_case = diff.get("per_case", [])
     if per_case:
+        no_by_id = {c.test_case.case_id: c for c in no_hdc.case_results}
+        with_by_id = {c.test_case.case_id: c for c in with_hdc.case_results}
         lines.append("## 📝 逐用例对比")
         lines.append("")
         lines.append("| 用例 | 难度 | 类别 | 无 HDC | 有 HDC | 分数变化 | 工具调用变化 | Token变化 | 输入Token变化 | 输出Token变化 | 首轮正确 |")
