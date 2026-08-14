@@ -232,6 +232,7 @@ async def _call_llm(prompt: str) -> str:
             model=settings.llm_model,
             messages=[{"role": "user", "content": prompt}],
             temperature=0.1,
+            response_format={"type": "json_object"},
         )
         return response.choices[0].message.content or "{}"
     except Exception as e:
@@ -320,7 +321,7 @@ def build_generate_sql_prompt(
     prompt_parts.append(f"历史摘要：{summary}")
     prompt_parts.append("")
     prompt_parts.append("输出 JSON：")
-    prompt_parts.append("""{{
+    prompt_parts.append("""{
   "sql": "SELECT ...",
   "has_topn": false,
   "explanation": "简短解释",
@@ -328,7 +329,7 @@ def build_generate_sql_prompt(
   "assumptions": ["..."],
   "needs_clarification": false,
   "clarification_question": ""
-}}""")
+}""")
 
     return "\n".join(prompt_parts)
 

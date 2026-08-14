@@ -15,9 +15,9 @@ set -euo pipefail
 # 用例选择：缺省=全量（不传 --ids）；设 IDS 环境变量则按指定用例运行，如:
 #   IDS="TC-001 TC-003" bash tools/comparison_experiment.sh baseline
 IDS="${IDS:-}"
-REPEAT=16
+REPEAT=8
 CONCURRENCY=8
-TIMEOUT=240
+TIMEOUT=400
 HDC_NAMESPACE="recall_extra"
 OUTPUT_DIR="tests/evaluation/output"
 STATE_FILE="${OUTPUT_DIR}/.comparison_state"  # 持久化 JSON 路径

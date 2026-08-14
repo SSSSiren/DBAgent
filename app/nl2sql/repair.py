@@ -84,7 +84,7 @@ def build_repair_sql_prompt(
     prompt_parts.append(f"错误信息：\n{error_message}")
     prompt_parts.append("")
     prompt_parts.append("输出 JSON：")
-    prompt_parts.append("""{{
+    prompt_parts.append("""{
   "sql": "SELECT ...",
   "has_topn": false,
   "explanation": "修复原因",
@@ -92,7 +92,7 @@ def build_repair_sql_prompt(
   "assumptions": ["..."],
   "needs_clarification": false,
   "clarification_question": ""
-}}""")
+}""")
 
     return "\n".join(prompt_parts)
 
