@@ -12,7 +12,9 @@
 set -euo pipefail
 
 # ── 配置 ──
-IDS="TC-001 TC-003 TC-007 TC-009 TC-013 TC-017 TC-021 TC-024 TC-027 TC-029"
+# 用例选择：缺省=全量（不传 --ids）；设 IDS 环境变量则按指定用例运行，如:
+#   IDS="TC-001 TC-003" bash tools/comparison_experiment.sh baseline
+IDS="${IDS:-}"
 REPEAT=16
 CONCURRENCY=8
 TIMEOUT=240
@@ -67,19 +69,30 @@ run_baseline() {
     echo "############################################################"
     echo "# 基线（无 HDC + 无 SQL 记忆）"
     echo "############################################################"
-    echo "  用例: ${IDS}"
+    echo "  用例: ${IDS:-全部}"
     echo "  repeat=${REPEAT}  concurrency=${CONCURRENCY}  timeout=${TIMEOUT}s"
     echo "  日志: ${BASELINE_LOG}"
     echo ""
 
     export SQL_MEMORY_ENABLED=false
 
-    python -u -m tests.evaluation.cli run \
-        --repeat ${REPEAT} \
-        --concurrency ${CONCURRENCY} \
-        --timeout ${TIMEOUT} \
-        -v \
-        2>&1 | tee "${BASELINE_LOG}"
+    # 全量（IDS 为空）或指定用例（IDS 非空）
+    if [ -n "${IDS}" ]; then
+        python -u -m tests.evaluation.cli run \
+            --ids ${IDS} \
+            --repeat ${REPEAT} \
+            --concurrency ${CONCURRENCY} \
+            --timeout ${TIMEOUT} \
+            -v \
+            2>&1 | tee "${BASELINE_LOG}"
+    else
+        python -u -m tests.evaluation.cli run \
+            --repeat ${REPEAT} \
+            --concurrency ${CONCURRENCY} \
+            --timeout ${TIMEOUT} \
+            -v \
+            2>&1 | tee "${BASELINE_LOG}"
+    fi
 
     BASELINE_JSON=$(find_json_report "${BASELINE_LOG}")
     echo ""
@@ -101,7 +114,7 @@ run_fullstack() {
     echo "############################################################"
     echo "# HDC-SM（有 HDC + 有 SQL 记忆）"
     echo "############################################################"
-    echo "  用例: ${IDS}"
+    echo "  用例: ${IDS:-全部}"
     echo "  repeat=${REPEAT}  concurrency=${CONCURRENCY}  timeout=${TIMEOUT}s"
     echo "  HDC namespace: ${HDC_NAMESPACE}"
     echo "  日志: ${FULLSTACK_LOG}"
@@ -111,14 +124,27 @@ run_fullstack() {
 
     python tools/sql_memory_admin.py status 2>/dev/null || true
 
-    python -u -m tests.evaluation.cli run \
-        --repeat ${REPEAT} \
-        --concurrency ${CONCURRENCY} \
-        --timeout ${TIMEOUT} \
-        --with-hdc \
-        --hdc-namespace "${HDC_NAMESPACE}" \
-        -v --verbose-hdc \
-        2>&1 | tee "${FULLSTACK_LOG}"
+    # 全量（IDS 为空）或指定用例（IDS 非空）
+    if [ -n "${IDS}" ]; then
+        python -u -m tests.evaluation.cli run \
+            --ids ${IDS} \
+            --repeat ${REPEAT} \
+            --concurrency ${CONCURRENCY} \
+            --timeout ${TIMEOUT} \
+            --with-hdc \
+            --hdc-namespace "${HDC_NAMESPACE}" \
+            -v --verbose-hdc \
+            2>&1 | tee "${FULLSTACK_LOG}"
+    else
+        python -u -m tests.evaluation.cli run \
+            --repeat ${REPEAT} \
+            --concurrency ${CONCURRENCY} \
+            --timeout ${TIMEOUT} \
+            --with-hdc \
+            --hdc-namespace "${HDC_NAMESPACE}" \
+            -v --verbose-hdc \
+            2>&1 | tee "${FULLSTACK_LOG}"
+    fi
 
     FULLSTACK_JSON=$(find_json_report "${FULLSTACK_LOG}")
     echo ""
@@ -166,7 +192,7 @@ run_report() {
 # 基线 vs HDC-SM 对比实验报告
 
 **生成时间**: $(date '+%Y-%m-%d %H:%M:%S')
-**测试用例**: \`${IDS}\`
+**测试用例**: ${IDS:-全部}
 **并发度**: ${CONCURRENCY}，repeat: ${REPEAT}（case 内串行），timeout: ${TIMEOUT}s
 **HDC**: ${HDC_NAMESPACE}
 **SQL 记忆**: 使用已有记录
@@ -371,7 +397,7 @@ case "$CMD" in
         echo "============================================================"
         echo "基线 vs HDC-SM 对比实验"
         echo "============================================================"
-        echo "测试用例:    ${IDS}"
+        echo "测试用例:    ${IDS:-全部}"
         echo "并发度:      ${CONCURRENCY}"
         echo "repeat:      ${REPEAT}"
         echo "timeout:     ${TIMEOUT}s"
@@ -394,7 +420,7 @@ case "$CMD" in
         echo "============================================================"
         echo "收敛性分析实验"
         echo "============================================================"
-        echo "测试用例:    ${IDS}"
+        echo "测试用例:    ${IDS:-全部}"
         echo "并发度:      ${CONCURRENCY}"
         echo "repeat:      10 (一次跑，前缀分析)"
         echo "timeout:     ${TIMEOUT}s"
@@ -410,13 +436,22 @@ case "$CMD" in
         echo "# 第 1/2 轮: 基线（无 HDC + 无 SQL 记忆）repeat=${CONVERGE_REPEAT}"
         echo "############################################################"
         export SQL_MEMORY_ENABLED=false
-        python -u -m tests.evaluation.cli run \
-            --ids ${IDS} \
-            --repeat ${CONVERGE_REPEAT} \
-            --concurrency ${CONCURRENCY} \
-            --timeout ${TIMEOUT} \
-            -v \
-            2>&1 | tee "${BASELINE_LOG}"
+        if [ -n "${IDS}" ]; then
+            python -u -m tests.evaluation.cli run \
+                --ids ${IDS} \
+                --repeat ${CONVERGE_REPEAT} \
+                --concurrency ${CONCURRENCY} \
+                --timeout ${TIMEOUT} \
+                -v \
+                2>&1 | tee "${BASELINE_LOG}"
+        else
+            python -u -m tests.evaluation.cli run \
+                --repeat ${CONVERGE_REPEAT} \
+                --concurrency ${CONCURRENCY} \
+                --timeout ${TIMEOUT} \
+                -v \
+                2>&1 | tee "${BASELINE_LOG}"
+        fi
         BASELINE_JSON=$(find_json_report "${BASELINE_LOG}")
         echo "基线 JSON: ${BASELINE_JSON}"
 
@@ -427,15 +462,26 @@ case "$CMD" in
         echo "############################################################"
         export SQL_MEMORY_ENABLED=true
         python tools/sql_memory_admin.py status 2>/dev/null || true
-        python -u -m tests.evaluation.cli run \
-            --ids ${IDS} \
-            --repeat ${CONVERGE_REPEAT} \
-            --concurrency ${CONCURRENCY} \
-            --timeout ${TIMEOUT} \
-            --with-hdc \
-            --hdc-namespace "${HDC_NAMESPACE}" \
-            -v --verbose-hdc \
-            2>&1 | tee "${FULLSTACK_LOG}"
+        if [ -n "${IDS}" ]; then
+            python -u -m tests.evaluation.cli run \
+                --ids ${IDS} \
+                --repeat ${CONVERGE_REPEAT} \
+                --concurrency ${CONCURRENCY} \
+                --timeout ${TIMEOUT} \
+                --with-hdc \
+                --hdc-namespace "${HDC_NAMESPACE}" \
+                -v --verbose-hdc \
+                2>&1 | tee "${FULLSTACK_LOG}"
+        else
+            python -u -m tests.evaluation.cli run \
+                --repeat ${CONVERGE_REPEAT} \
+                --concurrency ${CONCURRENCY} \
+                --timeout ${TIMEOUT} \
+                --with-hdc \
+                --hdc-namespace "${HDC_NAMESPACE}" \
+                -v --verbose-hdc \
+                2>&1 | tee "${FULLSTACK_LOG}"
+        fi
         FULLSTACK_JSON=$(find_json_report "${FULLSTACK_LOG}")
         echo "HDC-SM JSON: ${FULLSTACK_JSON}"
 
