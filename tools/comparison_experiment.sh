@@ -16,7 +16,7 @@ set -euo pipefail
 #   IDS="TC-001 TC-003" bash tools/comparison_experiment.sh baseline
 IDS="${IDS:-}"
 REPEAT=8
-CONCURRENCY=8
+CONCURRENCY=12
 TIMEOUT=400
 HDC_NAMESPACE="recall_extra"
 OUTPUT_DIR="tests/evaluation/output"
