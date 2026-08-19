@@ -2,7 +2,7 @@
 
 ## Architecture
 
-4 层管道架构：HTTP/WS 层（FastAPI，SSE 为主流式通道，WebSocket 端点已实现但前端未接入）→ Agent 编排层（手写 ReAct 循环）→ 领域服务层（NL2SQL、工具）→ 外部服务层（OneDBA、OpenViking、Langfuse）。LLM 通过 OpenAI 兼容 API 抽象，默认使用 DeepSeek-V4。
+4 层管道架构：HTTP/WS 层（FastAPI，SSE 为主流式通道，WebSocket 端点已实现但前端未接入）→ Agent 编排层（deepagents/LangGraph 驱动，保留既有 `run_agent_stream` 与 SSE 契约）→ 领域服务层（NL2SQL、工具）→ 外部服务层（OneDBA、OpenViking、Langfuse）。LLM 通过 OpenAI 兼容 API 抽象，默认使用 DeepSeek-V4。
 
 ## Core Technologies
 
@@ -10,13 +10,14 @@
 - **Framework**: FastAPI (≥ 0.109.0) + Uvicorn
 - **Runtime**: Docker (python:3.12-slim)，docker-compose 单服务部署
 - **LLM**: DeepSeek-V4，通过 OpenAI 兼容代理（`dwai-data.dewu-inc.com`）访问
-- **Agent Engine**: 手写 ReAct 循环（`app/agent/runner.py`），基于 `openai` SDK 的 function calling，非 Claude Agent SDK
+- **Agent Engine**: deepagents（LangGraph）单代理引擎，`app/agent/runner.py` 负责流式编排和事件契约兼容；底层模型经 LangChain `ChatOpenAI` 接入 OpenAI 兼容代理
 
 ## Key Libraries
 
 | 类别 | 库 | 作用 |
 |---|---|---|
-| LLM 客户端 | `openai` (≥ 1.0.0) | Agent 循环核心，通过 OpenAI 兼容 API 调用 LLM |
+| LLM 客户端 | `openai` (≥ 1.0.0) | NL2SQL、embedding、评测和兼容路径中的 OpenAI 兼容 API 调用 |
+| Agent 引擎 | `deepagents` (≥ 0.6.8) + `langchain-openai` + `langgraph` | Agent 决策/工具循环，外层通过 adapter 投影为既有内部事件 |
 | 数据校验 | `pydantic` (≥ 2.5.0) + `pydantic-settings` | API schema、配置管理、.env 自动加载 |
 | 可观测性 | `langfuse` (≥ 2.0.0) | LLM 调用和工具执行的 trace 级别遥测 |
 | 存储 | `aiosqlite` (≥ 0.20.0) | 异步 SQLite 会话持久化（WAL 模式），会话、偏好、SQL 记忆、Admin 映射四类数据共享同一数据库文件 |
@@ -55,9 +56,9 @@
 
 ## Key Technical Decisions
 
-1. **手写 ReAct Agent 而非 SDK**：Agent 引擎是直接基于 `openai` Python SDK 构建的自定义 ReAct 循环，手动管理对话循环、工具调用（OpenAI function calling 格式）、token 计数、取消和 SSE 事件发射。这使得模型选择完全灵活，任何 OpenAI 兼容端点均可接入。
+1. **deepagents 引擎 + 兼容外壳**：Agent 决策/工具循环由 deepagents/LangGraph 驱动，但 `run_agent_stream()`、SSE 事件类型、评测框架依赖的 `llm_call`/`tool_start`/`tool_end`/`final` 形状保持兼容。`event_adapter.py` 负责 LangChain 消息到内部事件的翻译，`tool_adapter.py` 负责把内部工具注册表适配为 `StructuredTool`，避免业务层直接依赖 LangChain 对象。
 
-2. **OpenAI 兼容 API 抽象**：通过公司内部代理访问 DeepSeek-V4，代码天然模型无关，切换 LLM 只需更改配置。
+2. **OpenAI 兼容 API 抽象**：通过公司内部代理访问 DeepSeek-V4。在线 Agent 使用 LangChain `ChatOpenAI` 工厂接入，NL2SQL 生成、embedding 和评测工具仍在需要处直接使用 `openai.AsyncOpenAI`；切换模型主要通过配置完成。
 
 3. **Protocol 驱动的可插拔存储**：四个 Protocol 定义清晰的持久化抽象——`StorageBackend`（会话）、`PreferenceBackend`（偏好）、`SqlMemoryBackend`（SQL 历史记忆）、`AdminStoreBackend`（HDC namespace 映射）。每种抽象均有 `InMemory*`/`Sqlite*` 两种实现。`StorageManager` 统一协调四个后端的生命周期（按依赖顺序初始化：会话→偏好→SQL 记忆→admin，逆序关闭）。`get_storage()` 工厂返回 `StorageManager` 单例。`app/memory/__init__.py` 提供向后兼容包装。通过 `STORAGE_BACKEND` 配置切换会话/偏好/SQL 记忆后端类型，Admin 存储始终使用 SQLite 持久化。
 
@@ -77,9 +78,9 @@
 
 11. **LLM 幻觉参数过滤**：`ToolRegistry` 在执行工具 handler 前，通过 `inspect.signature` 提取 handler 参数名，过滤掉 LLM 传入的幻影参数（如 JSON Schema 元字段名被误当作实际参数），避免 `TypeError`。过滤时记录 WARN 日志，不影响正常调用。这是针对 DeepSeek 等模型偶发幻觉的防御性措施。
 
-12. **ContextVar 侧信道上下文注入**：Agent 层检索的 HDC 列描述和 SQL 历史记忆，通过 `asyncio.ContextVar` 作为隐式侧信道传递到 NL2SQL 引擎层（`generator.py`/`repair.py`），在不修改 LLM 可见工具 schema 的前提下富化 SQL 生成的 prompt。Runner 在 ReAct 循环启动前设置 ContextVar，`generate_sql()`/`repair_sql()` 在构建 prompt 时读取。未设置时优雅降级（prompt 与富化前完全一致）。此模式适用于任何需要从请求入口跨多层异步调用传递补充上下文的场景。`tests/evaluation/` 中 `_run_one()` 通过 `[NL2SQL富化]` 日志段输出每用例的注入状态（HDC 匹配列数、SQL 示例安全/总计条数）。
+12. **ContextVar 侧信道上下文注入**：Agent 层检索的 HDC 列描述和 SQL 历史记忆，通过 `asyncio.ContextVar` 作为隐式侧信道传递到 NL2SQL 引擎层（`generator.py`/`repair.py`），在不修改 LLM 可见工具 schema 的前提下富化 SQL 生成的 prompt。Runner 在 Agent 执行前设置 ContextVar，`generate_sql()`/`repair_sql()` 在构建 prompt 时读取。未设置时优雅降级（prompt 与富化前完全一致）。此模式适用于任何需要从请求入口跨多层异步调用传递补充上下文的场景。`tests/evaluation/` 中 `_run_one()` 通过 `[NL2SQL富化]` 日志段输出每用例的注入状态（HDC 匹配列数、SQL 示例安全/总计条数）。
 
-13. **Agent 可观测性侧信道**：`app/agent/runner.py` 通过跨模块 ContextVar `_nl2sql_timings`（定义在 `app/tools/query_database.py`）收集 NL2SQL 引擎内部阶段级耗时（generator/repair/validator），`context.py` 的 `build_context()` 返回 `(context_str, ctx_tokens)` 双元组，`_execute_tool()` 返回 `(result, elapsed_ms)` 双元组。`runner.py` 在每个 ReAct 迭代中收集 `tool_timings`、`ctx_prep_timings` 等指标并在最后一条 SSE `step` 事件中 `metadata.timings` 和 `metadata.tokens` 字段随 `final` 事件发出。评测框架 `scorer.py` 解析这些 metadata 并写入 `EvaluationReport` 的 `llm_calls` 和 `tool_calls` 记录，实现在评测报告中输出 TTFB、prep_ms、token 分布等细粒度性能指标。
+13. **Agent 可观测性侧信道**：`app/agent/runner.py` 通过跨模块 ContextVar `_nl2sql_timings`（定义在 `app/tools/query_database.py`）收集 NL2SQL 引擎内部阶段级耗时（generator/repair/validator），`context.py` 的 `build_context()` 返回 `(context_str, ctx_tokens)` 双元组，`_execute_tool()` 返回 `(result, elapsed_ms)` 双元组。`runner.py` 在每个 Agent 迭代中收集 `tool_timings`、`ctx_prep_timings` 等指标并在最后一条 SSE `step` 事件中 `metadata.timings` 和 `metadata.tokens` 字段随 `final` 事件发出。评测框架 `scorer.py` 解析这些 metadata 并写入 `EvaluationReport` 的 `llm_calls` 和 `tool_calls` 记录，实现在评测报告中输出 TTFB、prep_ms、token 分布等细粒度性能指标。
 
 14. **HDC Demo 脚本迁移**：原 `tests/datavault/` 下的 HDC demo 脚本（`demo_hdc.py`、`demo_hdc_generate.py`、`demo_hdc_update.py`、`demo_hdc_e2e.py`、`demo_hdc_compare.py`、`hdc_debug.py`）已迁移至 `tools/hdc/`（`demo.py`、`generate.py`、`update.py`、`e2e.py`、`compare.py`、`debug.py`），职责从测试/演示分离为独立工具集，`tests/datavault/` 保留纯测试（采集、集成、新旧格式兼容）。
 
@@ -89,5 +90,7 @@
 
 17. **StorageManager 四后端架构**：`StorageManager` 从原有的双后端（会话+偏好）演进为四后端（会话+偏好+SQL 记忆+Admin），按依赖顺序初始化、逆序关闭。Admin 后端始终启用（SQLite 持久化），SQL 记忆后端通过 `sql_memory_enabled` 配置开关。`get_storage()` 工厂根据配置创建所有后端实例并注入 `StorageManager`。
 
+18. **LLM 工具适配防御**：deepagents 路径复用既有 `ToolRegistry`，通过 `StructuredTool` 包装和 handler 签名默认值清洗来防御模型把可选参数传成 `null` 或产生幻影参数。工具 schema 的源头仍是 `app/tools/__init__.py`，不要在 LangChain 适配层复制一套工具定义。
+
 ---
-_updated_at: 2026-07-31_
+_updated_at: 2026-08-17_

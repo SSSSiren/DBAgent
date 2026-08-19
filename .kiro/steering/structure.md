@@ -7,8 +7,8 @@
 ## Directory Patterns
 
 ### Agent 核心 (`app/agent/`)
-**Purpose**: ReAct Agent 循环、LLM 交互、上下文构建、取消控制  
-**Key modules**: `runner.py`（ReAct 循环）、`context.py`（上下文组装）、`prompts.py`（系统提示词）、`cancel.py`（取消事件注册表，含 TTL 过期）  
+**Purpose**: Agent 引擎编排、LLM 交互、上下文构建、取消控制  
+**Key modules**: `runner.py`（deepagents 引擎编排并保持既有 SSE 事件契约）、`context.py`（上下文组装）、`prompts.py`（系统提示词）、`cancel.py`（取消事件注册表，含 TTL 过期）、`llm_factory.py`（LangChain `ChatOpenAI` 工厂）、`tool_adapter.py`（内部工具注册表 → LangChain `StructuredTool`）、`event_adapter.py`（LangChain/deepagents 消息 → 内部事件）  
 **Pattern**: 编排层，不涉及 HTTP 或 API 知识
 
 ### API 层 (`app/api/`)
@@ -68,7 +68,7 @@
 - `evaluation/` — 独立评测框架（CLI → loader → runner → judges → scorer → reporter），支持 `--with-hdc`/`--compare-hdc`/`--verbose-hdc` 模式、`--repeat` 多次取平均、`--hdc-tables` 表白名单过滤、`--hdc-namespace` 命名空间变体隔离，输出 JSON+Markdown 双格式报告，含 `RunConfig` 运行时参数追溯和 `ToolCallRecord`/`LLMCallRecord` 完整 Agent 推理轨迹
 - `datavault/` — HDC 采集/集成/新旧格式兼容的单元和集成测试
 - `docs/` — 评测用例 Markdown 规格文件  
-**Pattern**: 标准测试镜像源结构 + 独立评测子框架（自有 CLI、模型、运行器、评判器、渲染器）
+**Pattern**: 标准测试镜像源结构 + 独立评测子框架（自有 CLI、模型、运行器、评判器、渲染器）。根级 `conftest.py` 仅负责 pytest 启动时加载项目根 `.env`，避免测试收集前配置不可见。
 
 ### 工具脚本 (`tools/`)
 **Purpose**: 开发和实验辅助脚本（非运行时模块，不 import 到 `app.*`）  
@@ -116,15 +116,17 @@ from app.tools import TOOLS, TOOL_HANDLERS
 
 3. **Protocol 抽象**：`StorageBackend` 和 `PreferenceBackend` 使用 `typing.Protocol`（`@runtime_checkable`），各自有 `InMemory*`/`Sqlite*` 两种实现。`StorageManager` 统一管理多后端生命周期，`get_storage()` 工厂返回 `StorageManager` 单例。
 
-4. **模块级延迟初始化单例**：重量级资源（LLM 客户端、OneDBA 客户端、取消注册表、偏好存储）通过模块级 `_global: T | None = None` 变量 + `get_xxx()` 函数延迟初始化。
+4. **模块级延迟初始化单例**：重量级资源（OpenAI 兼容客户端、LangChain `ChatOpenAI`、OneDBA 客户端、取消注册表、偏好存储）通过模块级 `_global: T | None = None` 变量 + `get_xxx()` 函数延迟初始化。
 
-5. **关注点分离**：Agent 流程各环节独立——`runner.py`（ReAct 引擎）、`context.py`（上下文组装）、`prompts.py`（系统提示词）、`cancel.py`（取消事件注册表）、`routes.py`（装配编排）。
+5. **关注点分离**：Agent 流程各环节独立——`runner.py`（deepagents 编排与事件兼容）、`context.py`（上下文组装）、`prompts.py`（系统提示词）、`cancel.py`（取消事件注册表）、`routes.py`（装配编排）。
 
 6. **错误隔离**：可选子系统（OpenViking、偏好追踪、Langfuse）包裹在 try/except 中，单点失败不影响主 Agent 流程。
 
-7. **测试镜像源结构**：`tests/test_{module}.py` 匹配源模块，`evaluation/` 子包为独立评估框架（本仓库无根级 `conftest.py`，fixtures 由各测试文件或 `evaluation/` 内部定义）。
+7. **测试镜像源结构**：`tests/test_{module}.py` 匹配源模块，`evaluation/` 子包为独立评估框架；共享 pytest 启动行为集中在根级 `conftest.py`，fixtures 仍由各测试文件或 `evaluation/` 内部定义。
 
 8. **中文文档**：模块级和函数级 docstring 使用中文，代码注释中英混合。
 
+9. **deepagents 兼容适配层**：Agent 引擎替换为 deepagents 后，边界适配集中放在 `app/agent/` 内，外部仍只依赖 `run_agent_stream()` 和既有 SSE 事件形状。不要把 LangChain 消息对象泄漏到 API、评测框架或前端层；新增 Agent 能力应优先扩展 adapter/runner 边界，而不是绕过工具注册表。
+
 ---
-_updated_at: 2026-07-31_
+_updated_at: 2026-08-17_

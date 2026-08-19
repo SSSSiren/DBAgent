@@ -1,0 +1,6 @@
+interface:
+  display_name: "Kiro Steering"
+  short_description: "Maintain Kiro project memory docs"
+  default_prompt: "Use $kiro-steering to inspect and sync this repository's .kiro/steering documents."
+policy:
+  allow_implicit_invocation: true
