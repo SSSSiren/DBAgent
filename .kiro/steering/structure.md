@@ -61,6 +61,11 @@
 **Purpose**: FastAPI 应用工厂、lifespan、静态文件挂载、路由注册  
 **Pattern**: 组合根，将所有组件装配在一起
 
+### 部署入口（根目录）
+**Purpose**: 生产容器、compose 编排、环境变量样例和部署手册  
+**Key files**: `Dockerfile`、`docker-compose.yml`、`gunicorn_conf.py`、`.env.example`、`DEPLOY.md`  
+**Pattern**: 根目录只保留部署和开发入口文件；敏感配置通过环境变量或 `.env` 注入，`.env.example` 只记录键名、默认值和安全注释；`DEPLOY.md` 记录运维流程和生产检查清单
+
 ### 测试 (`tests/`)
 **Purpose**: 单元测试、集成测试、E2E、独立评测框架  
 **Key modules**: 
@@ -126,5 +131,7 @@ from app.tools import TOOLS, TOOL_HANDLERS
 
 8. **中文文档**：模块级和函数级 docstring 使用中文，代码注释中英混合。
 
+9. **根级部署文件是运行入口，不是领域模块**：Docker/gunicorn/compose 配置位于仓库根目录，服务逻辑仍只在 `app/` 内演进。部署文件负责进程模型、端口、健康检查、卷挂载和环境变量约束；业务配置读取统一收敛到 `app/config.py`。
+
 ---
-_updated_at: 2026-07-31_
+_updated_at: 2026-08-17_

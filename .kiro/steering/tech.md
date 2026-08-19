@@ -8,7 +8,7 @@
 
 - **Language**: Python 3.12
 - **Framework**: FastAPI (≥ 0.109.0) + Uvicorn
-- **Runtime**: Docker (python:3.12-slim)，docker-compose 单服务部署
+- **Runtime**: Docker (python:3.12-slim)，docker-compose 单服务部署；生产入口为 gunicorn + UvicornWorker 多 worker ASGI 服务
 - **LLM**: DeepSeek-V4，通过 OpenAI 兼容代理（`dwai-data.dewu-inc.com`）访问
 - **Agent Engine**: 手写 ReAct 循环（`app/agent/runner.py`），基于 `openai` SDK 的 function calling，非 Claude Agent SDK
 
@@ -22,6 +22,7 @@
 | 存储 | `aiosqlite` (≥ 0.20.0) | 异步 SQLite 会话持久化（WAL 模式），会话、偏好、SQL 记忆、Admin 映射四类数据共享同一数据库文件 |
 | HTTP 客户端 | `httpx` (≥ 0.26.0) | OneDBA 平台 API 调用 |
 | WebSocket | `websockets` (≥ 12.0) | WebSocket 双向通信（端点已实现于 `/api/ws/{id}`，含断开取消机制，但前端当前使用 SSE） |
+| 生产进程管理 | `gunicorn` (≥ 21.2.0) | 通过 `uvicorn.workers.UvicornWorker` 运行 FastAPI，保留 ASGI lifespan、SSE 和 WebSocket 能力 |
 | ID 生成 | `uuid6` (≥ 2024.0.0) | UUIDv7 会话 ID（时间有序、可排序） |
 
 ## Development Standards
@@ -51,6 +52,7 @@
 # 测试: pytest tests/ -v
 # 集成测试: pytest tests/ -v -m integration
 # Docker: docker-compose up -d
+# 生产入口: gunicorn app.main:app -c gunicorn_conf.py
 ```
 
 ## Key Technical Decisions
@@ -89,5 +91,9 @@
 
 17. **StorageManager 四后端架构**：`StorageManager` 从原有的双后端（会话+偏好）演进为四后端（会话+偏好+SQL 记忆+Admin），按依赖顺序初始化、逆序关闭。Admin 后端始终启用（SQLite 持久化），SQL 记忆后端通过 `sql_memory_enabled` 配置开关。`get_storage()` 工厂根据配置创建所有后端实例并注入 `StorageManager`。
 
+18. **生产部署入口与配置约束**：容器默认通过 `gunicorn_conf.py` 使用 `UvicornWorker` 运行 FastAPI。worker 数默认按 `(2*CPU+1)` 计算并封顶 8，可通过 `WEB_CONCURRENCY` 覆盖；`timeout`/`graceful_timeout` 为 LLM 长推理和 SSE 流式响应保留足够时间。`docker-compose.yml` 对 `LLM_API_KEY`、`ONEDBA_ACCESS_TOKEN`、`ONEDBA_ENV`、`ADMIN_API_TOKEN` 使用必填环境变量约束，敏感值应通过 `.env` 或 Secret 注入，不写入代码或 steering。
+
+19. **Embedding provider 双路径**：SQL Memory 的语义检索通过 `LLM_EMBEDDING_PROVIDER` 在 `ollama`、`openai`、`auto` 间切换。本地开发可使用 Ollama `bge-m3`；生产容器通常无本地 Ollama，推荐 `openai` 或 `auto`，避免 SQL Memory 因 embedding 服务不可达而退化。
+
 ---
-_updated_at: 2026-07-31_
+_updated_at: 2026-08-17_
