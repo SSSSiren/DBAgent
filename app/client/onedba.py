@@ -1,9 +1,11 @@
 """
 OneDBA HTTP 客户端 — 封装 OneDBA 平台的数据库操作 API
 
-参考 DBAgent 的 app/client/onedba_client.py，核心接口：
+核心接口：
 - list_databases: 列出用户有权限访问的数据库
 - execute_sql: 在指定数据库上执行 SQL
+- list_tables: 列出指定库的表（v1 API，支持分页和关键词过滤）
+- get_table_structure: 查看表结构详情（v1 API，含列、索引、DDL）
 
 使用 httpx.AsyncClient 进行异步 HTTP 调用，认证方式为 accessToken header。
 """
@@ -44,6 +46,7 @@ class OneDBAClient:
         settings = get_settings()
         self._base_url: str = settings.onedba_base_url.rstrip("/")
         self._access_token: str = settings.onedba_access_token
+        self._env: str = settings.onedba_env
         self._client: httpx.AsyncClient | None = None
 
     async def _get_client(self) -> httpx.AsyncClient:
@@ -54,6 +57,7 @@ class OneDBAClient:
                 headers={
                     "accessToken": self._access_token,
                     "Content-Type": "application/json",
+                    "env": self._env,
                 },
                 timeout=httpx.Timeout(60.0, connect=10.0),
                 limits=httpx.Limits(
@@ -137,7 +141,7 @@ class OneDBAClient:
 
         async def _do_request():
             response = await client.get(
-                "/api/external/v1/agent/instance/schema/user/list",
+                "/onedba/api/v1/instance/schema/user/list",
                 params=params,
             )
             response.raise_for_status()
@@ -171,15 +175,141 @@ class OneDBAClient:
 
         async def _do_request():
             response = await client.post(
-                "/api/external/v1/agent/query",
+                "/onedba/api/v1/query",
                 json=payload,
+            )
+            response.raise_for_status()
+            data = response.json()
+            self._check_response(data)
+            result = data.get("data") or {}
+
+            # 检查查询是否成功（hasSuccess 显式为 False 表示失败）
+            if result.get("hasSuccess") is False:
+                message = result.get("message") or "查询失败"
+                raise OneDBAError(
+                    f"OneDBA 查询失败 (schema_id={schema_id}): {message}"
+                )
+
+            return result
+
+        return await self._retry_request("execute_sql", _do_request)
+
+    # ── v1 API: 表管理 ──
+
+    async def list_tables(
+        self,
+        schema_id: int,
+        keyword: str = "",
+        page: int = 1,
+        size: int = 100,
+    ) -> list[dict[str, Any]]:
+        """
+        列出指定库的表（v1 API）。
+
+        替代 SHOW TABLE STATUS，返回结构化表信息。
+
+        Args:
+            schema_id: 数据库 schema ID
+            keyword: 可选关键词，用于过滤表名
+            page: 页码
+            size: 每页大小
+
+        Returns:
+            表列表，每项含 tableName, tableComment, engine, tableType, tableRows 等
+        """
+        client = await self._get_client()
+        params: dict[str, Any] = {
+            "schemaId": schema_id,
+            "page": page,
+            "size": size,
+        }
+        if keyword:
+            params["keyword"] = keyword
+
+        async def _do_request():
+            response = await client.get(
+                "/onedba/api/v1/instance/table/list",
+                params=params,
+            )
+            response.raise_for_status()
+            data = response.json()
+            self._check_response(data)
+            payload = data.get("data") or {}
+            return payload.get("items") or []
+
+        return await self._retry_request("list_tables", _do_request)
+
+    async def get_table_structure(
+        self,
+        schema_id: int,
+        table_name: str,
+    ) -> dict[str, Any]:
+        """
+        查看表结构详情（v1 API）。
+
+        替代 DESCRIBE，返回列、索引和建表 DDL。
+        返回格式适配为 DESCRIBE 兼容的 {columnNames, columnDatas}，
+        同时附加 index 和 structure 字段供高级场景使用。
+
+        Args:
+            schema_id: 数据库 schema ID
+            table_name: 表名
+
+        Returns:
+            {
+                "columnNames": [{"title": "Field", "key": "Field"}, ...],
+                "columnDatas": [{"Field": "id", "Type": "bigint", ...}, ...],
+                "index": [...],       # 索引列表（额外字段）
+                "structure": "DDL"    # 建表语句（额外字段）
+            }
+        """
+        client = await self._get_client()
+        params: dict[str, Any] = {
+            "schemaId": schema_id,
+            "tableName": table_name,
+        }
+
+        async def _do_request():
+            response = await client.get(
+                "/onedba/api/v1/instance/table/structure/detail",
+                params=params,
             )
             response.raise_for_status()
             data = response.json()
             self._check_response(data)
             return data.get("data") or {}
 
-        return await self._retry_request("execute_sql", _do_request)
+        result = await self._retry_request(
+            "get_table_structure", _do_request
+        )
+
+        # 适配层：将 v1 API 返回的 column 数组映射为 DESCRIBE 兼容格式
+        columns = result.get("column") or []
+        column_names = [
+            {"title": "Field", "key": "Field"},
+            {"title": "Type", "key": "Type"},
+            {"title": "Null", "key": "Null"},
+            {"title": "Key", "key": "Key"},
+            {"title": "Default", "key": "Default"},
+            {"title": "Extra", "key": "Extra"},
+        ]
+        column_datas = []
+        for col in columns:
+            column_datas.append({
+                "Field": col.get("columnName", ""),
+                "Type": col.get("columnType", ""),
+                "Null": col.get("isNullable", "YES"),
+                "Key": "",
+                "Default": col.get("columnDefault") or "",
+                "Extra": col.get("columnComment", ""),
+            })
+
+        return {
+            "columnNames": column_names,
+            "columnDatas": column_datas,
+            "index": result.get("index") or [],
+            "structure": result.get("structure", ""),
+        }
 
     async def close(self) -> None:
         """关闭 HTTP 客户端"""

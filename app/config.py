@@ -20,6 +20,7 @@ class Settings(BaseSettings):
     # ========== OneDBA ==========
     onedba_base_url: str = "https://onedba.shizhuang-inc.com"
     onedba_access_token: str = ""
+    onedba_env: str = "prd"  # prd/test/uat/dev/pre，随请求头 env 下发
 
     # ========== Langfuse ==========
     langfuse_enabled: bool = False

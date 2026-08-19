@@ -16,10 +16,11 @@ if not token:
     print("ERROR: Could not find access token. Please set ONEDBA_ACCESS_TOKEN env variable or add onedba_access_token to config.json")
     exit(1)
 
-url = "https://onedba.shizhuang-inc.com/api/external/v1/agent/instance/schema/user/list?queryType=select&instanceType=acs_rds&mainBody=shizhuang&envType=test&page=1&size=30"
+url = "https://onedba.shizhuang-inc.com/onedba/api/v1/instance/schema/user/list?queryType=select&instanceType=acs_rds&mainBody=shizhuang&envType=test&page=1&size=30"
 
 req = urllib.request.Request(url)
 req.add_header("accessToken", token)
+req.add_header("env", "prd")
 
 try:
     with urllib.request.urlopen(req) as response:
