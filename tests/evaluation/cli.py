@@ -13,6 +13,10 @@ Agent 性能评测 CLI 工具
     # HDC 对比
     python -m tests.evaluation.cli run --compare-hdc --ids CS-001 CS-007
 
+    # HDC 对比（跳过基线，复用已有无 HDC 评测结果）
+    python -m tests.evaluation.cli run --compare-hdc --ids CS-001 CS-007 \\
+        --skip-baseline --baseline output/baseline.json
+
     # SQL 记忆对比（纯记忆 vs 无记忆）
     python -m tests.evaluation.cli run --compare-sql-memory
 
@@ -154,7 +158,7 @@ def cmd_run(args: argparse.Namespace) -> None:
 
 
 def _run_compare_hdc(args: argparse.Namespace, filtered) -> None:
-    """对比模式：先跑无 HDC 基线，再跑有 HDC，生成对比报告。"""
+    """对比模式：先跑无 HDC 基线，再跑有 HDC，生成对比报告（--skip-baseline 可跳过基线轮）。"""
     # 构建完整 CLI 命令（用于报告中复现）
     cli_cmd = f"python -m tests.evaluation.cli {' '.join(sys.argv[1:])}"
 
@@ -168,21 +172,27 @@ def _run_compare_hdc(args: argparse.Namespace, filtered) -> None:
 
     # ── 预估耗时 ──
     avg_seconds_per_run = 90  # 每次 Agent 执行平均耗时（秒）
-    total_runs = len(filtered) * args.repeat * 2  # 用例数 × repeat × 2 轮
+    num_rounds = 1 if args.skip_baseline else 2  # 跳过基线时只跑一轮
+    total_runs = len(filtered) * args.repeat * num_rounds  # 用例数 × repeat × 轮数
     estimated_minutes = (total_runs * avg_seconds_per_run) / 60
     concurrency_note = ""
     if args.concurrency > 1:
         estimated_minutes /= args.concurrency
         concurrency_note = f"（并发度 {args.concurrency}）"
-    print(f"\n预估耗时: ~{estimated_minutes:.0f} 分钟（{len(filtered)} 条用例 × 重复{args.repeat}次 × 2 轮{concurrency_note}）")
+    print(f"\n预估耗时: ~{estimated_minutes:.0f} 分钟（{len(filtered)} 条用例 × 重复{args.repeat}次 × {num_rounds} 轮{concurrency_note}）")
 
-    print(f"\n{'='*60}")
-    print("HDC 对比评测 — 第 1/2 轮：无 HDC（基线）")
-    print(f"{'='*60}")
-    print(f"共 {len(filtered)} 条用例", end="")
-    if args.repeat > 1:
-        print(f"，每条重复 {args.repeat} 次", end="")
-    print("\n")
+    if args.skip_baseline:
+        print(f"\n{'='*60}")
+        print("HDC 对比评测 — 跳过基线（无 HDC），从基线 JSON 加载")
+        print(f"{'='*60}\n")
+    else:
+        print(f"\n{'='*60}")
+        print("HDC 对比评测 — 第 1/2 轮：无 HDC（基线）")
+        print(f"{'='*60}")
+        print(f"共 {len(filtered)} 条用例", end="")
+        if args.repeat > 1:
+            print(f"，每条重复 {args.repeat} 次", end="")
+        print("\n")
 
     # 解析 HDC 表白名单
     hdc_tables: list[str] | None = None
@@ -194,27 +204,44 @@ def _run_compare_hdc(args: argparse.Namespace, filtered) -> None:
         print(f"（HDC 命名空间: {hdc_namespace}）")
 
     async def _run() -> None:
-        # Round 1: 无 HDC 基线
-        no_hdc_report = await run_evaluation(
-            test_cases=filtered,
-            schema_id=args.schema_id,
-            timeout=args.timeout,
-            concurrency=args.concurrency,
-            repeat=args.repeat,
-            use_llm_judge=not args.no_llm_judge,
-            use_quality_judge=not args.no_quality_judge,
-            keep_langfuse=args.keep_langfuse,
-            llm_model=args.llm_model,
-            enable_hdc=False,
-            db_name=args.db_name or "dw_onedba",
-            verbose=args.verbose,
-            verbose_hdc=args.verbose_hdc,
-            hdc_gen_tokens=args.hdc_gen_tokens,
-            cli_command=cli_cmd,
-        )
+        # Round 1: 无 HDC 基线（可跳过，从已有报告加载）
+        if args.skip_baseline:
+            if not args.baseline:
+                print("错误: --skip-baseline 需要配合 --baseline 指定基线 JSON 文件路径")
+                sys.exit(1)
+            import json as _json
+            from .models import EvaluationReport as _ER
+            with open(args.baseline, encoding="utf-8") as _bf:
+                baseline_data = _json.load(_bf)
+            if "case_results" not in baseline_data:
+                print(f"错误: 基线 JSON 格式不正确，缺少 case_results 字段: {args.baseline}")
+                print("（请使用单次评测 run 生成的 evaluation_report_*.json，而不是 HDC 对比报告）")
+                sys.exit(1)
+            no_hdc_report = _ER.model_validate(baseline_data)
+            print(f"从基线 JSON 加载: {args.baseline}")
+            print(f"  用例数: {no_hdc_report.total_cases}, 平均分: {no_hdc_report.average_score:.2%}")
+        else:
+            no_hdc_report = await run_evaluation(
+                test_cases=filtered,
+                schema_id=args.schema_id,
+                timeout=args.timeout,
+                concurrency=args.concurrency,
+                repeat=args.repeat,
+                use_llm_judge=not args.no_llm_judge,
+                use_quality_judge=not args.no_quality_judge,
+                keep_langfuse=args.keep_langfuse,
+                llm_model=args.llm_model,
+                enable_hdc=False,
+                db_name=args.db_name or "dw_onedba",
+                verbose=args.verbose,
+                verbose_hdc=args.verbose_hdc,
+                hdc_gen_tokens=args.hdc_gen_tokens,
+                cli_command=cli_cmd,
+            )
 
+        round_label = "第 1/1 轮" if args.skip_baseline else "第 2/2 轮"
         print(f"\n{'='*60}")
-        print("HDC 对比评测 — 第 2/2 轮：有 HDC")
+        print(f"HDC 对比评测 — {round_label}：有 HDC")
         print(f"{'='*60}\n")
 
         # Round 2: 有 HDC
@@ -251,7 +278,10 @@ def _run_compare_hdc(args: argparse.Namespace, filtered) -> None:
         print(f"\n{'='*60}")
         print("HDC 对比评测完成")
         print(f"{'='*60}")
-        print(f"\n基线（无 HDC）:")
+        if args.skip_baseline:
+            print(f"\n基线（无 HDC，来自 {args.baseline}）:")
+        else:
+            print(f"\n基线（无 HDC）:")
         _print_summary(no_hdc_report, "", "")
         print(f"\nHDC 启用:")
         _print_summary(with_hdc_report, "", "")
