@@ -1,0 +1,128 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<mxfile host="drawio" version="31.1.8">
+  <diagram name="DBAgent 四阶段演进总览">
+    <mxGraphModel dx="1920" dy="1080" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="1920" pageHeight="1080" math="0" shadow="0" background="#ffffff">
+      <root>
+        <mxCell id="0" />
+        <mxCell id="1" parent="0" />
+        <mxCell id="title" value="DBAgent 四阶段演进总览" style="text;html=1;strokeColor=none;fillColor=none;align=center;verticalAlign=middle;fontFamily=Helvetica;fontSize=34;fontStyle=1;fontColor=#1f2937;" vertex="1" parent="1">
+          <mxGeometry x="460" y="50" width="1000" height="54" as="geometry" />
+        </mxCell>
+        <mxCell id="subtitle" value="从固定 NL2SQL 管道，到可控 Agent，再到工程化交付闭环" style="text;html=1;strokeColor=none;fillColor=none;align=center;verticalAlign=middle;fontFamily=Helvetica;fontSize=16;fontColor=#4b5563;" vertex="1" parent="1">
+          <mxGeometry x="510" y="108" width="900" height="30" as="geometry" />
+        </mxCell>
+
+        <mxCell id="p01" value="" style="rounded=1;whiteSpace=wrap;html=1;container=1;pointerEvents=0;arcSize=6;fillColor=#eef2f7;strokeColor=#64748b;strokeWidth=2;" vertex="1" parent="1">
+          <mxGeometry x="70" y="215" width="370" height="555" as="geometry" />
+        </mxCell>
+        <mxCell id="p01_head" value="阶段 01&#xa;原型验证版" style="text;html=1;strokeColor=none;fillColor=none;align=left;verticalAlign=middle;fontFamily=Helvetica;fontSize=24;fontStyle=1;fontColor=#1f2937;spacingLeft=18;" vertex="1" parent="p01">
+          <mxGeometry x="0" y="22" width="370" height="70" as="geometry" />
+        </mxCell>
+        <mxCell id="p01_goal" value="验证 LLM Agent + NL2SQL 可行性" style="rounded=1;whiteSpace=wrap;html=1;arcSize=6;fillColor=#dbe4ee;strokeColor=#94a3b8;fontFamily=Helvetica;fontSize=14;fontStyle=1;fontColor=#334155;align=center;verticalAlign=middle;" vertex="1" parent="p01">
+          <mxGeometry x="24" y="98" width="322" height="48" as="geometry" />
+        </mxCell>
+        <mxCell id="p01_cap_title" value="关键能力" style="text;html=1;strokeColor=none;fillColor=none;align=left;verticalAlign=middle;fontFamily=Helvetica;fontSize=15;fontStyle=1;fontColor=#334155;" vertex="1" parent="p01">
+          <mxGeometry x="24" y="166" width="140" height="26" as="geometry" />
+        </mxCell>
+        <mxCell id="p01_cap" value="FastAPI + LangChain Agent&#xa;数据库工具调用&#xa;固定 NL2SQL 管道&#xa;会话记忆雏形" style="rounded=0;whiteSpace=wrap;html=1;strokeColor=none;fillColor=none;align=left;verticalAlign=top;fontFamily=Helvetica;fontSize=14;fontColor=#1f2937;spacingLeft=4;spacingTop=4;" vertex="1" parent="p01">
+          <mxGeometry x="24" y="198" width="318" height="116" as="geometry" />
+        </mxCell>
+        <mxCell id="p01_issue_title" value="主要问题" style="text;html=1;strokeColor=none;fillColor=none;align=left;verticalAlign=middle;fontFamily=Helvetica;fontSize=15;fontStyle=1;fontColor=#7f1d1d;" vertex="1" parent="p01">
+          <mxGeometry x="24" y="344" width="140" height="26" as="geometry" />
+        </mxCell>
+        <mxCell id="p01_issue" value="硬编码链路&#xa;未知表选择不稳定&#xa;缺少自主探索与重试&#xa;传统测评不适配 Agent 任务" style="rounded=1;whiteSpace=wrap;html=1;arcSize=6;fillColor=#fff7ed;strokeColor=#fdba74;fontFamily=Helvetica;fontSize=14;fontColor=#7c2d12;align=left;verticalAlign=top;spacingLeft=12;spacingTop=10;" vertex="1" parent="p01">
+          <mxGeometry x="24" y="376" width="322" height="126" as="geometry" />
+        </mxCell>
+
+        <mxCell id="p02" value="" style="rounded=1;whiteSpace=wrap;html=1;container=1;pointerEvents=0;arcSize=6;fillColor=#ecfdf5;strokeColor=#059669;strokeWidth=2;" vertex="1" parent="1">
+          <mxGeometry x="540" y="215" width="370" height="555" as="geometry" />
+        </mxCell>
+        <mxCell id="p02_head" value="阶段 02&#xa;SDK 规范版" style="text;html=1;strokeColor=none;fillColor=none;align=left;verticalAlign=middle;fontFamily=Helvetica;fontSize=24;fontStyle=1;fontColor=#064e3b;spacingLeft=18;" vertex="1" parent="p02">
+          <mxGeometry x="0" y="22" width="370" height="70" as="geometry" />
+        </mxCell>
+        <mxCell id="p02_goal" value="用 SDK/MCP 规范 Agent 与工具调用" style="rounded=1;whiteSpace=wrap;html=1;arcSize=6;fillColor=#d1fae5;strokeColor=#6ee7b7;fontFamily=Helvetica;fontSize=14;fontStyle=1;fontColor=#065f46;align=center;verticalAlign=middle;" vertex="1" parent="p02">
+          <mxGeometry x="24" y="98" width="322" height="48" as="geometry" />
+        </mxCell>
+        <mxCell id="p02_cap_title" value="关键能力" style="text;html=1;strokeColor=none;fillColor=none;align=left;verticalAlign=middle;fontFamily=Helvetica;fontSize=15;fontStyle=1;fontColor=#065f46;" vertex="1" parent="p02">
+          <mxGeometry x="24" y="166" width="140" height="26" as="geometry" />
+        </mxCell>
+        <mxCell id="p02_cap" value="Agent SDK Runner&#xa;MCP 工具注册&#xa;流式事件契约&#xa;Evaluation CLI 雏形" style="rounded=0;whiteSpace=wrap;html=1;strokeColor=none;fillColor=none;align=left;verticalAlign=top;fontFamily=Helvetica;fontSize=14;fontColor=#1f2937;spacingLeft=4;spacingTop=4;" vertex="1" parent="p02">
+          <mxGeometry x="24" y="198" width="318" height="116" as="geometry" />
+        </mxCell>
+        <mxCell id="p02_issue_title" value="主要问题" style="text;html=1;strokeColor=none;fillColor=none;align=left;verticalAlign=middle;fontFamily=Helvetica;fontSize=15;fontStyle=1;fontColor=#7f1d1d;" vertex="1" parent="p02">
+          <mxGeometry x="24" y="344" width="140" height="26" as="geometry" />
+        </mxCell>
+        <mxCell id="p02_issue" value="SDK 运行时黑盒&#xa;产品体系绑定&#xa;版本兼容成本&#xa;并发内存增长不可控" style="rounded=1;whiteSpace=wrap;html=1;arcSize=6;fillColor=#fff7ed;strokeColor=#fdba74;fontFamily=Helvetica;fontSize=14;fontColor=#7c2d12;align=left;verticalAlign=top;spacingLeft=12;spacingTop=10;" vertex="1" parent="p02">
+          <mxGeometry x="24" y="376" width="322" height="126" as="geometry" />
+        </mxCell>
+
+        <mxCell id="p03" value="" style="rounded=1;whiteSpace=wrap;html=1;container=1;pointerEvents=0;arcSize=6;fillColor=#fffbeb;strokeColor=#d97706;strokeWidth=2;" vertex="1" parent="1">
+          <mxGeometry x="1010" y="215" width="370" height="555" as="geometry" />
+        </mxCell>
+        <mxCell id="p03_head" value="阶段 03&#xa;ReAct 可控工程版" style="text;html=1;strokeColor=none;fillColor=none;align=left;verticalAlign=middle;fontFamily=Helvetica;fontSize=24;fontStyle=1;fontColor=#78350f;spacingLeft=18;" vertex="1" parent="p03">
+          <mxGeometry x="0" y="22" width="370" height="70" as="geometry" />
+        </mxCell>
+        <mxCell id="p03_goal" value="手写 ReAct，重新获得运行控制权" style="rounded=1;whiteSpace=wrap;html=1;arcSize=6;fillColor=#fef3c7;strokeColor=#fbbf24;fontFamily=Helvetica;fontSize=14;fontStyle=1;fontColor=#92400e;align=center;verticalAlign=middle;" vertex="1" parent="p03">
+          <mxGeometry x="24" y="98" width="322" height="48" as="geometry" />
+        </mxCell>
+        <mxCell id="p03_cap_title" value="关键能力" style="text;html=1;strokeColor=none;fillColor=none;align=left;verticalAlign=middle;fontFamily=Helvetica;fontSize=15;fontStyle=1;fontColor=#92400e;" vertex="1" parent="p03">
+          <mxGeometry x="24" y="166" width="140" height="26" as="geometry" />
+        </mxCell>
+        <mxCell id="p03_cap" value="OpenAI 兼容 API&#xa;手写 ReAct 循环&#xa;SSE 事件控制&#xa;HDC 层次化数据上下文&#xa;离线生成 + 在线召回" style="rounded=0;whiteSpace=wrap;html=1;strokeColor=none;fillColor=none;align=left;verticalAlign=top;fontFamily=Helvetica;fontSize=14;fontColor=#1f2937;spacingLeft=4;spacingTop=4;" vertex="1" parent="p03">
+          <mxGeometry x="24" y="198" width="318" height="132" as="geometry" />
+        </mxCell>
+        <mxCell id="p03_issue_title" value="主要问题" style="text;html=1;strokeColor=none;fillColor=none;align=left;verticalAlign=middle;fontFamily=Helvetica;fontSize=15;fontStyle=1;fontColor=#7f1d1d;" vertex="1" parent="p03">
+          <mxGeometry x="24" y="344" width="140" height="26" as="geometry" />
+        </mxCell>
+        <mxCell id="p03_issue" value="手写循环维护成本上升&#xa;事件适配逻辑变复杂&#xa;SQL Memory 尚未闭环&#xa;Admin 与交付能力不足" style="rounded=1;whiteSpace=wrap;html=1;arcSize=6;fillColor=#fff7ed;strokeColor=#fdba74;fontFamily=Helvetica;fontSize=14;fontColor=#7c2d12;align=left;verticalAlign=top;spacingLeft=12;spacingTop=10;" vertex="1" parent="p03">
+          <mxGeometry x="24" y="376" width="322" height="126" as="geometry" />
+        </mxCell>
+
+        <mxCell id="p04" value="" style="rounded=1;whiteSpace=wrap;html=1;container=1;pointerEvents=0;arcSize=6;fillColor=#eff6ff;strokeColor=#2563eb;strokeWidth=3;" vertex="1" parent="1">
+          <mxGeometry x="1480" y="190" width="370" height="605" as="geometry" />
+        </mxCell>
+        <mxCell id="p04_badge" value="工程化交付" style="rounded=1;whiteSpace=wrap;html=1;arcSize=50;fillColor=#dcfce7;strokeColor=#16a34a;fontFamily=Helvetica;fontSize=13;fontStyle=1;fontColor=#166534;align=center;verticalAlign=middle;" vertex="1" parent="p04">
+          <mxGeometry x="234" y="20" width="112" height="30" as="geometry" />
+        </mxCell>
+        <mxCell id="p04_head" value="阶段 04&#xa;工程化交付版" style="text;html=1;strokeColor=none;fillColor=none;align=left;verticalAlign=middle;fontFamily=Helvetica;fontSize=24;fontStyle=1;fontColor=#1e3a8a;spacingLeft=18;" vertex="1" parent="p04">
+          <mxGeometry x="0" y="34" width="240" height="70" as="geometry" />
+        </mxCell>
+        <mxCell id="p04_goal" value="deepagents/LangGraph&#xa;接管通用 Agent 运行机制" style="rounded=1;whiteSpace=wrap;html=1;arcSize=6;fillColor=#dbeafe;strokeColor=#93c5fd;fontFamily=Helvetica;fontSize=13;fontStyle=1;fontColor=#1d4ed8;align=center;verticalAlign=middle;" vertex="1" parent="p04">
+          <mxGeometry x="24" y="112" width="322" height="58" as="geometry" />
+        </mxCell>
+        <mxCell id="p04_cap_title" value="关键能力" style="text;html=1;strokeColor=none;fillColor=none;align=left;verticalAlign=middle;fontFamily=Helvetica;fontSize=15;fontStyle=1;fontColor=#1d4ed8;" vertex="1" parent="p04">
+          <mxGeometry x="24" y="190" width="140" height="26" as="geometry" />
+        </mxCell>
+        <mxCell id="p04_cap" value="deepagents Agent 循环&#xa;LangGraph 状态管理&#xa;Tool / Event Adapter&#xa;SQL Memory&#xa;Admin API + SQLite&#xa;评测对比与部署验收" style="rounded=0;whiteSpace=wrap;html=1;strokeColor=none;fillColor=none;align=left;verticalAlign=top;fontFamily=Helvetica;fontSize=14;fontColor=#1f2937;spacingLeft=4;spacingTop=4;" vertex="1" parent="p04">
+          <mxGeometry x="24" y="222" width="318" height="150" as="geometry" />
+        </mxCell>
+        <mxCell id="p04_result_title" value="阶段结果" style="text;html=1;strokeColor=none;fillColor=none;align=left;verticalAlign=middle;fontFamily=Helvetica;fontSize=15;fontStyle=1;fontColor=#166534;" vertex="1" parent="p04">
+          <mxGeometry x="24" y="396" width="140" height="26" as="geometry" />
+        </mxCell>
+        <mxCell id="p04_result" value="业务工具契约稳定&#xa;SSE 事件契约稳定&#xa;手写 ReAct 维护成本下降&#xa;形成 HDC-SM 效果闭环" style="rounded=1;whiteSpace=wrap;html=1;arcSize=6;fillColor=#f0fdf4;strokeColor=#86efac;fontFamily=Helvetica;fontSize=14;fontColor=#166534;align=left;verticalAlign=top;spacingLeft=12;spacingTop=10;" vertex="1" parent="p04">
+          <mxGeometry x="24" y="428" width="322" height="126" as="geometry" />
+        </mxCell>
+
+        <mxCell id="arrow12" value="从固定管道&#xa;到工具化 Agent" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;endArrow=block;endFill=1;strokeColor=#475569;strokeWidth=2;fontFamily=Helvetica;fontSize=13;fontColor=#334155;labelBackgroundColor=#ffffff;exitX=1;exitY=0.5;entryX=0;entryY=0.5;" edge="1" parent="1" source="p01" target="p02">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="arrow23" value="从 SDK 黑盒&#xa;到运行时可控" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;endArrow=block;endFill=1;strokeColor=#475569;strokeWidth=2;fontFamily=Helvetica;fontSize=13;fontColor=#334155;labelBackgroundColor=#ffffff;exitX=1;exitY=0.5;entryX=0;entryY=0.5;" edge="1" parent="1" source="p02" target="p03">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="arrow34" value="从手写循环&#xa;到框架接管通用机制" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;endArrow=block;endFill=1;strokeColor=#475569;strokeWidth=2;fontFamily=Helvetica;fontSize=13;fontColor=#334155;labelBackgroundColor=#ffffff;exitX=1;exitY=0.5;entryX=0;entryY=0.5;" edge="1" parent="1" source="p03" target="p04">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+
+        <mxCell id="legend" value="" style="rounded=1;whiteSpace=wrap;html=1;container=1;pointerEvents=0;arcSize=6;fillColor=#ffffff;strokeColor=#cbd5e1;" vertex="1" parent="1">
+          <mxGeometry x="430" y="840" width="1060" height="98" as="geometry" />
+        </mxCell>
+        <mxCell id="legend_title" value="读图方式：每个阶段上半部分是定位与关键能力，下半部分是推动进入下一阶段的问题；箭头标注升级动因。" style="text;html=1;strokeColor=none;fillColor=none;align=center;verticalAlign=middle;fontFamily=Helvetica;fontSize=15;fontStyle=1;fontColor=#334155;" vertex="1" parent="legend">
+          <mxGeometry x="30" y="14" width="1000" height="28" as="geometry" />
+        </mxCell>
+        <mxCell id="legend_note" value="主线：可行性验证 -&gt; 工具调用规范化 -&gt; 运行时可控与 HDC -&gt; deepagents 工程化交付" style="text;html=1;strokeColor=none;fillColor=none;align=center;verticalAlign=middle;fontFamily=Helvetica;fontSize=14;fontColor=#475569;" vertex="1" parent="legend">
+          <mxGeometry x="30" y="52" width="1000" height="28" as="geometry" />
+        </mxCell>
+      </root>
+    </mxGraphModel>
+  </diagram>
+</mxfile>
